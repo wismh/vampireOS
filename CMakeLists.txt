@@ -19,22 +19,38 @@ find_program(QEMU_EXECUTABLE qemu-system-x86_64
         "C:/Program Files/QEMU"
 )
 
-set(BOOT_ASM "${CMAKE_SOURCE_DIR}/boot/boot.asm")
+set(BOOT_INC_DIR "${CMAKE_SOURCE_DIR}/boot")
+set(BOOT_ASM "${BOOT_INC_DIR}/boot.asm")
+set(STAGE2_ASM "${BOOT_INC_DIR}/stage2.asm")
+set(BOOT_INC "${BOOT_INC_DIR}/const.inc")
 set(BOOT_BIN "${CMAKE_BINARY_DIR}/boot.bin")
+set(STAGE2_BIN "${CMAKE_BINARY_DIR}/stage2.bin")
 set(DISK_IMG "${CMAKE_BINARY_DIR}/vampire.img")
 
 add_custom_command(
     OUTPUT "${BOOT_BIN}"
-    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${BOOT_BIN}" "${BOOT_ASM}"
-    DEPENDS "${BOOT_ASM}"
-    COMMENT "Assembling boot sector"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -I "${BOOT_INC_DIR}/" -o "${BOOT_BIN}" "${BOOT_ASM}"
+    DEPENDS "${BOOT_ASM}" "${BOOT_INC}"
+    COMMENT "Assembling MBR (stage 1)"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${STAGE2_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -I "${BOOT_INC_DIR}/" -o "${STAGE2_BIN}" "${STAGE2_ASM}"
+    DEPENDS "${STAGE2_ASM}" "${BOOT_INC}"
+    COMMENT "Assembling stage 2"
     VERBATIM
 )
 
 add_custom_command(
     OUTPUT "${DISK_IMG}"
-    COMMAND "${CMAKE_COMMAND}" -E copy "${BOOT_BIN}" "${DISK_IMG}"
-    DEPENDS "${BOOT_BIN}"
+    COMMAND "${CMAKE_COMMAND}"
+        -DFILE1=${BOOT_BIN}
+        -DFILE2=${STAGE2_BIN}
+        -DOUT=${DISK_IMG}
+        -P "${CMAKE_SOURCE_DIR}/cmake/concat.cmake"
+    DEPENDS "${BOOT_BIN}" "${STAGE2_BIN}" "${CMAKE_SOURCE_DIR}/cmake/concat.cmake"
     COMMENT "Creating disk image"
     VERBATIM
 )

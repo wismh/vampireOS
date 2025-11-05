@@ -1,6 +1,6 @@
 # Vampire OS
 
-Minimal x86 BIOS bootloader: a 512-byte MBR that prints `Vampire OS` and halts.
+Minimal x86-64 BIOS boot: MBR loads stage 2, which enters long mode and prints `Vampire OS`.
 
 ## Dependencies
 
@@ -25,7 +25,7 @@ cmake -B build
 cmake --build build
 ```
 
-This produces `build/vampire.img` (the boot sector).
+This produces `build/vampire.img`.
 
 ## Run
 
