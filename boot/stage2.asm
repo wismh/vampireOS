@@ -10,9 +10,17 @@ start:
     mov ss, ax
     mov sp, 0x7C00
     cld
+
+    mov [boot_drive], dl
+
+    mov si, kernel_dap
+    mov ah, 0x42
+    mov dl, [boot_drive]
+    int 0x13
+    jc disk_error
+
     cli
 
-    ; Fast A20 (port 0x92): set bit 1, keep bit 0 clear (reset)
     in al, 0x92
     or al, 2
     and al, 0xFE
@@ -25,6 +33,22 @@ start:
     mov cr0, eax
     jmp 0x08:pm32
 
+disk_error:
+    mov si, err_msg
+.print:
+    lodsb
+    test al, al
+    jz .hang
+    mov ah, 0x0E
+    mov bh, 0
+    mov bl, 0x07
+    int 0x10
+    jmp .print
+.hang:
+    cli
+    hlt
+    jmp .hang
+
 bits 32
 pm32:
     mov ax, 0x18
@@ -33,31 +57,29 @@ pm32:
     mov ss, ax
     mov esp, 0x7C00
 
-    ; Zero PML4, PDPT, PD (3 pages)
     mov edi, PML4
     xor eax, eax
     mov ecx, (3 * 4096) / 4
     rep stosd
 
-    ; Identity-map first 2 MiB with a huge page
     mov dword [PML4], PDPT | 0x03
     mov dword [PDPT], PD | 0x03
-    mov dword [PD], 0x83            ; present | rw | PS
+    mov dword [PD], 0x83
 
     mov eax, cr4
-    or eax, 1 << 5                  ; PAE
+    or eax, 1 << 5
     mov cr4, eax
 
     mov eax, PML4
     mov cr3, eax
 
-    mov ecx, 0xC0000080             ; IA32_EFER
+    mov ecx, 0xC0000080
     rdmsr
-    or eax, 1 << 8                  ; LME
+    or eax, 1 << 8
     wrmsr
 
     mov eax, cr0
-    or eax, 1 << 31                 ; PG
+    or eax, 1 << 31
     mov cr0, eax
     jmp 0x10:lm64
 
@@ -69,28 +91,28 @@ lm64:
     mov ss, ax
     mov rsp, 0x7C00
 
-    mov rdi, 0xB8000
-    mov rcx, 80 * 25
-    mov ax, 0x0F20
-    rep stosw
+    mov rsi, KERNEL_TEMP
+    mov rdi, KERNEL_PHYS
+    mov rcx, KERNEL_SECTORS * 512
+    rep movsb
 
-    mov rdi, 0xB8000
-    mov rsi, msg
-    mov ah, 0x0F
-.print:
-    lodsb
-    test al, al
-    jz .hang
-    stosw
-    jmp .print
+    mov rax, KERNEL_PHYS
+    jmp rax
 
-.hang:
-    cli
-    hlt
-    jmp .hang
+err_msg:
+    db "disk error", 0
 
-msg:
-    db "Vampire OS", 0
+boot_drive:
+    db 0
+
+    align 16
+kernel_dap:
+    db 0x10
+    db 0
+    dw KERNEL_SECTORS
+    dw KERNEL_OFFSET
+    dw KERNEL_SEGMENT
+    dq KERNEL_LBA
 
 align 8
 gdt:
