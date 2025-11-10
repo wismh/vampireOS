@@ -1,0 +1,64 @@
+bits 64
+default rel
+
+extern exception_handler
+
+%macro ISR_NOERR 1
+global isr%1
+isr%1:
+    push qword 0
+    push qword %1
+    jmp isr_common
+%endmacro
+
+%macro ISR_ERR 1
+global isr%1
+isr%1:
+    push qword %1
+    jmp isr_common
+%endmacro
+
+%assign vec 0
+%rep 32
+    %if vec == 8 || vec == 10 || vec == 11 || vec == 12 || vec == 13 || vec == 14 || vec == 17 || vec == 21
+        ISR_ERR vec
+    %else
+        ISR_NOERR vec
+    %endif
+    %assign vec vec + 1
+%endrep
+
+isr_common:
+    push r15
+    push r14
+    push r13
+    push r12
+    push r11
+    push r10
+    push r9
+    push r8
+    push rbp
+    push rsi
+    push rdi
+    push rdx
+    push rcx
+    push rbx
+    push rax
+
+    mov rdi, rsp
+    cld
+    call exception_handler
+
+.hang:
+    cli
+    hlt
+    jmp .hang
+
+global isr_stubs
+align 8
+isr_stubs:
+%assign vec 0
+%rep 32
+    dq isr %+ vec
+    %assign vec vec + 1
+%endrep

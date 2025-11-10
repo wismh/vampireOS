@@ -35,16 +35,57 @@ set(BOOT_INC_DIR "${CMAKE_SOURCE_DIR}/boot")
 set(BOOT_ASM "${BOOT_INC_DIR}/boot.asm")
 set(STAGE2_ASM "${BOOT_INC_DIR}/stage2.asm")
 set(BOOT_INC "${BOOT_INC_DIR}/const.inc")
-set(KERNEL_C "${CMAKE_SOURCE_DIR}/kernel/kmain.c")
-set(KERNEL_LD "${CMAKE_SOURCE_DIR}/kernel/linker.ld")
-set(KERNEL_PACK_ASM "${CMAKE_SOURCE_DIR}/kernel/pack.asm")
+set(KERNEL_DIR "${CMAKE_SOURCE_DIR}/kernel")
+set(KERNEL_LD "${KERNEL_DIR}/linker.ld")
+set(KERNEL_PACK_ASM "${KERNEL_DIR}/pack.asm")
+set(KERNEL_ISR_ASM "${KERNEL_DIR}/isr.asm")
 set(BOOT_BIN "${CMAKE_BINARY_DIR}/boot.bin")
 set(STAGE2_BIN "${CMAKE_BINARY_DIR}/stage2.bin")
-set(KMAIN_OBJ "${CMAKE_BINARY_DIR}/kmain.o")
+set(ISR_OBJ "${CMAKE_BINARY_DIR}/isr.o")
 set(KERNEL_ELF "${CMAKE_BINARY_DIR}/kernel.elf")
 set(KERNEL_RAW "${CMAKE_BINARY_DIR}/kernel.raw.bin")
 set(KERNEL_BIN "${CMAKE_BINARY_DIR}/kernel.bin")
 set(DISK_IMG "${CMAKE_BINARY_DIR}/vampire.img")
+
+set(KERNEL_C_SOURCES
+    "${KERNEL_DIR}/kmain.c"
+    "${KERNEL_DIR}/vga.c"
+    "${KERNEL_DIR}/idt.c"
+)
+set(KERNEL_C_OBJECTS "")
+foreach(_src ${KERNEL_C_SOURCES})
+    cmake_path(GET _src STEM _name)
+    set(_obj "${CMAKE_BINARY_DIR}/${_name}.o")
+    add_custom_command(
+        OUTPUT "${_obj}"
+        COMMAND "${CLANG_EXECUTABLE}"
+            --target=x86_64-unknown-none
+            -ffreestanding
+            -fno-stack-protector
+            -fno-pic
+            -mno-red-zone
+            -mno-mmx
+            -mno-sse
+            -mno-sse2
+            -mcmodel=small
+            -I "${KERNEL_DIR}"
+            -c
+            -o "${_obj}"
+            "${_src}"
+        DEPENDS "${_src}" "${KERNEL_DIR}/vga.h" "${KERNEL_DIR}/idt.h"
+        COMMENT "Compiling ${_name}.c"
+        VERBATIM
+    )
+    list(APPEND KERNEL_C_OBJECTS "${_obj}")
+endforeach()
+
+add_custom_command(
+    OUTPUT "${ISR_OBJ}"
+    COMMAND "${NASM_EXECUTABLE}" -f elf64 -o "${ISR_OBJ}" "${KERNEL_ISR_ASM}"
+    DEPENDS "${KERNEL_ISR_ASM}"
+    COMMENT "Assembling ISR stubs"
+    VERBATIM
+)
 
 add_custom_command(
     OUTPUT "${BOOT_BIN}"
@@ -63,34 +104,15 @@ add_custom_command(
 )
 
 add_custom_command(
-    OUTPUT "${KMAIN_OBJ}"
-    COMMAND "${CLANG_EXECUTABLE}"
-        --target=x86_64-unknown-none
-        -ffreestanding
-        -fno-stack-protector
-        -fno-pic
-        -mno-red-zone
-        -mno-mmx
-        -mno-sse
-        -mno-sse2
-        -mcmodel=small
-        -c
-        -o "${KMAIN_OBJ}"
-        "${KERNEL_C}"
-    DEPENDS "${KERNEL_C}"
-    COMMENT "Compiling kmain"
-    VERBATIM
-)
-
-add_custom_command(
     OUTPUT "${KERNEL_ELF}"
     COMMAND "${LLD_EXECUTABLE}"
         -m elf_x86_64
         -T "${KERNEL_LD}"
         -nostdlib
         -o "${KERNEL_ELF}"
-        "${KMAIN_OBJ}"
-    DEPENDS "${KMAIN_OBJ}" "${KERNEL_LD}"
+        ${KERNEL_C_OBJECTS}
+        "${ISR_OBJ}"
+    DEPENDS ${KERNEL_C_OBJECTS} "${ISR_OBJ}" "${KERNEL_LD}"
     COMMENT "Linking kernel ELF"
     VERBATIM
 )

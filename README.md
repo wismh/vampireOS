@@ -1,6 +1,6 @@
 # Vampire OS
 
-Minimal x86-64 BIOS boot: MBR loads stage 2, which loads a freestanding C kernel, enters long mode, and jumps to `kmain`.
+MBR loads stage 2, which loads a freestanding C kernel, enters long mode, and jumps to `kmain`. The kernel installs a 64-bit IDT so CPU exceptions print `exception N` instead of triple-faulting.
 
 ## Dependencies
 
