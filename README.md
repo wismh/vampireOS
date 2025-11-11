@@ -1,6 +1,6 @@
 # Vampire OS
 
-MBR loads stage 2, which loads a freestanding C kernel, enters long mode, and jumps to `kmain`. The kernel installs a 64-bit IDT so CPU exceptions print `exception N` instead of triple-faulting.
+MBR loads stage 2, which loads a freestanding C kernel, enters long mode, and jumps to `kmain`. The kernel installs a 64-bit IDT, remaps the PIC so IRQs start at vector 32, and runs the PIT so a tick count appears on screen.
 
 ## Dependencies
 

@@ -51,6 +51,8 @@ set(KERNEL_C_SOURCES
     "${KERNEL_DIR}/kmain.c"
     "${KERNEL_DIR}/vga.c"
     "${KERNEL_DIR}/idt.c"
+    "${KERNEL_DIR}/pic.c"
+    "${KERNEL_DIR}/pit.c"
 )
 set(KERNEL_C_OBJECTS "")
 foreach(_src ${KERNEL_C_SOURCES})
@@ -72,7 +74,13 @@ foreach(_src ${KERNEL_C_SOURCES})
             -c
             -o "${_obj}"
             "${_src}"
-        DEPENDS "${_src}" "${KERNEL_DIR}/vga.h" "${KERNEL_DIR}/idt.h"
+        DEPENDS
+            "${_src}"
+            "${KERNEL_DIR}/vga.h"
+            "${KERNEL_DIR}/idt.h"
+            "${KERNEL_DIR}/pic.h"
+            "${KERNEL_DIR}/pit.h"
+            "${KERNEL_DIR}/io.h"
         COMMENT "Compiling ${_name}.c"
         VERBATIM
     )

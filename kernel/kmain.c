@@ -7,7 +7,8 @@ void kmain(void)
     vga_clear();
     vga_write_at(0, 0, "Vampire OS");
     idt_init();
+    __asm__ volatile ("sti");
     for (;;) {
-        __asm__ volatile ("cli; hlt");
+        __asm__ volatile ("hlt");
     }
 }

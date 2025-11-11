@@ -1,11 +1,13 @@
 #include "idt.h"
+#include "pic.h"
+#include "pit.h"
 #include "vga.h"
 
 #include <stdint.h>
 
 /* Must match the 64-bit code selector in boot/stage2.asm. */
 #define KERNEL_CS 0x10
-#define IDT_COUNT 32
+#define IDT_COUNT 48
 #define IDT_INTERRUPT_GATE 0x8E
 
 struct idt_gate {
@@ -46,6 +48,7 @@ struct interrupt_frame {
 extern uint64_t isr_stubs[IDT_COUNT];
 
 static struct idt_gate idt[IDT_COUNT];
+static volatile unsigned ticks;
 
 static void idt_set_gate(int vec, uint64_t isr)
 {
@@ -58,12 +61,6 @@ static void idt_set_gate(int vec, uint64_t isr)
     idt[vec].reserved = 0;
 }
 
-static void pic_mask_all(void)
-{
-    __asm__ volatile ("outb %0, %1" : : "a"((uint8_t)0xFF), "Nd"((uint16_t)0x21));
-    __asm__ volatile ("outb %0, %1" : : "a"((uint8_t)0xFF), "Nd"((uint16_t)0xA1));
-}
-
 void exception_handler(struct interrupt_frame *frame)
 {
     vga_write_at(1, 0, "exception ");
@@ -71,6 +68,19 @@ void exception_handler(struct interrupt_frame *frame)
     for (;;) {
         __asm__ volatile ("cli; hlt");
     }
+}
+
+void irq_handler(struct interrupt_frame *frame)
+{
+    unsigned irq = (unsigned)frame->vector - 32;
+
+    if (irq == 0) {
+        ticks++;
+        vga_write_at(1, 0, "ticks ");
+        vga_write_dec_at(1, 6, ticks);
+    }
+
+    pic_eoi(irq);
 }
 
 void idt_init(void)
@@ -81,7 +91,7 @@ void idt_init(void)
     } __attribute__((packed)) idtr;
     int i;
 
-    pic_mask_all();
+    pic_remap();
 
     for (i = 0; i < IDT_COUNT; i++) {
         idt_set_gate(i, isr_stubs[i]);
@@ -90,4 +100,7 @@ void idt_init(void)
     idtr.limit = (uint16_t)(sizeof(idt) - 1);
     idtr.base = (uint64_t)(uintptr_t)idt;
     __asm__ volatile ("lidt %0" : : "m"(idtr));
+
+    pit_init(100);
+    pic_unmask(0);
 }
