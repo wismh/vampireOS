@@ -9,3 +9,4 @@
 void vga_clear(void);
 void vga_write_at(int row, int col, const char *msg);
 void vga_write_dec_at(int row, int col, unsigned value);
+void vga_putc(char c);

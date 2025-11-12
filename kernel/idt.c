@@ -1,4 +1,5 @@
 #include "idt.h"
+#include "kbd.h"
 #include "pic.h"
 #include "pit.h"
 #include "vga.h"
@@ -78,6 +79,8 @@ void irq_handler(struct interrupt_frame *frame)
         ticks++;
         vga_write_at(1, 0, "ticks ");
         vga_write_dec_at(1, 6, ticks);
+    } else if (irq == 1) {
+        kbd_handle();
     }
 
     pic_eoi(irq);
@@ -102,5 +105,7 @@ void idt_init(void)
     __asm__ volatile ("lidt %0" : : "m"(idtr));
 
     pit_init(100);
+    kbd_init();
     pic_unmask(0);
+    pic_unmask(1);
 }

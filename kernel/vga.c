@@ -1,6 +1,8 @@
 #include "vga.h"
 
 static volatile uint16_t *const vga = (volatile uint16_t *)0xB8000;
+static int cursor_row = 3;
+static int cursor_col = 0;
 
 void vga_clear(void)
 {
@@ -8,6 +10,53 @@ void vga_clear(void)
 
     for (i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++) {
         vga[i] = (uint16_t)' ' | (VGA_ATTR_WHITE << 8);
+    }
+    cursor_row = 3;
+    cursor_col = 0;
+}
+
+static void vga_scroll(void)
+{
+    int i;
+
+    for (i = 0; i < VGA_WIDTH * (VGA_HEIGHT - 1); i++) {
+        vga[i] = vga[i + VGA_WIDTH];
+    }
+    for (i = VGA_WIDTH * (VGA_HEIGHT - 1); i < VGA_WIDTH * VGA_HEIGHT; i++) {
+        vga[i] = (uint16_t)' ' | (VGA_ATTR_WHITE << 8);
+    }
+    cursor_row = VGA_HEIGHT - 1;
+}
+
+void vga_putc(char c)
+{
+    if (c == '\n') {
+        cursor_col = 0;
+        cursor_row++;
+    } else if (c == '\t') {
+        cursor_col = (cursor_col + 4) & ~3;
+        if (cursor_col >= VGA_WIDTH) {
+            cursor_col = 0;
+            cursor_row++;
+        }
+    } else if (c == '\b') {
+        if (cursor_col > 0) {
+            cursor_col--;
+            vga[cursor_row * VGA_WIDTH + cursor_col] =
+                (uint16_t)' ' | (VGA_ATTR_WHITE << 8);
+        }
+    } else {
+        vga[cursor_row * VGA_WIDTH + cursor_col] =
+            (uint16_t)(uint8_t)c | (VGA_ATTR_WHITE << 8);
+        cursor_col++;
+        if (cursor_col >= VGA_WIDTH) {
+            cursor_col = 0;
+            cursor_row++;
+        }
+    }
+
+    if (cursor_row >= VGA_HEIGHT) {
+        vga_scroll();
     }
 }
 
