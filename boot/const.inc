@@ -13,3 +13,7 @@ KERNEL_SECTORS  equ 32
 PML4            equ 0x1000
 PDPT            equ 0x2000
 PD              equ 0x3000
+
+E820_BASE       equ 0x4000
+E820_MAX        equ 32
+E820_ENTRY_SIZE equ 24

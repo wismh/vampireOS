@@ -15,6 +15,12 @@ void vga_clear(void)
     cursor_col = 0;
 }
 
+void vga_set_cursor(int row, int col)
+{
+    cursor_row = row;
+    cursor_col = col;
+}
+
 static void vga_scroll(void)
 {
     int i;
@@ -67,6 +73,19 @@ void vga_write_at(int row, int col, const char *msg)
 
     for (i = 0; msg[i] != '\0'; i++) {
         vga[pos + i] = (uint16_t)(uint8_t)msg[i] | (VGA_ATTR_WHITE << 8);
+    }
+}
+
+void vga_write_hex64_at(int row, int col, uint64_t value)
+{
+    int i;
+    int pos = row * VGA_WIDTH + col;
+
+    for (i = 15; i >= 0; i--) {
+        unsigned nibble = (unsigned)((value >> (i * 4)) & 0xF);
+        char c = (char)(nibble < 10 ? '0' + nibble : 'a' + (nibble - 10));
+
+        vga[pos + (15 - i)] = (uint16_t)(uint8_t)c | (VGA_ATTR_WHITE << 8);
     }
 }
 

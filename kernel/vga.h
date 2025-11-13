@@ -7,6 +7,8 @@
 #define VGA_ATTR_WHITE 0x0F
 
 void vga_clear(void);
+void vga_set_cursor(int row, int col);
 void vga_write_at(int row, int col, const char *msg);
 void vga_write_dec_at(int row, int col, unsigned value);
+void vga_write_hex64_at(int row, int col, uint64_t value);
 void vga_putc(char c);

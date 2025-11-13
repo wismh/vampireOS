@@ -54,6 +54,7 @@ set(KERNEL_C_SOURCES
     "${KERNEL_DIR}/pic.c"
     "${KERNEL_DIR}/pit.c"
     "${KERNEL_DIR}/kbd.c"
+    "${KERNEL_DIR}/e820.c"
 )
 set(KERNEL_C_OBJECTS "")
 foreach(_src ${KERNEL_C_SOURCES})
@@ -82,6 +83,7 @@ foreach(_src ${KERNEL_C_SOURCES})
             "${KERNEL_DIR}/pic.h"
             "${KERNEL_DIR}/pit.h"
             "${KERNEL_DIR}/kbd.h"
+            "${KERNEL_DIR}/e820.h"
             "${KERNEL_DIR}/io.h"
         COMMENT "Compiling ${_name}.c"
         VERBATIM

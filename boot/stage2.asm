@@ -19,6 +19,8 @@ start:
     int 0x13
     jc disk_error
 
+    call detect_memory
+
     cli
 
     in al, 0x92
@@ -32,6 +34,49 @@ start:
     or eax, 1
     mov cr0, eax
     jmp 0x08:pm32
+
+detect_memory:
+    xor ebx, ebx
+    mov di, E820_BASE + 8
+    mov dword [E820_BASE], 0
+    mov dword [E820_BASE + 4], E820_ENTRY_SIZE
+
+.next:
+    mov eax, 0xE820
+    mov edx, 0x534D4150
+    mov ecx, E820_ENTRY_SIZE
+    mov dword [es:di + 20], 1
+    int 0x15
+    jc .done
+    cmp eax, 0x534D4150
+    jne .fail
+
+    cmp cl, 20
+    jb .skip
+    cmp cl, 24
+    jb .use
+    test byte [es:di + 20], 1
+    jz .skip
+
+.use:
+    mov eax, [es:di + 8]
+    or eax, [es:di + 12]
+    jz .skip
+
+    add di, E820_ENTRY_SIZE
+    inc dword [E820_BASE]
+    cmp dword [E820_BASE], E820_MAX
+    jae .done
+
+.skip:
+    test ebx, ebx
+    jnz .next
+    jmp .done
+
+.fail:
+    mov dword [E820_BASE], 0
+.done:
+    ret
 
 disk_error:
     mov si, err_msg
@@ -96,6 +141,7 @@ lm64:
     mov rcx, KERNEL_SECTORS * 512
     rep movsb
 
+    mov rdi, E820_BASE
     mov rax, KERNEL_PHYS
     jmp rax
 
