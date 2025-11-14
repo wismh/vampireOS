@@ -4,6 +4,7 @@
 
 #define E820_MAX 32
 #define E820_ENTRY_SIZE 24
+#define E820_TYPE_USABLE 1
 
 struct e820_entry {
     uint64_t base;
