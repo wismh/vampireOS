@@ -156,7 +156,7 @@ void pmm_init(const struct e820_map *map)
     }
 }
 
-uint64_t pmm_alloc(void)
+static uint64_t pmm_alloc_frame(uint64_t start_frame)
 {
     uint64_t frame;
 
@@ -164,7 +164,7 @@ uint64_t pmm_alloc(void)
         return 0;
     }
 
-    for (frame = 0; frame < frame_count; frame++) {
+    for (frame = start_frame; frame < frame_count; frame++) {
         uint8_t bit = (uint8_t)(1u << (frame & 7));
 
         if ((bitmap[frame >> 3] & bit) == 0) {
@@ -173,6 +173,16 @@ uint64_t pmm_alloc(void)
         }
     }
     return 0;
+}
+
+uint64_t pmm_alloc(void)
+{
+    return pmm_alloc_frame(0);
+}
+
+uint64_t pmm_alloc_above(uint64_t min_phys)
+{
+    return pmm_alloc_frame(align_up(min_phys, PAGE_SIZE) >> PAGE_SHIFT);
 }
 
 void pmm_free(uint64_t phys)
