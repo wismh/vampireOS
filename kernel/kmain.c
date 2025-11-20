@@ -1,6 +1,7 @@
 #include "e820.h"
 #include "heap.h"
 #include "idt.h"
+#include "kbd.h"
 #include "pmm.h"
 #include "vga.h"
 #include "vmm.h"
@@ -20,8 +21,8 @@ void kmain(const struct e820_map *map)
     row = vmm_print(row);
     kheap_init();
     row = kheap_print(row);
-    vga_write_at(row, 0, "kbd>");
-    vga_set_cursor(row + 1, 0);
+    vga_set_cursor(row, 0);
+    kbd_console_init();
     __asm__ volatile ("sti");
     for (;;) {
         __asm__ volatile ("hlt");

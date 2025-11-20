@@ -1,5 +1,7 @@
 #include "kbd.h"
+#include "heap.h"
 #include "io.h"
+#include "pmm.h"
 #include "vga.h"
 
 #include <stdint.h>
@@ -12,6 +14,7 @@
 #define SCAN_LSHIFT 0x2A
 #define SCAN_RSHIFT 0x36
 #define SCAN_CAPS 0x3A
+#define LINE_MAX 80
 
 static const char map[128] = {
     [0x02] = '1', [0x03] = '2', [0x04] = '3', [0x05] = '4', [0x06] = '5',
@@ -46,6 +49,76 @@ static const char map_shift[128] = {
 static int shift;
 static int caps;
 static int ext;
+static char *line;
+static unsigned line_len;
+
+static int streq(const char *a, const char *b)
+{
+    while (*a != '\0' && *a == *b) {
+        a++;
+        b++;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+static void puts_cur(const char *s)
+{
+    while (*s != '\0') {
+        vga_putc(*s);
+        s++;
+    }
+}
+
+static void put_uint(unsigned value)
+{
+    char buf[10];
+    int n = 0;
+    unsigned v = value;
+
+    if (v == 0) {
+        vga_putc('0');
+        return;
+    }
+    while (v > 0 && n < 10) {
+        buf[n++] = (char)('0' + (v % 10));
+        v /= 10;
+    }
+    while (n > 0) {
+        n--;
+        vga_putc(buf[n]);
+    }
+}
+
+static void prompt(void)
+{
+    puts_cur("kbd>");
+}
+
+static void run_line(void)
+{
+    unsigned i = 0;
+    unsigned j = line_len;
+
+    while (i < j && line[i] == ' ') {
+        i++;
+    }
+    while (j > i && line[j - 1] == ' ') {
+        j--;
+    }
+    line[j] = '\0';
+    if (line[i] == '\0') {
+        return;
+    }
+
+    vga_putc('\n');
+    if (streq(line + i, "help")) {
+        puts_cur("help mem");
+    } else if (streq(line + i, "mem")) {
+        put_uint((unsigned)pmm_free_count());
+    } else {
+        vga_putc('?');
+    }
+}
 
 void kbd_init(void)
 {
@@ -55,6 +128,15 @@ void kbd_init(void)
     shift = 0;
     caps = 0;
     ext = 0;
+    line = 0;
+    line_len = 0;
+}
+
+void kbd_console_init(void)
+{
+    line = (char *)kmalloc(LINE_MAX);
+    line_len = 0;
+    prompt();
 }
 
 void kbd_handle(void)
@@ -98,6 +180,29 @@ void kbd_handle(void)
         c = (char)(c - 'a' + 'A');
     } else if (caps && c >= 'A' && c <= 'Z' && !shift) {
         c = (char)(c - 'A' + 'a');
+    }
+
+    if (c == '\n') {
+        if (line != 0) {
+            run_line();
+            line_len = 0;
+        }
+        vga_putc('\n');
+        prompt();
+        return;
+    }
+    if (c == '\b') {
+        if (line_len > 0) {
+            line_len--;
+            vga_putc('\b');
+        }
+        return;
+    }
+    if (c == '\t') {
+        return;
+    }
+    if (line != 0 && line_len + 1 < LINE_MAX) {
+        line[line_len++] = c;
     }
     vga_putc(c);
 }
