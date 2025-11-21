@@ -9,10 +9,14 @@ KERNEL_SEGMENT  equ 0x1000
 KERNEL_OFFSET   equ 0
 KERNEL_LBA      equ STAGE2_LBA + STAGE2_SECTORS
 KERNEL_SECTORS  equ 32
+KERNEL_VMA      equ 0xFFFFFFFF80000000
+KERNEL_VIRT     equ KERNEL_VMA + KERNEL_PHYS
 
 PML4            equ 0x1000
 PDPT            equ 0x2000
 PD              equ 0x3000
+HIGH_PDPT       equ 0x5000
+HIGH_PD         equ 0x6000
 
 E820_BASE       equ 0x4000
 E820_MAX        equ 32

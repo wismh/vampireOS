@@ -111,6 +111,15 @@ pm32:
     mov dword [PDPT], PD | 0x03
     mov dword [PD], 0x83
 
+    mov edi, HIGH_PDPT
+    xor eax, eax
+    mov ecx, (2 * 4096) / 4
+    rep stosd
+
+    mov dword [PML4 + 511 * 8], HIGH_PDPT | 0x03
+    mov dword [HIGH_PDPT + 510 * 8], HIGH_PD | 0x03
+    mov dword [HIGH_PD], 0x83
+
     mov eax, cr4
     or eax, 1 << 5
     mov cr4, eax
@@ -142,7 +151,7 @@ lm64:
     rep movsb
 
     mov rdi, E820_BASE
-    mov rax, KERNEL_PHYS
+    mov rax, KERNEL_VIRT
     jmp rax
 
 err_msg:

@@ -74,7 +74,7 @@ foreach(_src ${KERNEL_C_SOURCES})
             -mno-mmx
             -mno-sse
             -mno-sse2
-            -mcmodel=small
+            -mcmodel=kernel
             -I "${KERNEL_DIR}"
             -c
             -o "${_obj}"

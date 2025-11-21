@@ -1,6 +1,6 @@
 # Vampire OS
 
-MBR loads stage 2, which loads a freestanding C kernel, asks BIOS for the E820 memory map, enters long mode, and jumps to `kmain`. The kernel prints that map, builds a physical frame allocator from usable RAM, identity-maps that RAM with 2 MiB pages and 4 KiB tails, runs a small kernel heap on that map, installs a 64-bit IDT, remaps the PIC so IRQs start at vector 32, runs the PIT tick counter, and runs `help` / `mem` from a PS/2 line buffer on that heap.
+MBR loads stage 2, which loads a freestanding C kernel, asks BIOS for the E820 memory map, enters long mode, maps the kernel into the higher half, and jumps to `kmain`. The kernel prints that map, builds a physical frame allocator from usable RAM, identity-maps that RAM with 2 MiB pages and 4 KiB tails, runs a small kernel heap on that map, installs a 64-bit IDT, remaps the PIC so IRQs start at vector 32, runs the PIT tick counter, and runs `help` / `mem` from a PS/2 line buffer on that heap.
 
 ## Dependencies
 

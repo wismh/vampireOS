@@ -13,6 +13,7 @@ void kmain(const struct e820_map *map)
 
     vga_clear();
     vga_write_at(0, 0, "Vampire OS");
+    vga_write_hex64_at(0, 12, (uint64_t)(uintptr_t)kmain);
     row = e820_print(map);
     pmm_init(map);
     row = pmm_print(row);

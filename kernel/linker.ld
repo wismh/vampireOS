@@ -1,23 +1,25 @@
 ENTRY(kmain)
 
+KERNEL_VMA = 0xFFFFFFFF80000000;
+
 SECTIONS
 {
-    . = 0x100000;
+    . = KERNEL_VMA + 0x100000;
 
-    .text : {
+    .text : AT(ADDR(.text) - KERNEL_VMA) {
         *(.text.kmain)
         *(.text*)
     }
 
-    .rodata : {
+    .rodata : AT(ADDR(.rodata) - KERNEL_VMA) {
         *(.rodata*)
     }
 
-    .data : {
+    .data : AT(ADDR(.data) - KERNEL_VMA) {
         *(.data*)
     }
 
-    .bss : {
+    .bss : AT(ADDR(.bss) - KERNEL_VMA) {
         *(.bss*)
         *(COMMON)
     }
