@@ -18,8 +18,10 @@
 #define PTE_FLAGS (PDE_PRESENT | PDE_WRITE)
 #define ADDR_MASK ~0xFFFull
 #define PROBE_MARK 0x56414D50u
+#define HHDM_PML4_INDEX 256ull
 
 static uint64_t first_4k_mapped;
+static int hhdm_ready;
 
 static uint64_t align_up(uint64_t value, uint64_t align)
 {
@@ -161,6 +163,49 @@ void vmm_map_usable(const struct e820_map *map)
     vmm_map_2m(map, n);
     vmm_map_tail_4k(map, n);
     __asm__ volatile ("mov %0, %%cr3" : : "r"(pml4) : "memory");
+}
+
+void vmm_hhdm_init(void)
+{
+    uint64_t pdpt_phys;
+    volatile uint64_t *pdpt;
+    volatile uint64_t *pml4 = (volatile uint64_t *)(uintptr_t)PML4_PHYS;
+    uint64_t i;
+    uint64_t cr3 = PML4_PHYS;
+
+    hhdm_ready = 0;
+    pdpt_phys = pmm_alloc();
+    if (pdpt_phys == 0 || pdpt_phys >= PAGE_2M) {
+        if (pdpt_phys != 0) {
+            pmm_free(pdpt_phys);
+        }
+        return;
+    }
+
+    pdpt = (volatile uint64_t *)(uintptr_t)pdpt_phys;
+    for (i = 0; i < PD_ENTRIES; i++) {
+        pdpt[i] = 0;
+    }
+    pdpt[0] = PD_PHYS | PTE_FLAGS;
+    pml4[HHDM_PML4_INDEX] = pdpt_phys | PTE_FLAGS;
+    __asm__ volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
+    hhdm_ready = 1;
+}
+
+uint64_t phys_to_virt(uint64_t phys)
+{
+    if (!hhdm_ready) {
+        return phys;
+    }
+    return HHDM_BASE + phys;
+}
+
+uint64_t virt_to_phys(uint64_t virt)
+{
+    if (hhdm_ready && virt >= HHDM_BASE) {
+        return virt - HHDM_BASE;
+    }
+    return virt;
 }
 
 static int vmm_probe(int row, const char *ok_msg, const char *fail_msg, uint64_t phys)

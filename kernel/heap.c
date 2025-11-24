@@ -1,6 +1,7 @@
 #include "heap.h"
 #include "pmm.h"
 #include "vga.h"
+#include "vmm.h"
 
 #include <stdint.h>
 
@@ -60,7 +61,7 @@ void kheap_init(void)
         return;
     }
 
-    heap_base = (uint8_t *)(uintptr_t)pages[0];
+    heap_base = (uint8_t *)(uintptr_t)phys_to_virt(pages[0]);
     heap_end = heap_base + n * PAGE_SIZE;
     b = (struct block *)heap_base;
     b->magic = HEAP_MAGIC;

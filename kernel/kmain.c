@@ -18,6 +18,7 @@ void kmain(const struct e820_map *map)
     pmm_init(map);
     row = pmm_print(row);
     vmm_map_usable(map);
+    vmm_hhdm_init();
     idt_init();
     row = vmm_print(row);
     kheap_init();
