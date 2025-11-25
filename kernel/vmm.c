@@ -33,9 +33,14 @@ static uint64_t align_down(uint64_t value, uint64_t align)
     return value & ~(align - 1);
 }
 
+static volatile uint64_t *kmap(uint64_t phys)
+{
+    return (volatile uint64_t *)(uintptr_t)phys_to_virt(phys);
+}
+
 static int vmm_map_4k(uint64_t phys)
 {
-    volatile uint64_t *pd = (volatile uint64_t *)(uintptr_t)PD_PHYS;
+    volatile uint64_t *pd = kmap(PD_PHYS);
     uint64_t pd_idx = phys >> 21;
     uint64_t pt_idx = (phys >> 12) & (PT_ENTRIES - 1);
     uint64_t pde;
@@ -60,7 +65,7 @@ static int vmm_map_4k(uint64_t phys)
             }
             return -1;
         }
-        pt = (volatile uint64_t *)(uintptr_t)pt_phys;
+        pt = kmap(pt_phys);
         for (i = 0; i < PT_ENTRIES; i++) {
             pt[i] = 0;
         }
@@ -68,7 +73,7 @@ static int vmm_map_4k(uint64_t phys)
         pd[pd_idx] = pde;
     }
 
-    pt = (volatile uint64_t *)(uintptr_t)(pde & ADDR_MASK);
+    pt = kmap(pde & ADDR_MASK);
     pt[pt_idx] = phys | PTE_FLAGS;
     if (first_4k_mapped == 0) {
         first_4k_mapped = phys;
@@ -78,7 +83,7 @@ static int vmm_map_4k(uint64_t phys)
 
 static void vmm_map_2m(const struct e820_map *map, uint32_t n)
 {
-    volatile uint64_t *pd = (volatile uint64_t *)(uintptr_t)PD_PHYS;
+    volatile uint64_t *pd = kmap(PD_PHYS);
     uint32_t i;
 
     for (i = 0; i < n; i++) {
@@ -169,7 +174,7 @@ void vmm_hhdm_init(void)
 {
     uint64_t pdpt_phys;
     volatile uint64_t *pdpt;
-    volatile uint64_t *pml4 = (volatile uint64_t *)(uintptr_t)PML4_PHYS;
+    volatile uint64_t *pml4;
     uint64_t i;
     uint64_t cr3 = PML4_PHYS;
 
@@ -182,11 +187,12 @@ void vmm_hhdm_init(void)
         return;
     }
 
-    pdpt = (volatile uint64_t *)(uintptr_t)pdpt_phys;
+    pdpt = kmap(pdpt_phys);
     for (i = 0; i < PD_ENTRIES; i++) {
         pdpt[i] = 0;
     }
     pdpt[0] = PD_PHYS | PTE_FLAGS;
+    pml4 = kmap(PML4_PHYS);
     pml4[HHDM_PML4_INDEX] = pdpt_phys | PTE_FLAGS;
     __asm__ volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
     hhdm_ready = 1;
@@ -217,7 +223,7 @@ static int vmm_probe(int row, const char *ok_msg, const char *fail_msg, uint64_t
         return row + 1;
     }
 
-    p = (volatile uint32_t *)(uintptr_t)phys;
+    p = (volatile uint32_t *)(uintptr_t)phys_to_virt(phys);
     *p = PROBE_MARK;
     if (*p == PROBE_MARK) {
         vga_write_at(row, 0, ok_msg);
@@ -250,4 +256,42 @@ int vmm_print(int row)
         phys = pmm_alloc_above(first_4k_mapped);
     }
     return vmm_probe(row, "pt ok  ", "pt fail", phys);
+}
+
+__attribute__((noreturn))
+void vmm_switch_stack(void (*cont)(void))
+{
+    uint64_t phys;
+    uint64_t top;
+    uint8_t *page;
+    uint64_t i;
+
+    phys = pmm_alloc_above(PAGE_2M);
+    if (phys == 0) {
+        phys = pmm_alloc();
+    }
+    if (phys == 0 || cont == 0) {
+        if (cont != 0) {
+            cont();
+        }
+        for (;;) {
+            __asm__ volatile ("hlt");
+        }
+    }
+
+    page = (uint8_t *)(uintptr_t)phys_to_virt(phys);
+    for (i = 0; i < PAGE_4K; i++) {
+        page[i] = 0;
+    }
+    /* SysV: at function entry rsp % 16 == 8 (as after a call). */
+    top = phys_to_virt(phys) + PAGE_4K - 8;
+    __asm__ volatile (
+        "mov %0, %%rsp\n"
+        "xor %%rbp, %%rbp\n"
+        "jmp *%1\n"
+        :
+        : "r"(top), "r"(cont)
+        : "memory"
+    );
+    __builtin_unreachable();
 }

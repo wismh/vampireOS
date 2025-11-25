@@ -1,5 +1,6 @@
 #include "pmm.h"
 #include "vga.h"
+#include "vmm.h"
 
 #include <stdint.h>
 
@@ -10,10 +11,18 @@
 #define KERNEL_SIZE (32ull * 512ull)
 #define IDENTITY_END 0x200000ull
 
-static uint8_t *bitmap;
+static uint64_t bitmap_phys;
 static uint64_t frame_count;
 static uint64_t free_count;
 static uint64_t reserved_end;
+
+static uint8_t *bitmap_mem(void)
+{
+    if (bitmap_phys == 0) {
+        return 0;
+    }
+    return (uint8_t *)(uintptr_t)phys_to_virt(bitmap_phys);
+}
 
 static uint64_t align_up(uint64_t value, uint64_t align)
 {
@@ -29,14 +38,15 @@ static void pmm_mark_used(uint64_t frame)
 {
     uint64_t byte;
     uint8_t bit;
+    uint8_t *bits = bitmap_mem();
 
-    if (frame >= frame_count) {
+    if (frame >= frame_count || bits == 0) {
         return;
     }
     byte = frame >> 3;
     bit = (uint8_t)(1u << (frame & 7));
-    if ((bitmap[byte] & bit) == 0) {
-        bitmap[byte] |= bit;
+    if ((bits[byte] & bit) == 0) {
+        bits[byte] |= bit;
         free_count--;
     }
 }
@@ -45,14 +55,15 @@ static void pmm_mark_free(uint64_t frame)
 {
     uint64_t byte;
     uint8_t bit;
+    uint8_t *bits = bitmap_mem();
 
-    if (frame >= frame_count) {
+    if (frame >= frame_count || bits == 0) {
         return;
     }
     byte = frame >> 3;
     bit = (uint8_t)(1u << (frame & 7));
-    if ((bitmap[byte] & bit) != 0) {
-        bitmap[byte] = (uint8_t)(bitmap[byte] & (uint8_t)~bit);
+    if ((bits[byte] & bit) != 0) {
+        bits[byte] = (uint8_t)(bits[byte] & (uint8_t)~bit);
         free_count++;
     }
 }
@@ -82,12 +93,12 @@ void pmm_init(const struct e820_map *map)
     uint32_t i;
     uint32_t n = 0;
     uint64_t max_phys = 0;
-    uint64_t bitmap_phys;
     uint64_t bitmap_bytes;
     uint64_t room_frames;
     uint64_t addr;
+    uint8_t *bits;
 
-    bitmap = 0;
+    bitmap_phys = 0;
     frame_count = 0;
     free_count = 0;
     reserved_end = 0;
@@ -117,6 +128,7 @@ void pmm_init(const struct e820_map *map)
 
     bitmap_phys = align_up(KERNEL_PHYS + KERNEL_SIZE, PAGE_SIZE);
     if (bitmap_phys >= IDENTITY_END) {
+        bitmap_phys = 0;
         return;
     }
 
@@ -126,18 +138,20 @@ void pmm_init(const struct e820_map *map)
         frame_count = room_frames;
     }
     if (frame_count == 0) {
+        bitmap_phys = 0;
         return;
     }
 
     bitmap_bytes = (frame_count + 7) >> 3;
     if (bitmap_phys + bitmap_bytes > IDENTITY_END) {
+        bitmap_phys = 0;
         frame_count = 0;
         return;
     }
 
-    bitmap = (uint8_t *)(uintptr_t)bitmap_phys;
+    bits = bitmap_mem();
     for (addr = 0; addr < bitmap_bytes; addr++) {
-        bitmap[addr] = 0xFF;
+        bits[addr] = 0xFF;
     }
 
     for (i = 0; i < n; i++) {
@@ -159,15 +173,16 @@ void pmm_init(const struct e820_map *map)
 static uint64_t pmm_alloc_frame(uint64_t start_frame)
 {
     uint64_t frame;
+    uint8_t *bits = bitmap_mem();
 
-    if (bitmap == 0) {
+    if (bits == 0) {
         return 0;
     }
 
     for (frame = start_frame; frame < frame_count; frame++) {
         uint8_t bit = (uint8_t)(1u << (frame & 7));
 
-        if ((bitmap[frame >> 3] & bit) == 0) {
+        if ((bits[frame >> 3] & bit) == 0) {
             pmm_mark_used(frame);
             return frame << PAGE_SHIFT;
         }

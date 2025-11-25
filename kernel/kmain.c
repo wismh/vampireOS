@@ -6,6 +6,25 @@
 #include "vga.h"
 #include "vmm.h"
 
+static int boot_row;
+
+__attribute__((noreturn))
+static void kmain_cont(void)
+{
+    int row = boot_row;
+
+    idt_init();
+    row = vmm_print(row);
+    kheap_init();
+    row = kheap_print(row);
+    vga_set_cursor(row, 0);
+    kbd_console_init();
+    __asm__ volatile ("sti");
+    for (;;) {
+        __asm__ volatile ("hlt");
+    }
+}
+
 __attribute__((section(".text.kmain"), noreturn))
 void kmain(const struct e820_map *map)
 {
@@ -19,13 +38,8 @@ void kmain(const struct e820_map *map)
     row = pmm_print(row);
     vmm_map_usable(map);
     vmm_hhdm_init();
-    idt_init();
-    row = vmm_print(row);
-    kheap_init();
-    row = kheap_print(row);
-    vga_set_cursor(row, 0);
-    kbd_console_init();
-    __asm__ volatile ("sti");
+    boot_row = row;
+    vmm_switch_stack(kmain_cont);
     for (;;) {
         __asm__ volatile ("hlt");
     }
