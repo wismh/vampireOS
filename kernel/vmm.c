@@ -19,9 +19,13 @@
 #define ADDR_MASK ~0xFFFull
 #define PROBE_MARK 0x56414D50u
 #define HHDM_PML4_INDEX 256ull
+/* Must match the 64-bit code / data selectors in boot/stage2.asm. */
+#define KERNEL_CS 0x10
+#define KERNEL_DS 0x18
 
 static uint64_t first_4k_mapped;
 static int hhdm_ready;
+static uint8_t gdt_copy[64] __attribute__((aligned(8)));
 
 static uint64_t align_up(uint64_t value, uint64_t align)
 {
@@ -212,6 +216,80 @@ uint64_t virt_to_phys(uint64_t virt)
         return virt - HHDM_BASE;
     }
     return virt;
+}
+
+static int gdt_adopt(void)
+{
+    struct {
+        uint16_t limit;
+        uint64_t base;
+    } __attribute__((packed)) gdtr;
+    const uint8_t *src;
+    uint16_t i;
+    uint16_t len;
+
+    __asm__ volatile ("sgdt %0" : "=m"(gdtr));
+    len = (uint16_t)(gdtr.limit + 1u);
+    if (len == 0 || len > sizeof(gdt_copy)) {
+        return -1;
+    }
+    if (gdtr.base >= HHDM_BASE) {
+        src = (const uint8_t *)(uintptr_t)gdtr.base;
+    } else {
+        src = (const uint8_t *)(uintptr_t)phys_to_virt(gdtr.base);
+    }
+    for (i = 0; i < len; i++) {
+        gdt_copy[i] = src[i];
+    }
+    gdtr.base = (uint64_t)(uintptr_t)gdt_copy;
+    gdtr.limit = (uint16_t)(len - 1u);
+    __asm__ volatile ("lgdt %0" : : "m"(gdtr) : "memory");
+    __asm__ volatile (
+        "pushq %0\n"
+        "leaq 1f(%%rip), %%rax\n"
+        "pushq %%rax\n"
+        "lretq\n"
+        "1:\n"
+        "mov %1, %%ax\n"
+        "mov %%ax, %%ds\n"
+        "mov %%ax, %%es\n"
+        "mov %%ax, %%ss\n"
+        :
+        : "i"(KERNEL_CS), "i"(KERNEL_DS)
+        : "rax", "memory"
+    );
+    return 0;
+}
+
+int vmm_drop_identity(int row)
+{
+    struct {
+        uint16_t limit;
+        uint64_t base;
+    } __attribute__((packed)) gdtr;
+    volatile uint64_t *pml4;
+    uint64_t cr3 = PML4_PHYS;
+
+    if (row >= VGA_HEIGHT - 2) {
+        return row;
+    }
+    if (!hhdm_ready || gdt_adopt() != 0) {
+        vga_write_at(row, 0, "id keep");
+        return row + 1;
+    }
+
+    pml4 = kmap(PML4_PHYS);
+    pml4[0] = 0;
+    __asm__ volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
+
+    __asm__ volatile ("sgdt %0" : "=m"(gdtr));
+    if (pml4[0] == 0 && gdtr.base == (uint64_t)(uintptr_t)gdt_copy) {
+        vga_write_at(row, 0, "id off ");
+        vga_write_hex64_at(row, 7, gdtr.base);
+    } else {
+        vga_write_at(row, 0, "id fail");
+    }
+    return row + 1;
 }
 
 static int vmm_probe(int row, const char *ok_msg, const char *fail_msg, uint64_t phys)

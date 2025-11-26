@@ -14,6 +14,7 @@ static void kmain_cont(void)
     int row = boot_row;
 
     idt_init();
+    row = vmm_drop_identity(row);
     row = vmm_print(row);
     kheap_init();
     row = kheap_print(row);
