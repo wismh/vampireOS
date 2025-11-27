@@ -3,6 +3,9 @@ default rel
 
 extern exception_handler
 extern irq_handler
+extern syscall_handler
+
+KERNEL_DS equ 0x18
 
 %macro ISR_NOERR 1
 global isr%1
@@ -25,6 +28,14 @@ isr%1:
     push qword 0
     push qword %1
     jmp irq_common
+%endmacro
+
+%macro ISR_SYSCALL 1
+global isr%1
+isr%1:
+    push qword 0
+    push qword %1
+    jmp syscall_common
 %endmacro
 
 %macro PUSH_REGS 0
@@ -79,8 +90,13 @@ isr%1:
     %assign vec vec + 1
 %endrep
 
+ISR_SYSCALL 48
+
 isr_common:
     PUSH_REGS
+    mov ax, KERNEL_DS
+    mov ds, ax
+    mov es, ax
     mov rdi, rsp
     cld
     call exception_handler
@@ -91,9 +107,24 @@ isr_common:
 
 irq_common:
     PUSH_REGS
+    mov ax, KERNEL_DS
+    mov ds, ax
+    mov es, ax
     mov rdi, rsp
     cld
     call irq_handler
+    POP_REGS
+    add rsp, 16
+    iretq
+
+syscall_common:
+    PUSH_REGS
+    mov ax, KERNEL_DS
+    mov ds, ax
+    mov es, ax
+    mov rdi, rsp
+    cld
+    call syscall_handler
     POP_REGS
     add rsp, 16
     iretq
@@ -102,7 +133,7 @@ global isr_stubs
 align 8
 isr_stubs:
 %assign vec 0
-%rep 48
+%rep 49
     dq isr %+ vec
     %assign vec vec + 1
 %endrep

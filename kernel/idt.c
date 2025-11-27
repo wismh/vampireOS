@@ -2,14 +2,17 @@
 #include "kbd.h"
 #include "pic.h"
 #include "pit.h"
+#include "user.h"
 #include "vga.h"
 
 #include <stdint.h>
 
 /* Must match the 64-bit code selector in boot/stage2.asm. */
 #define KERNEL_CS 0x10
-#define IDT_COUNT 48
+#define IDT_COUNT 49
 #define IDT_INTERRUPT_GATE 0x8E
+#define IDT_USER_INTERRUPT_GATE 0xEE
+#define SYSCALL_VEC 48
 
 struct idt_gate {
     uint16_t offset_low;
@@ -51,12 +54,12 @@ extern uint64_t isr_stubs[IDT_COUNT];
 static struct idt_gate idt[IDT_COUNT];
 static volatile unsigned ticks;
 
-static void idt_set_gate(int vec, uint64_t isr)
+static void idt_set_gate(int vec, uint64_t isr, uint8_t flags)
 {
     idt[vec].offset_low = (uint16_t)(isr & 0xFFFF);
     idt[vec].selector = KERNEL_CS;
     idt[vec].ist = 0;
-    idt[vec].flags = IDT_INTERRUPT_GATE;
+    idt[vec].flags = flags;
     idt[vec].offset_mid = (uint16_t)((isr >> 16) & 0xFFFF);
     idt[vec].offset_high = (uint32_t)(isr >> 32);
     idt[vec].reserved = 0;
@@ -86,6 +89,11 @@ void irq_handler(struct interrupt_frame *frame)
     pic_eoi(irq);
 }
 
+void syscall_handler(struct interrupt_frame *frame)
+{
+    user_on_syscall(frame->cs);
+}
+
 void idt_init(void)
 {
     struct {
@@ -93,11 +101,13 @@ void idt_init(void)
         uint64_t base;
     } __attribute__((packed)) idtr;
     int i;
+    uint8_t flags;
 
     pic_remap();
 
     for (i = 0; i < IDT_COUNT; i++) {
-        idt_set_gate(i, isr_stubs[i]);
+        flags = (i == SYSCALL_VEC) ? IDT_USER_INTERRUPT_GATE : IDT_INTERRUPT_GATE;
+        idt_set_gate(i, isr_stubs[i], flags);
     }
 
     idtr.limit = (uint16_t)(sizeof(idt) - 1);

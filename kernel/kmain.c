@@ -3,6 +3,7 @@
 #include "idt.h"
 #include "kbd.h"
 #include "pmm.h"
+#include "user.h"
 #include "vga.h"
 #include "vmm.h"
 
@@ -18,8 +19,12 @@ static void kmain_cont(void)
     row = vmm_print(row);
     kheap_init();
     row = kheap_print(row);
+    row = user_init(row);
     vga_set_cursor(row, 0);
     kbd_console_init();
+    if (user_ready()) {
+        user_enter();
+    }
     __asm__ volatile ("sti");
     for (;;) {
         __asm__ volatile ("hlt");
