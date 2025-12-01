@@ -16,6 +16,8 @@
 #define USER_STACK 0x401000ull
 #define USER_STACK_TOP 0x402000ull
 #define KERNEL_STACK_MIN 0x200000ull
+#define SYS_WRITE 1ull
+#define USER_STR_MAX 80ull
 
 #define GDT_KERNEL_CODE32 0x00CF9A000000FFFFULL
 #define GDT_KERNEL_CODE64 0x00209A0000000000ULL
@@ -198,24 +200,66 @@ int user_init(int row)
         return row + 1;
     }
 
+    /* mov eax,1 ; mov edi,str ; int 0x30 ; jmp $ ; "hi" */
     p = (uint8_t *)(uintptr_t)phys_to_virt(code);
-    p[0] = 0xCD;
-    p[1] = 0x30;
-    p[2] = 0xEB;
-    p[3] = 0xFE;
+    p[0] = 0xB8;
+    p[1] = 0x01;
+    p[2] = 0x00;
+    p[3] = 0x00;
+    p[4] = 0x00;
+    p[5] = 0xBF;
+    p[6] = 0x0E;
+    p[7] = 0x00;
+    p[8] = 0x40;
+    p[9] = 0x00;
+    p[10] = 0xCD;
+    p[11] = 0x30;
+    p[12] = 0xEB;
+    p[13] = 0xFE;
+    p[14] = 'h';
+    p[15] = 'i';
+    p[16] = 0;
 
     enter_ready = 1;
     return row + 1;
 }
 
-void user_on_syscall(uint64_t cs)
+static int copy_from_user(char *dst, uint64_t src, uint64_t max)
 {
-    if ((cs & 3ull) != 3ull) {
+    uint64_t i;
+    const volatile uint8_t *p;
+
+    if (max == 0 || src < USER_CODE || src >= USER_STACK_TOP) {
+        return -1;
+    }
+
+    p = (const volatile uint8_t *)(uintptr_t)src;
+    for (i = 0; i < max; i++) {
+        if (src + i >= USER_STACK_TOP) {
+            return -1;
+        }
+        dst[i] = (char)p[i];
+        if (dst[i] == '\0') {
+            return 0;
+        }
+    }
+    return -1;
+}
+
+void user_on_syscall(uint64_t cs, uint64_t nr, uint64_t arg)
+{
+    char buf[USER_STR_MAX];
+
+    if ((cs & 3ull) != 3ull || nr != SYS_WRITE) {
         vga_write_at(user_row, 0, "user fail");
         return;
     }
-    vga_write_at(user_row, 0, "user ok ");
-    vga_write_hex64_at(user_row, 8, cs);
+    if (copy_from_user(buf, arg, USER_STR_MAX) != 0) {
+        vga_write_at(user_row, 0, "user fail");
+        return;
+    }
+    vga_write_at(user_row, 0, "        ");
+    vga_write_at(user_row, 0, buf);
 }
 
 __attribute__((noreturn))

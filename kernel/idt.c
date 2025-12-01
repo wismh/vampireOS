@@ -91,7 +91,7 @@ void irq_handler(struct interrupt_frame *frame)
 
 void syscall_handler(struct interrupt_frame *frame)
 {
-    user_on_syscall(frame->cs);
+    user_on_syscall(frame->cs, frame->rax, frame->rdi);
 }
 
 void idt_init(void)
