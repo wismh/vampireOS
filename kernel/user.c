@@ -17,6 +17,7 @@
 #define USER_STACK_TOP 0x402000ull
 #define KERNEL_STACK_MIN 0x200000ull
 #define SYS_WRITE 1ull
+#define SYS_EXIT 2ull
 #define USER_STR_MAX 80ull
 
 #define GDT_KERNEL_CODE32 0x00CF9A000000FFFFULL
@@ -200,7 +201,7 @@ int user_init(int row)
         return row + 1;
     }
 
-    /* mov eax,1 ; mov edi,str ; int 0x30 ; jmp $ ; "hi" */
+    /* mov eax,1 ; mov edi,str ; int 0x30 ; mov eax,2 ; int 0x30 ; ud2 ; "hi" */
     p = (uint8_t *)(uintptr_t)phys_to_virt(code);
     p[0] = 0xB8;
     p[1] = 0x01;
@@ -208,17 +209,24 @@ int user_init(int row)
     p[3] = 0x00;
     p[4] = 0x00;
     p[5] = 0xBF;
-    p[6] = 0x0E;
+    p[6] = 0x15;
     p[7] = 0x00;
     p[8] = 0x40;
     p[9] = 0x00;
     p[10] = 0xCD;
     p[11] = 0x30;
-    p[12] = 0xEB;
-    p[13] = 0xFE;
-    p[14] = 'h';
-    p[15] = 'i';
-    p[16] = 0;
+    p[12] = 0xB8;
+    p[13] = 0x02;
+    p[14] = 0x00;
+    p[15] = 0x00;
+    p[16] = 0x00;
+    p[17] = 0xCD;
+    p[18] = 0x30;
+    p[19] = 0x0F;
+    p[20] = 0x0B;
+    p[21] = 'h';
+    p[22] = 'i';
+    p[23] = 0;
 
     enter_ready = 1;
     return row + 1;
@@ -246,20 +254,36 @@ static int copy_from_user(char *dst, uint64_t src, uint64_t max)
     return -1;
 }
 
+static void __attribute__((noreturn)) kernel_idle(void)
+{
+    __asm__ volatile ("sti");
+    for (;;) {
+        __asm__ volatile ("hlt");
+    }
+}
+
 void user_on_syscall(uint64_t cs, uint64_t nr, uint64_t arg)
 {
     char buf[USER_STR_MAX];
 
-    if ((cs & 3ull) != 3ull || nr != SYS_WRITE) {
+    if ((cs & 3ull) != 3ull) {
         vga_write_at(user_row, 0, "user fail");
         return;
     }
-    if (copy_from_user(buf, arg, USER_STR_MAX) != 0) {
-        vga_write_at(user_row, 0, "user fail");
+    if (nr == SYS_WRITE) {
+        if (copy_from_user(buf, arg, USER_STR_MAX) != 0) {
+            vga_write_at(user_row, 0, "user fail");
+            return;
+        }
+        vga_write_at(user_row, 0, "        ");
+        vga_write_at(user_row, 0, buf);
         return;
     }
-    vga_write_at(user_row, 0, "        ");
-    vga_write_at(user_row, 0, buf);
+    if (nr == SYS_EXIT) {
+        vga_write_at(user_row, 3, "exit");
+        kernel_idle();
+    }
+    vga_write_at(user_row, 0, "user fail");
 }
 
 __attribute__((noreturn))
