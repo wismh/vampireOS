@@ -2,6 +2,7 @@
 #include "kbd.h"
 #include "pic.h"
 #include "pit.h"
+#include "sched.h"
 #include "user.h"
 #include "vga.h"
 
@@ -23,31 +24,6 @@ struct idt_gate {
     uint32_t offset_high;
     uint32_t reserved;
 } __attribute__((packed));
-
-struct interrupt_frame {
-    uint64_t rax;
-    uint64_t rbx;
-    uint64_t rcx;
-    uint64_t rdx;
-    uint64_t rdi;
-    uint64_t rsi;
-    uint64_t rbp;
-    uint64_t r8;
-    uint64_t r9;
-    uint64_t r10;
-    uint64_t r11;
-    uint64_t r12;
-    uint64_t r13;
-    uint64_t r14;
-    uint64_t r15;
-    uint64_t vector;
-    uint64_t error;
-    uint64_t rip;
-    uint64_t cs;
-    uint64_t rflags;
-    uint64_t rsp;
-    uint64_t ss;
-};
 
 extern uint64_t isr_stubs[IDT_COUNT];
 
@@ -82,6 +58,7 @@ void irq_handler(struct interrupt_frame *frame)
         ticks++;
         vga_write_at(1, 0, "ticks ");
         vga_write_dec_at(1, 6, ticks);
+        sched_on_tick(frame);
     } else if (irq == 1) {
         kbd_handle();
     }
@@ -91,7 +68,7 @@ void irq_handler(struct interrupt_frame *frame)
 
 void syscall_handler(struct interrupt_frame *frame)
 {
-    user_on_syscall(frame->cs, frame->rax, frame->rdi);
+    user_on_syscall(frame);
 }
 
 void idt_init(void)

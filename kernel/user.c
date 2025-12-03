@@ -1,5 +1,6 @@
 #include "user.h"
 #include "pmm.h"
+#include "sched.h"
 #include "vga.h"
 #include "vmm.h"
 
@@ -15,6 +16,10 @@
 #define USER_CODE 0x400000ull
 #define USER_STACK 0x401000ull
 #define USER_STACK_TOP 0x402000ull
+#define USER_B_CODE 0x402000ull
+#define USER_B_STACK 0x403000ull
+#define USER_B_STACK_TOP 0x404000ull
+#define USER_LIMIT 0x404000ull
 #define KERNEL_STACK_MIN 0x200000ull
 #define SYS_WRITE 1ull
 #define SYS_EXIT 2ull
@@ -164,72 +169,95 @@ int user_ready(void)
     return enter_ready;
 }
 
-int user_init(int row)
+static void emit_write_loop(uint8_t *p, uint32_t str_va, char letter)
 {
-    uint64_t kstack;
-    uint64_t code;
-    uint64_t stack;
-    uint8_t *p;
-    uint16_t tr = TSS_SEL;
-
-    enter_ready = 0;
-    user_row = row;
-    if (row >= VGA_HEIGHT - 2) {
-        return row;
-    }
-    vga_write_at(row, 0, "user --");
-
-    if (!gdt_ready) {
-        vga_write_at(row, 0, "user fail");
-        return row + 1;
-    }
-
-    kstack = alloc_page();
-    code = alloc_page();
-    stack = alloc_page();
-    if (kstack == 0 || code == 0 || stack == 0) {
-        vga_write_at(row, 0, "user fail");
-        return row + 1;
-    }
-
-    tss.rsp0 = phys_to_virt(kstack) + PAGE_4K;
-    __asm__ volatile ("ltr %0" : : "r"(tr) : "memory");
-
-    if (vmm_map_user(USER_CODE, code) != 0 ||
-        vmm_map_user(USER_STACK, stack) != 0) {
-        vga_write_at(row, 0, "user fail");
-        return row + 1;
-    }
-
-    /* mov eax,1 ; mov edi,str ; int 0x30 ; mov eax,2 ; int 0x30 ; ud2 ; "hi" */
-    p = (uint8_t *)(uintptr_t)phys_to_virt(code);
     p[0] = 0xB8;
     p[1] = 0x01;
     p[2] = 0x00;
     p[3] = 0x00;
     p[4] = 0x00;
     p[5] = 0xBF;
-    p[6] = 0x15;
-    p[7] = 0x00;
-    p[8] = 0x40;
-    p[9] = 0x00;
+    p[6] = (uint8_t)str_va;
+    p[7] = (uint8_t)(str_va >> 8);
+    p[8] = (uint8_t)(str_va >> 16);
+    p[9] = (uint8_t)(str_va >> 24);
     p[10] = 0xCD;
     p[11] = 0x30;
-    p[12] = 0xB8;
-    p[13] = 0x02;
-    p[14] = 0x00;
-    p[15] = 0x00;
+    p[12] = 0xB9;
+    p[13] = 0x40;
+    p[14] = 0x42;
+    p[15] = 0x0F;
     p[16] = 0x00;
-    p[17] = 0xCD;
-    p[18] = 0x30;
-    p[19] = 0x0F;
-    p[20] = 0x0B;
-    p[21] = 'h';
-    p[22] = 'i';
-    p[23] = 0;
+    p[17] = 0xF3;
+    p[18] = 0x90;
+    p[19] = 0xFF;
+    p[20] = 0xC9;
+    p[21] = 0x75;
+    p[22] = 0xFA;
+    p[23] = 0xEB;
+    p[24] = 0xE7;
+    p[25] = (uint8_t)letter;
+    p[26] = 0;
+}
+
+int user_init(int row)
+{
+    uint64_t kstack;
+    uint64_t code_a;
+    uint64_t stack_a;
+    uint64_t code_b;
+    uint64_t stack_b;
+    uint8_t *p;
+    uint16_t tr = TSS_SEL;
+
+    enter_ready = 0;
+    user_row = row;
+    if (row >= VGA_HEIGHT - 3) {
+        return row;
+    }
+    vga_write_at(row, 0, "A --");
+    vga_write_at(row + 1, 0, "B --");
+
+    if (!gdt_ready) {
+        vga_write_at(row, 0, "user fail");
+        return row + 2;
+    }
+
+    kstack = alloc_page();
+    code_a = alloc_page();
+    stack_a = alloc_page();
+    code_b = alloc_page();
+    stack_b = alloc_page();
+    if (kstack == 0 || code_a == 0 || stack_a == 0 || code_b == 0 || stack_b == 0) {
+        vga_write_at(row, 0, "user fail");
+        return row + 2;
+    }
+
+    tss.rsp0 = phys_to_virt(kstack) + PAGE_4K;
+    __asm__ volatile ("ltr %0" : : "r"(tr) : "memory");
+
+    if (vmm_map_user(USER_CODE, code_a) != 0 ||
+        vmm_map_user(USER_STACK, stack_a) != 0 ||
+        vmm_map_user(USER_B_CODE, code_b) != 0 ||
+        vmm_map_user(USER_B_STACK, stack_b) != 0) {
+        vga_write_at(row, 0, "user fail");
+        return row + 2;
+    }
+
+    p = (uint8_t *)(uintptr_t)phys_to_virt(code_a);
+    emit_write_loop(p, (uint32_t)(USER_CODE + 25ull), 'A');
+    p = (uint8_t *)(uintptr_t)phys_to_virt(code_b);
+    emit_write_loop(p, (uint32_t)(USER_B_CODE + 25ull), 'B');
+
+    sched_init();
+    if (sched_add_user(USER_CODE, USER_STACK_TOP, row) != 0 ||
+        sched_add_user(USER_B_CODE, USER_B_STACK_TOP, row + 1) != 0) {
+        vga_write_at(row, 0, "user fail");
+        return row + 2;
+    }
 
     enter_ready = 1;
-    return row + 1;
+    return row + 2;
 }
 
 static int copy_from_user(char *dst, uint64_t src, uint64_t max)
@@ -237,13 +265,13 @@ static int copy_from_user(char *dst, uint64_t src, uint64_t max)
     uint64_t i;
     const volatile uint8_t *p;
 
-    if (max == 0 || src < USER_CODE || src >= USER_STACK_TOP) {
+    if (max == 0 || src < USER_CODE || src >= USER_LIMIT) {
         return -1;
     }
 
     p = (const volatile uint8_t *)(uintptr_t)src;
     for (i = 0; i < max; i++) {
-        if (src + i >= USER_STACK_TOP) {
+        if (src + i >= USER_LIMIT) {
             return -1;
         }
         dst[i] = (char)p[i];
@@ -254,34 +282,31 @@ static int copy_from_user(char *dst, uint64_t src, uint64_t max)
     return -1;
 }
 
-static void __attribute__((noreturn)) kernel_idle(void)
-{
-    __asm__ volatile ("sti");
-    for (;;) {
-        __asm__ volatile ("hlt");
-    }
-}
-
-void user_on_syscall(uint64_t cs, uint64_t nr, uint64_t arg)
+void user_on_syscall(struct interrupt_frame *frame)
 {
     char buf[USER_STR_MAX];
+    int row;
+    unsigned n;
 
-    if ((cs & 3ull) != 3ull) {
+    if (frame == 0 || (frame->cs & 3ull) != 3ull) {
         vga_write_at(user_row, 0, "user fail");
         return;
     }
-    if (nr == SYS_WRITE) {
-        if (copy_from_user(buf, arg, USER_STR_MAX) != 0) {
+    if (frame->rax == SYS_WRITE) {
+        if (copy_from_user(buf, frame->rdi, USER_STR_MAX) != 0) {
             vga_write_at(user_row, 0, "user fail");
             return;
         }
-        vga_write_at(user_row, 0, "        ");
-        vga_write_at(user_row, 0, buf);
+        row = sched_row();
+        n = sched_note_write();
+        vga_write_at(row, 0, "            ");
+        vga_write_at(row, 0, buf);
+        vga_write_dec_at(row, 2, n);
         return;
     }
-    if (nr == SYS_EXIT) {
-        vga_write_at(user_row, 3, "exit");
-        kernel_idle();
+    if (frame->rax == SYS_EXIT) {
+        sched_exit(frame);
+        return;
     }
     vga_write_at(user_row, 0, "user fail");
 }
