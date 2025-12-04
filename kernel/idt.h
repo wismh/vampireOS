@@ -28,3 +28,4 @@ struct interrupt_frame {
 };
 
 void idt_init(void);
+unsigned idt_ticks(void);

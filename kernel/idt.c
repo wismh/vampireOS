@@ -66,6 +66,11 @@ void irq_handler(struct interrupt_frame *frame)
     pic_eoi(irq);
 }
 
+unsigned idt_ticks(void)
+{
+    return ticks;
+}
+
 void syscall_handler(struct interrupt_frame *frame)
 {
     user_on_syscall(frame);

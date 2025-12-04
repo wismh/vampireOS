@@ -1,4 +1,5 @@
 #include "sched.h"
+#include "idt.h"
 #include "vga.h"
 
 #include <stdint.h>
@@ -6,6 +7,7 @@
 #define TASK_MAX 2
 #define TASK_DEAD 0
 #define TASK_READY 1
+#define TASK_SLEEP 2
 #define USER_CS 0x2B
 #define USER_DS 0x23
 
@@ -33,6 +35,7 @@ struct task {
     int state;
     int row;
     unsigned writes;
+    unsigned wake_tick;
 };
 
 static struct task tasks[TASK_MAX];
@@ -110,6 +113,7 @@ void sched_init(void)
     for (i = 0; i < TASK_MAX; i++) {
         tasks[i].state = TASK_DEAD;
         tasks[i].writes = 0;
+        tasks[i].wake_tick = 0;
     }
 }
 
@@ -144,6 +148,7 @@ int sched_add_user(uint64_t rip, uint64_t rsp, int row)
     t->state = TASK_READY;
     t->row = row;
     t->writes = 0;
+    t->wake_tick = 0;
     if (task_count == 0) {
         current = 0;
     }
@@ -168,15 +173,43 @@ unsigned sched_note_write(void)
     return tasks[current].writes;
 }
 
-static void sched_switch(struct interrupt_frame *frame)
+static void wake_sleepers(void)
+{
+    int i;
+    unsigned now = idt_ticks();
+
+    for (i = 0; i < task_count; i++) {
+        if (tasks[i].state == TASK_SLEEP && tasks[i].wake_tick <= now) {
+            tasks[i].state = TASK_READY;
+        }
+    }
+}
+
+static void idle_until_ready(struct interrupt_frame *frame)
 {
     int next;
 
-    if (frame == 0 || task_count < 2) {
+    for (;;) {
+        wake_sleepers();
+        next = pick_next(current);
+        if (next >= 0) {
+            current = next;
+            load_task(frame, &tasks[current]);
+            return;
+        }
+        __asm__ volatile ("sti; hlt; cli" ::: "memory");
+    }
+}
+
+static void switch_to_next(struct interrupt_frame *frame)
+{
+    int next;
+
+    if (frame == 0) {
         return;
     }
-    next = current ^ 1;
-    if (next >= task_count || tasks[next].state != TASK_READY) {
+    next = pick_next(current);
+    if (next < 0 || next == current) {
         return;
     }
     save_task(&tasks[current], frame);
@@ -186,10 +219,41 @@ static void sched_switch(struct interrupt_frame *frame)
 
 void sched_on_tick(struct interrupt_frame *frame)
 {
+    wake_sleepers();
     if (frame == 0 || (frame->cs & 3ull) != 3ull) {
         return;
     }
-    sched_switch(frame);
+    switch_to_next(frame);
+}
+
+void sched_yield(struct interrupt_frame *frame)
+{
+    switch_to_next(frame);
+}
+
+void sched_sleep(struct interrupt_frame *frame, uint64_t n)
+{
+    unsigned now;
+    int next;
+
+    if (frame == 0) {
+        return;
+    }
+    if (n == 0) {
+        sched_yield(frame);
+        return;
+    }
+    now = idt_ticks();
+    save_task(&tasks[current], frame);
+    tasks[current].state = TASK_SLEEP;
+    tasks[current].wake_tick = now + (unsigned)n;
+    next = pick_next(current);
+    if (next < 0) {
+        idle_until_ready(frame);
+        return;
+    }
+    current = next;
+    load_task(frame, &tasks[current]);
 }
 
 void sched_exit(struct interrupt_frame *frame)

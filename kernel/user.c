@@ -23,6 +23,8 @@
 #define KERNEL_STACK_MIN 0x200000ull
 #define SYS_WRITE 1ull
 #define SYS_EXIT 2ull
+#define SYS_YIELD 3ull
+#define SYS_SLEEP 4ull
 #define USER_STR_MAX 80ull
 
 #define GDT_KERNEL_CODE32 0x00CF9A000000FFFFULL
@@ -169,7 +171,8 @@ int user_ready(void)
     return enter_ready;
 }
 
-static void emit_write_loop(uint8_t *p, uint32_t str_va, char letter)
+static void emit_write_wait(uint8_t *p, uint32_t str_va, char letter, uint8_t sys,
+                            uint32_t arg)
 {
     p[0] = 0xB8;
     p[1] = 0x01;
@@ -183,21 +186,22 @@ static void emit_write_loop(uint8_t *p, uint32_t str_va, char letter)
     p[9] = (uint8_t)(str_va >> 24);
     p[10] = 0xCD;
     p[11] = 0x30;
-    p[12] = 0xB9;
-    p[13] = 0x40;
-    p[14] = 0x42;
-    p[15] = 0x0F;
+    p[12] = 0xB8;
+    p[13] = sys;
+    p[14] = 0x00;
+    p[15] = 0x00;
     p[16] = 0x00;
-    p[17] = 0xF3;
-    p[18] = 0x90;
-    p[19] = 0xFF;
-    p[20] = 0xC9;
-    p[21] = 0x75;
-    p[22] = 0xFA;
-    p[23] = 0xEB;
-    p[24] = 0xE7;
-    p[25] = (uint8_t)letter;
-    p[26] = 0;
+    p[17] = 0xBF;
+    p[18] = (uint8_t)arg;
+    p[19] = (uint8_t)(arg >> 8);
+    p[20] = (uint8_t)(arg >> 16);
+    p[21] = (uint8_t)(arg >> 24);
+    p[22] = 0xCD;
+    p[23] = 0x30;
+    p[24] = 0xEB;
+    p[25] = 0xE6;
+    p[26] = (uint8_t)letter;
+    p[27] = 0;
 }
 
 int user_init(int row)
@@ -245,9 +249,9 @@ int user_init(int row)
     }
 
     p = (uint8_t *)(uintptr_t)phys_to_virt(code_a);
-    emit_write_loop(p, (uint32_t)(USER_CODE + 25ull), 'A');
+    emit_write_wait(p, (uint32_t)(USER_CODE + 26ull), 'A', (uint8_t)SYS_YIELD, 0);
     p = (uint8_t *)(uintptr_t)phys_to_virt(code_b);
-    emit_write_loop(p, (uint32_t)(USER_B_CODE + 25ull), 'B');
+    emit_write_wait(p, (uint32_t)(USER_B_CODE + 26ull), 'B', (uint8_t)SYS_SLEEP, 1);
 
     sched_init();
     if (sched_add_user(USER_CODE, USER_STACK_TOP, row) != 0 ||
@@ -299,13 +303,23 @@ void user_on_syscall(struct interrupt_frame *frame)
         }
         row = sched_row();
         n = sched_note_write();
-        vga_write_at(row, 0, "            ");
-        vga_write_at(row, 0, buf);
-        vga_write_dec_at(row, 2, n);
+        if (n <= 8u || (n & 31u) == 0) {
+            vga_write_at(row, 0, buf);
+            vga_write_at(row, 2, "          ");
+            vga_write_dec_at(row, 2, n);
+        }
         return;
     }
     if (frame->rax == SYS_EXIT) {
         sched_exit(frame);
+        return;
+    }
+    if (frame->rax == SYS_YIELD) {
+        sched_yield(frame);
+        return;
+    }
+    if (frame->rax == SYS_SLEEP) {
+        sched_sleep(frame, frame->rdi);
         return;
     }
     vga_write_at(user_row, 0, "user fail");
