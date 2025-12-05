@@ -19,7 +19,10 @@
 #define USER_B_CODE 0x402000ull
 #define USER_B_STACK 0x403000ull
 #define USER_B_STACK_TOP 0x404000ull
-#define USER_LIMIT 0x404000ull
+#define USER_C_CODE 0x404000ull
+#define USER_C_STACK 0x405000ull
+#define USER_C_STACK_TOP 0x406000ull
+#define USER_LIMIT 0x406000ull
 #define KERNEL_STACK_MIN 0x200000ull
 #define SYS_WRITE 1ull
 #define SYS_EXIT 2ull
@@ -211,20 +214,23 @@ int user_init(int row)
     uint64_t stack_a;
     uint64_t code_b;
     uint64_t stack_b;
+    uint64_t code_c;
+    uint64_t stack_c;
     uint8_t *p;
     uint16_t tr = TSS_SEL;
 
     enter_ready = 0;
     user_row = row;
-    if (row >= VGA_HEIGHT - 3) {
+    if (row >= VGA_HEIGHT - 4) {
         return row;
     }
     vga_write_at(row, 0, "A --");
     vga_write_at(row + 1, 0, "B --");
+    vga_write_at(row + 2, 0, "C --");
 
     if (!gdt_ready) {
         vga_write_at(row, 0, "user fail");
-        return row + 2;
+        return row + 3;
     }
 
     kstack = alloc_page();
@@ -232,9 +238,12 @@ int user_init(int row)
     stack_a = alloc_page();
     code_b = alloc_page();
     stack_b = alloc_page();
-    if (kstack == 0 || code_a == 0 || stack_a == 0 || code_b == 0 || stack_b == 0) {
+    code_c = alloc_page();
+    stack_c = alloc_page();
+    if (kstack == 0 || code_a == 0 || stack_a == 0 || code_b == 0 || stack_b == 0 ||
+        code_c == 0 || stack_c == 0) {
         vga_write_at(row, 0, "user fail");
-        return row + 2;
+        return row + 3;
     }
 
     tss.rsp0 = phys_to_virt(kstack) + PAGE_4K;
@@ -243,25 +252,30 @@ int user_init(int row)
     if (vmm_map_user(USER_CODE, code_a) != 0 ||
         vmm_map_user(USER_STACK, stack_a) != 0 ||
         vmm_map_user(USER_B_CODE, code_b) != 0 ||
-        vmm_map_user(USER_B_STACK, stack_b) != 0) {
+        vmm_map_user(USER_B_STACK, stack_b) != 0 ||
+        vmm_map_user(USER_C_CODE, code_c) != 0 ||
+        vmm_map_user(USER_C_STACK, stack_c) != 0) {
         vga_write_at(row, 0, "user fail");
-        return row + 2;
+        return row + 3;
     }
 
     p = (uint8_t *)(uintptr_t)phys_to_virt(code_a);
     emit_write_wait(p, (uint32_t)(USER_CODE + 26ull), 'A', (uint8_t)SYS_YIELD, 0);
     p = (uint8_t *)(uintptr_t)phys_to_virt(code_b);
     emit_write_wait(p, (uint32_t)(USER_B_CODE + 26ull), 'B', (uint8_t)SYS_SLEEP, 1);
+    p = (uint8_t *)(uintptr_t)phys_to_virt(code_c);
+    emit_write_wait(p, (uint32_t)(USER_C_CODE + 26ull), 'C', (uint8_t)SYS_SLEEP, 5);
 
     sched_init();
     if (sched_add_user(USER_CODE, USER_STACK_TOP, row) != 0 ||
-        sched_add_user(USER_B_CODE, USER_B_STACK_TOP, row + 1) != 0) {
+        sched_add_user(USER_B_CODE, USER_B_STACK_TOP, row + 1) != 0 ||
+        sched_add_user(USER_C_CODE, USER_C_STACK_TOP, row + 2) != 0) {
         vga_write_at(row, 0, "user fail");
-        return row + 2;
+        return row + 3;
     }
 
     enter_ready = 1;
-    return row + 2;
+    return row + 3;
 }
 
 static int copy_from_user(char *dst, uint64_t src, uint64_t max)
