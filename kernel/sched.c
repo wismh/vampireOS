@@ -8,6 +8,7 @@
 #define TASK_DEAD 0
 #define TASK_READY 1
 #define TASK_SLEEP 2
+#define TASK_WAIT 3
 #define USER_CS 0x2B
 #define USER_DS 0x23
 
@@ -185,6 +186,17 @@ static void wake_sleepers(void)
     }
 }
 
+static void wake_waiters(void)
+{
+    int i;
+
+    for (i = 0; i < task_count; i++) {
+        if (tasks[i].state == TASK_WAIT) {
+            tasks[i].state = TASK_READY;
+        }
+    }
+}
+
 static void idle_until_ready(struct interrupt_frame *frame)
 {
     int next;
@@ -256,12 +268,40 @@ void sched_sleep(struct interrupt_frame *frame, uint64_t n)
     load_task(frame, &tasks[current]);
 }
 
+void sched_wait(struct interrupt_frame *frame)
+{
+    int i;
+    int next;
+
+    if (frame == 0) {
+        return;
+    }
+    for (i = 0; i < task_count; i++) {
+        if (i != current && tasks[i].state == TASK_DEAD) {
+            return;
+        }
+    }
+    save_task(&tasks[current], frame);
+    tasks[current].state = TASK_WAIT;
+    next = pick_next(current);
+    if (next < 0) {
+        idle_until_ready(frame);
+        return;
+    }
+    current = next;
+    load_task(frame, &tasks[current]);
+}
+
 void sched_exit(struct interrupt_frame *frame)
 {
     int next;
+    int row;
 
     if (task_count != 0) {
+        row = tasks[current].row;
+        vga_write_at(row, 2, "done");
         tasks[current].state = TASK_DEAD;
+        wake_waiters();
     }
     next = pick_next(current);
     if (next < 0 || frame == 0) {

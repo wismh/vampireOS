@@ -11,4 +11,5 @@ unsigned sched_note_write(void);
 void sched_on_tick(struct interrupt_frame *frame);
 void sched_yield(struct interrupt_frame *frame);
 void sched_sleep(struct interrupt_frame *frame, uint64_t ticks);
+void sched_wait(struct interrupt_frame *frame);
 void sched_exit(struct interrupt_frame *frame);

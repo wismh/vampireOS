@@ -28,6 +28,7 @@
 #define SYS_EXIT 2ull
 #define SYS_YIELD 3ull
 #define SYS_SLEEP 4ull
+#define SYS_WAIT 5ull
 #define USER_STR_MAX 80ull
 
 #define GDT_KERNEL_CODE32 0x00CF9A000000FFFFULL
@@ -174,6 +175,94 @@ int user_ready(void)
     return enter_ready;
 }
 
+static void emit_wait_then_loop(uint8_t *p, uint32_t str_va, char letter)
+{
+    p[0] = 0xB8;
+    p[1] = 0x05;
+    p[2] = 0x00;
+    p[3] = 0x00;
+    p[4] = 0x00;
+    p[5] = 0xCD;
+    p[6] = 0x30;
+    p[7] = 0xB8;
+    p[8] = 0x01;
+    p[9] = 0x00;
+    p[10] = 0x00;
+    p[11] = 0x00;
+    p[12] = 0xBF;
+    p[13] = (uint8_t)str_va;
+    p[14] = (uint8_t)(str_va >> 8);
+    p[15] = (uint8_t)(str_va >> 16);
+    p[16] = (uint8_t)(str_va >> 24);
+    p[17] = 0xCD;
+    p[18] = 0x30;
+    p[19] = 0xB8;
+    p[20] = 0x03;
+    p[21] = 0x00;
+    p[22] = 0x00;
+    p[23] = 0x00;
+    p[24] = 0xBF;
+    p[25] = 0x00;
+    p[26] = 0x00;
+    p[27] = 0x00;
+    p[28] = 0x00;
+    p[29] = 0xCD;
+    p[30] = 0x30;
+    p[31] = 0xEB;
+    p[32] = 0xE6;
+    p[33] = (uint8_t)letter;
+    p[34] = 0;
+}
+
+static void emit_n_then_exit(uint8_t *p, uint32_t str_va, char letter, uint8_t n,
+                             uint8_t sleep_ticks)
+{
+    p[0] = 0xB9;
+    p[1] = n;
+    p[2] = 0x00;
+    p[3] = 0x00;
+    p[4] = 0x00;
+    p[5] = 0xB8;
+    p[6] = 0x01;
+    p[7] = 0x00;
+    p[8] = 0x00;
+    p[9] = 0x00;
+    p[10] = 0xBF;
+    p[11] = (uint8_t)str_va;
+    p[12] = (uint8_t)(str_va >> 8);
+    p[13] = (uint8_t)(str_va >> 16);
+    p[14] = (uint8_t)(str_va >> 24);
+    p[15] = 0xCD;
+    p[16] = 0x30;
+    p[17] = 0xFF;
+    p[18] = 0xC9;
+    p[19] = 0x74;
+    p[20] = 0x0E;
+    p[21] = 0xB8;
+    p[22] = 0x04;
+    p[23] = 0x00;
+    p[24] = 0x00;
+    p[25] = 0x00;
+    p[26] = 0xBF;
+    p[27] = sleep_ticks;
+    p[28] = 0x00;
+    p[29] = 0x00;
+    p[30] = 0x00;
+    p[31] = 0xCD;
+    p[32] = 0x30;
+    p[33] = 0xEB;
+    p[34] = 0xE2;
+    p[35] = 0xB8;
+    p[36] = 0x02;
+    p[37] = 0x00;
+    p[38] = 0x00;
+    p[39] = 0x00;
+    p[40] = 0xCD;
+    p[41] = 0x30;
+    p[42] = (uint8_t)letter;
+    p[43] = 0;
+}
+
 static void emit_write_wait(uint8_t *p, uint32_t str_va, char letter, uint8_t sys,
                             uint32_t arg)
 {
@@ -260,11 +349,11 @@ int user_init(int row)
     }
 
     p = (uint8_t *)(uintptr_t)phys_to_virt(code_a);
-    emit_write_wait(p, (uint32_t)(USER_CODE + 26ull), 'A', (uint8_t)SYS_YIELD, 0);
+    emit_wait_then_loop(p, (uint32_t)(USER_CODE + 33ull), 'A');
     p = (uint8_t *)(uintptr_t)phys_to_virt(code_b);
     emit_write_wait(p, (uint32_t)(USER_B_CODE + 26ull), 'B', (uint8_t)SYS_SLEEP, 1);
     p = (uint8_t *)(uintptr_t)phys_to_virt(code_c);
-    emit_write_wait(p, (uint32_t)(USER_C_CODE + 26ull), 'C', (uint8_t)SYS_SLEEP, 5);
+    emit_n_then_exit(p, (uint32_t)(USER_C_CODE + 42ull), 'C', 8, 5);
 
     sched_init();
     if (sched_add_user(USER_CODE, USER_STACK_TOP, row) != 0 ||
@@ -334,6 +423,10 @@ void user_on_syscall(struct interrupt_frame *frame)
     }
     if (frame->rax == SYS_SLEEP) {
         sched_sleep(frame, frame->rdi);
+        return;
+    }
+    if (frame->rax == SYS_WAIT) {
+        sched_wait(frame);
         return;
     }
     vga_write_at(user_row, 0, "user fail");
