@@ -1,5 +1,6 @@
 #include "sched.h"
 #include "idt.h"
+#include "user.h"
 #include "vga.h"
 
 #include <stdint.h>
@@ -33,6 +34,7 @@ struct task {
     uint64_t rflags;
     uint64_t rsp;
     uint64_t ss;
+    uint64_t kstack_top;
     int state;
     int row;
     unsigned writes;
@@ -105,6 +107,12 @@ static int pick_next(int from)
     return -1;
 }
 
+static void set_current(int idx)
+{
+    current = idx;
+    tss_set_rsp0(tasks[idx].kstack_top);
+}
+
 void sched_init(void)
 {
     int i;
@@ -115,14 +123,15 @@ void sched_init(void)
         tasks[i].state = TASK_DEAD;
         tasks[i].writes = 0;
         tasks[i].wake_tick = 0;
+        tasks[i].kstack_top = 0;
     }
 }
 
-int sched_add_user(uint64_t rip, uint64_t rsp, int row)
+int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row)
 {
     struct task *t;
 
-    if (task_count >= TASK_MAX) {
+    if (task_count >= TASK_MAX || kstack_top == 0) {
         return -1;
     }
     t = &tasks[task_count];
@@ -146,6 +155,7 @@ int sched_add_user(uint64_t rip, uint64_t rsp, int row)
     t->rflags = 0x202;
     t->rsp = rsp;
     t->ss = USER_DS;
+    t->kstack_top = kstack_top;
     t->state = TASK_READY;
     t->row = row;
     t->writes = 0;
@@ -205,7 +215,7 @@ static void idle_until_ready(struct interrupt_frame *frame)
         wake_sleepers();
         next = pick_next(current);
         if (next >= 0) {
-            current = next;
+            set_current(next);
             load_task(frame, &tasks[current]);
             return;
         }
@@ -225,7 +235,7 @@ static void switch_to_next(struct interrupt_frame *frame)
         return;
     }
     save_task(&tasks[current], frame);
-    current = next;
+    set_current(next);
     load_task(frame, &tasks[current]);
 }
 
@@ -264,7 +274,7 @@ void sched_sleep(struct interrupt_frame *frame, uint64_t n)
         idle_until_ready(frame);
         return;
     }
-    current = next;
+    set_current(next);
     load_task(frame, &tasks[current]);
 }
 
@@ -288,7 +298,7 @@ void sched_wait(struct interrupt_frame *frame)
         idle_until_ready(frame);
         return;
     }
-    current = next;
+    set_current(next);
     load_task(frame, &tasks[current]);
 }
 
@@ -310,6 +320,6 @@ void sched_exit(struct interrupt_frame *frame)
             __asm__ volatile ("hlt");
         }
     }
-    current = next;
+    set_current(next);
     load_task(frame, &tasks[current]);
 }
