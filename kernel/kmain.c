@@ -1,4 +1,5 @@
 #include "e820.h"
+#include "fs.h"
 #include "heap.h"
 #include "idt.h"
 #include "kbd.h"
@@ -19,6 +20,7 @@ static void kmain_cont(void)
     row = vmm_print(row);
     kheap_init();
     row = kheap_print(row);
+    fs_init();
     row = user_init(row);
     vga_set_cursor(row, 0);
     kbd_console_init();

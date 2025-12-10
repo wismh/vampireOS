@@ -1,4 +1,5 @@
 #include "kbd.h"
+#include "fs.h"
 #include "heap.h"
 #include "io.h"
 #include "pmm.h"
@@ -94,10 +95,56 @@ static void prompt(void)
     puts_cur("kbd>");
 }
 
+static int cmd_is(const char *line, const char *cmd)
+{
+    while (*cmd != '\0') {
+        if (*line != *cmd) {
+            return 0;
+        }
+        line++;
+        cmd++;
+    }
+    return *line == '\0' || *line == ' ';
+}
+
+static const char *skip_ws(const char *s)
+{
+    while (*s == ' ') {
+        s++;
+    }
+    return s;
+}
+
+static void run_ls(void)
+{
+    int i;
+    int n = fs_count();
+
+    for (i = 0; i < n; i++) {
+        if (i != 0) {
+            vga_putc(' ');
+        }
+        puts_cur(fs_name(i));
+    }
+}
+
+static void run_cat(const char *arg)
+{
+    const char *data;
+
+    arg = skip_ws(arg);
+    if (*arg == '\0' || fs_lookup(arg, &data) != 0) {
+        vga_putc('?');
+        return;
+    }
+    puts_cur(data);
+}
+
 static void run_line(void)
 {
     unsigned i = 0;
     unsigned j = line_len;
+    const char *cmd;
 
     while (i < j && line[i] == ' ') {
         i++;
@@ -110,11 +157,16 @@ static void run_line(void)
         return;
     }
 
+    cmd = line + i;
     vga_putc('\n');
-    if (streq(line + i, "help")) {
-        puts_cur("help mem");
-    } else if (streq(line + i, "mem")) {
+    if (streq(cmd, "help")) {
+        puts_cur("help ls mem cat");
+    } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
+    } else if (streq(cmd, "ls")) {
+        run_ls();
+    } else if (cmd_is(cmd, "cat")) {
+        run_cat(cmd + 3);
     } else {
         vga_putc('?');
     }
