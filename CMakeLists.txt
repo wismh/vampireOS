@@ -46,6 +46,29 @@ set(KERNEL_ELF "${CMAKE_BINARY_DIR}/kernel.elf")
 set(KERNEL_RAW "${CMAKE_BINARY_DIR}/kernel.raw.bin")
 set(KERNEL_BIN "${CMAKE_BINARY_DIR}/kernel.bin")
 set(DISK_IMG "${CMAKE_BINARY_DIR}/vampire.img")
+set(ECHO_ASM "${CMAKE_SOURCE_DIR}/user/echo.asm")
+set(ECHO_BIN "${CMAKE_BINARY_DIR}/echo.bin")
+set(ECHO_BLOB "${CMAKE_BINARY_DIR}/echo_blob.h")
+
+add_custom_command(
+    OUTPUT "${ECHO_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${ECHO_BIN}" "${ECHO_ASM}"
+    DEPENDS "${ECHO_ASM}"
+    COMMENT "Assembling user ELF echo"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${ECHO_BLOB}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DIN=${ECHO_BIN}"
+        "-DOUT=${ECHO_BLOB}"
+        "-DNAME=echo_elf"
+        -P "${CMAKE_SOURCE_DIR}/cmake/embed_bin.cmake"
+    DEPENDS "${ECHO_BIN}" "${CMAKE_SOURCE_DIR}/cmake/embed_bin.cmake"
+    COMMENT "Embedding user ELF echo"
+    VERBATIM
+)
 
 set(KERNEL_C_SOURCES
     "${KERNEL_DIR}/kmain.c"
@@ -61,6 +84,7 @@ set(KERNEL_C_SOURCES
     "${KERNEL_DIR}/user.c"
     "${KERNEL_DIR}/sched.c"
     "${KERNEL_DIR}/fs.c"
+    "${KERNEL_DIR}/elf.c"
 )
 set(KERNEL_C_OBJECTS "")
 foreach(_src ${KERNEL_C_SOURCES})
@@ -79,11 +103,13 @@ foreach(_src ${KERNEL_C_SOURCES})
             -mno-sse2
             -mcmodel=kernel
             -I "${KERNEL_DIR}"
+            -I "${CMAKE_BINARY_DIR}"
             -c
             -o "${_obj}"
             "${_src}"
         DEPENDS
             "${_src}"
+            "${ECHO_BLOB}"
             "${KERNEL_DIR}/vga.h"
             "${KERNEL_DIR}/idt.h"
             "${KERNEL_DIR}/pic.h"
@@ -96,6 +122,7 @@ foreach(_src ${KERNEL_C_SOURCES})
             "${KERNEL_DIR}/user.h"
             "${KERNEL_DIR}/sched.h"
             "${KERNEL_DIR}/fs.h"
+            "${KERNEL_DIR}/elf.h"
             "${KERNEL_DIR}/io.h"
         COMMENT "Compiling ${_name}.c"
         VERBATIM

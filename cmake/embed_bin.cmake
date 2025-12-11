@@ -1,0 +1,10 @@
+if(NOT DEFINED IN OR NOT DEFINED OUT OR NOT DEFINED NAME)
+    message(FATAL_ERROR "IN, OUT, and NAME must be set")
+endif()
+
+file(READ "${IN}" _hex HEX)
+if(_hex STREQUAL "")
+    message(FATAL_ERROR "${IN} is empty")
+endif()
+string(REGEX REPLACE "([0-9A-Fa-f][0-9A-Fa-f])" "0x\\1," _hex "${_hex}")
+file(WRITE "${OUT}" "static const unsigned char ${NAME}[] = { ${_hex} };\nstatic const unsigned ${NAME}_len = (unsigned)sizeof(${NAME});\n")
