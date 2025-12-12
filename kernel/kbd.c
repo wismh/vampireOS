@@ -3,6 +3,7 @@
 #include "heap.h"
 #include "io.h"
 #include "pmm.h"
+#include "user.h"
 #include "vga.h"
 
 #include <stdint.h>
@@ -130,14 +131,23 @@ static void run_ls(void)
 
 static void run_cat(const char *arg)
 {
-    const char *data;
+    const void *data;
+    unsigned len;
 
     arg = skip_ws(arg);
-    if (*arg == '\0' || fs_lookup(arg, &data) != 0) {
+    if (*arg == '\0' || fs_lookup(arg, &data, &len) != 0) {
         vga_putc('?');
         return;
     }
-    puts_cur(data);
+    puts_cur((const char *)data);
+}
+
+static void run_prog(const char *arg)
+{
+    arg = skip_ws(arg);
+    if (user_run(arg) != 0) {
+        vga_putc('?');
+    }
 }
 
 static void run_line(void)
@@ -160,13 +170,15 @@ static void run_line(void)
     cmd = line + i;
     vga_putc('\n');
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat");
+        puts_cur("help ls mem cat run");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "ls")) {
         run_ls();
     } else if (cmd_is(cmd, "cat")) {
         run_cat(cmd + 3);
+    } else if (cmd_is(cmd, "run")) {
+        run_prog(cmd + 3);
     } else {
         vga_putc('?');
     }

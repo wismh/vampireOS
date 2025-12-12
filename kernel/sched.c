@@ -5,7 +5,7 @@
 
 #include <stdint.h>
 
-#define TASK_MAX 3
+#define TASK_MAX 4
 #define TASK_DEAD 0
 #define TASK_READY 1
 #define TASK_SLEEP 2

@@ -1,4 +1,6 @@
 #include "user.h"
+#include "elf.h"
+#include "fs.h"
 #include "pmm.h"
 #include "sched.h"
 #include "vga.h"
@@ -22,7 +24,10 @@
 #define USER_C_CODE 0x404000ull
 #define USER_C_STACK 0x405000ull
 #define USER_C_STACK_TOP 0x406000ull
-#define USER_LIMIT 0x406000ull
+#define USER_E_CODE 0x406000ull
+#define USER_E_STACK 0x407000ull
+#define USER_E_STACK_TOP 0x408000ull
+#define USER_LIMIT 0x408000ull
 #define KERNEL_STACK_MIN 0x200000ull
 #define SYS_WRITE 1ull
 #define SYS_EXIT 2ull
@@ -71,6 +76,8 @@ static struct tss tss __attribute__((aligned(16)));
 static int gdt_ready;
 static int enter_ready;
 static int user_row;
+static int run_row;
+static int echo_running;
 
 _Static_assert(sizeof(struct tss) == 104, "long-mode TSS is 104 bytes");
 _Static_assert(sizeof(struct tss_desc) == 16, "TSS descriptor is 16 bytes");
@@ -320,7 +327,7 @@ int user_init(int row)
 
     enter_ready = 0;
     user_row = row;
-    if (row >= VGA_HEIGHT - 5) {
+    if (row >= VGA_HEIGHT - 6) {
         return row;
     }
 
@@ -383,9 +390,12 @@ int user_init(int row)
     vga_write_at(row + 1, 0, "A --");
     vga_write_at(row + 2, 0, "B --");
     vga_write_at(row + 3, 0, "C --");
+    vga_write_at(row + 4, 0, "E --");
 
     enter_ready = 1;
-    return row + 4;
+    run_row = row + 4;
+    echo_running = 0;
+    return row + 5;
 }
 
 static int copy_from_user(char *dst, uint64_t src, uint64_t max)
@@ -408,6 +418,45 @@ static int copy_from_user(char *dst, uint64_t src, uint64_t max)
         }
     }
     return -1;
+}
+
+int user_run(const char *name)
+{
+    const void *data;
+    unsigned len;
+    uint64_t entry;
+    uint64_t kstack;
+    uint64_t code;
+    uint64_t stack;
+    uint64_t ktop;
+    uint8_t *dest;
+
+    if (!enter_ready || echo_running || name == 0 || *name == '\0') {
+        return -1;
+    }
+    if (fs_lookup(name, &data, &len) != 0) {
+        return -1;
+    }
+    kstack = alloc_page();
+    code = alloc_page();
+    stack = alloc_page();
+    if (kstack == 0 || code == 0 || stack == 0) {
+        return -1;
+    }
+    dest = (uint8_t *)(uintptr_t)phys_to_virt(code);
+    if (elf_load(data, len, dest, (unsigned)PAGE_4K, USER_E_CODE, &entry) != 0) {
+        return -1;
+    }
+    if (vmm_map_user(USER_E_CODE, code) != 0 ||
+        vmm_map_user(USER_E_STACK, stack) != 0) {
+        return -1;
+    }
+    ktop = phys_to_virt(kstack) + PAGE_4K;
+    if (sched_add_user(entry, USER_E_STACK_TOP, ktop, run_row) != 0) {
+        return -1;
+    }
+    echo_running = 1;
+    return 0;
 }
 
 void user_on_syscall(struct interrupt_frame *frame)
