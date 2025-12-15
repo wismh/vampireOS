@@ -12,6 +12,23 @@ KERNEL_SECTORS  equ 48
 KERNEL_VMA      equ 0xFFFFFFFF80000000
 KERNEL_VIRT     equ KERNEL_VMA + KERNEL_PHYS
 
+INITRD_PHYS     equ 0x20000
+INITRD_SEGMENT  equ 0x2000
+INITRD_OFFSET   equ 0
+INITRD_LBA      equ KERNEL_LBA + KERNEL_SECTORS
+INITRD_SECTORS  equ 8
+
+PML4            equ 0x1000
+PDPT            equ 0x2000
+PD              equ 0x3000
+HIGH_PDPT       equ 0x5000
+HIGH_PD         equ 0x6000
+
+E820_BASE       equ 0x4000
+E820_MAX        equ 32
+E820_ENTRY_SIZE equ 24
+
+
 PML4            equ 0x1000
 PDPT            equ 0x2000
 PD              equ 0x3000

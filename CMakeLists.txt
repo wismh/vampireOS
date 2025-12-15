@@ -48,7 +48,8 @@ set(KERNEL_BIN "${CMAKE_BINARY_DIR}/kernel.bin")
 set(DISK_IMG "${CMAKE_BINARY_DIR}/vampire.img")
 set(ECHO_ASM "${CMAKE_SOURCE_DIR}/user/echo.asm")
 set(ECHO_BIN "${CMAKE_BINARY_DIR}/echo.bin")
-set(ECHO_BLOB "${CMAKE_BINARY_DIR}/echo_blob.h")
+set(INITRD_ASM "${CMAKE_SOURCE_DIR}/user/initrd.asm")
+set(INITRD_BIN "${CMAKE_BINARY_DIR}/initrd.bin")
 
 add_custom_command(
     OUTPUT "${ECHO_BIN}"
@@ -59,14 +60,15 @@ add_custom_command(
 )
 
 add_custom_command(
-    OUTPUT "${ECHO_BLOB}"
-    COMMAND "${CMAKE_COMMAND}"
-        "-DIN=${ECHO_BIN}"
-        "-DOUT=${ECHO_BLOB}"
-        "-DNAME=echo_elf"
-        -P "${CMAKE_SOURCE_DIR}/cmake/embed_bin.cmake"
-    DEPENDS "${ECHO_BIN}" "${CMAKE_SOURCE_DIR}/cmake/embed_bin.cmake"
-    COMMENT "Embedding user ELF echo"
+    OUTPUT "${INITRD_BIN}"
+    COMMAND "${NASM_EXECUTABLE}"
+        -f bin
+        -I "${BOOT_INC_DIR}/"
+        -I "${CMAKE_BINARY_DIR}/"
+        -o "${INITRD_BIN}"
+        "${INITRD_ASM}"
+    DEPENDS "${INITRD_ASM}" "${ECHO_BIN}" "${BOOT_INC}"
+    COMMENT "Packing initrd"
     VERBATIM
 )
 
@@ -103,13 +105,11 @@ foreach(_src ${KERNEL_C_SOURCES})
             -mno-sse2
             -mcmodel=kernel
             -I "${KERNEL_DIR}"
-            -I "${CMAKE_BINARY_DIR}"
             -c
             -o "${_obj}"
             "${_src}"
         DEPENDS
             "${_src}"
-            "${ECHO_BLOB}"
             "${KERNEL_DIR}/vga.h"
             "${KERNEL_DIR}/idt.h"
             "${KERNEL_DIR}/pic.h"
@@ -192,12 +192,13 @@ add_custom_command(
 add_custom_command(
     OUTPUT "${DISK_IMG}"
     COMMAND "${CMAKE_COMMAND}"
-        -DFILE1=${BOOT_BIN}
-        -DFILE2=${STAGE2_BIN}
-        -DFILE3=${KERNEL_BIN}
-        -DOUT=${DISK_IMG}
+        "-DFILE1=${BOOT_BIN}"
+        "-DFILE2=${STAGE2_BIN}"
+        "-DFILE3=${KERNEL_BIN}"
+        "-DFILE4=${INITRD_BIN}"
+        "-DOUT=${DISK_IMG}"
         -P "${CMAKE_SOURCE_DIR}/cmake/concat.cmake"
-    DEPENDS "${BOOT_BIN}" "${STAGE2_BIN}" "${KERNEL_BIN}" "${CMAKE_SOURCE_DIR}/cmake/concat.cmake"
+    DEPENDS "${BOOT_BIN}" "${STAGE2_BIN}" "${KERNEL_BIN}" "${INITRD_BIN}" "${CMAKE_SOURCE_DIR}/cmake/concat.cmake"
     COMMENT "Creating disk image"
     VERBATIM
 )

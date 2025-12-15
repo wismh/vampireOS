@@ -133,13 +133,16 @@ static void run_cat(const char *arg)
 {
     const void *data;
     unsigned len;
+    unsigned i;
 
     arg = skip_ws(arg);
     if (*arg == '\0' || fs_lookup(arg, &data, &len) != 0) {
         vga_putc('?');
         return;
     }
-    puts_cur((const char *)data);
+    for (i = 0; i < len; i++) {
+        vga_putc(((const char *)data)[i]);
+    }
 }
 
 static void run_prog(const char *arg)

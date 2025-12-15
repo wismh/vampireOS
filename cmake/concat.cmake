@@ -6,6 +6,9 @@ set(_files "${FILE1}" "${FILE2}")
 if(DEFINED FILE3)
     list(APPEND _files "${FILE3}")
 endif()
+if(DEFINED FILE4)
+    list(APPEND _files "${FILE4}")
+endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -E cat ${_files}

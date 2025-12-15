@@ -1,7 +1,11 @@
 #include "fs.h"
-#include "echo_blob.h"
+#include "vmm.h"
+
+#include <stdint.h>
 
 #define FS_MAX 3
+#define INITRD_PHYS 0x20000ull
+#define INITRD_SIZE (8ull * 512ull)
 
 struct fs_file {
     const char *name;
@@ -12,18 +16,63 @@ struct fs_file {
 static struct fs_file files[FS_MAX];
 static int file_count;
 
+static unsigned rd_u32(const uint8_t *p)
+{
+    return (unsigned)p[0] | ((unsigned)p[1] << 8) | ((unsigned)p[2] << 16) |
+           ((unsigned)p[3] << 24);
+}
+
 void fs_init(void)
 {
-    files[0].name = "hello";
-    files[0].data = "blood";
-    files[0].len = 5;
-    files[1].name = "motd";
-    files[1].data = "night";
-    files[1].len = 5;
-    files[2].name = "echo";
-    files[2].data = echo_elf;
-    files[2].len = echo_elf_len;
-    file_count = 3;
+    const uint8_t *base;
+    const uint8_t *p;
+    const uint8_t *end;
+    unsigned n;
+    unsigned i;
+
+    file_count = 0;
+    base = (const uint8_t *)(uintptr_t)phys_to_virt(INITRD_PHYS);
+    end = base + INITRD_SIZE;
+    if (base[0] != 'V' || base[1] != 'R' || base[2] != 'D' || base[3] != '1') {
+        return;
+    }
+    n = rd_u32(base + 4);
+    if (n == 0 || n > FS_MAX) {
+        return;
+    }
+    p = base + 8;
+    for (i = 0; i < n; i++) {
+        unsigned nlen;
+        unsigned dlen;
+
+        if (p >= end) {
+            file_count = 0;
+            return;
+        }
+        nlen = p[0];
+        p++;
+        if (nlen == 0 || nlen > 15 || p + nlen + 1 + 4 > end) {
+            file_count = 0;
+            return;
+        }
+        files[i].name = (const char *)p;
+        p += nlen;
+        if (*p != 0) {
+            file_count = 0;
+            return;
+        }
+        p++;
+        dlen = rd_u32(p);
+        p += 4;
+        if (p + dlen > end) {
+            file_count = 0;
+            return;
+        }
+        files[i].data = p;
+        files[i].len = dlen;
+        p += dlen;
+        file_count++;
+    }
 }
 
 int fs_count(void)
