@@ -1,11 +1,8 @@
 #include "fs.h"
-#include "vmm.h"
 
 #include <stdint.h>
 
 #define FS_MAX 3
-#define INITRD_PHYS 0x20000ull
-#define INITRD_SIZE (8ull * 512ull)
 
 struct fs_file {
     const char *name;
@@ -22,7 +19,7 @@ static unsigned rd_u32(const uint8_t *p)
            ((unsigned)p[3] << 24);
 }
 
-void fs_init(void)
+void fs_init(const void *blob, unsigned size)
 {
     const uint8_t *base;
     const uint8_t *p;
@@ -31,8 +28,11 @@ void fs_init(void)
     unsigned i;
 
     file_count = 0;
-    base = (const uint8_t *)(uintptr_t)phys_to_virt(INITRD_PHYS);
-    end = base + INITRD_SIZE;
+    if (blob == 0 || size < 8) {
+        return;
+    }
+    base = (const uint8_t *)blob;
+    end = base + size;
     if (base[0] != 'V' || base[1] != 'R' || base[2] != 'D' || base[3] != '1') {
         return;
     }

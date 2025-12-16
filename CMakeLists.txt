@@ -87,6 +87,7 @@ set(KERNEL_C_SOURCES
     "${KERNEL_DIR}/sched.c"
     "${KERNEL_DIR}/fs.c"
     "${KERNEL_DIR}/elf.c"
+    "${KERNEL_DIR}/ata.c"
 )
 set(KERNEL_C_OBJECTS "")
 foreach(_src ${KERNEL_C_SOURCES})
@@ -123,6 +124,7 @@ foreach(_src ${KERNEL_C_SOURCES})
             "${KERNEL_DIR}/sched.h"
             "${KERNEL_DIR}/fs.h"
             "${KERNEL_DIR}/elf.h"
+            "${KERNEL_DIR}/ata.h"
             "${KERNEL_DIR}/io.h"
         COMMENT "Compiling ${_name}.c"
         VERBATIM

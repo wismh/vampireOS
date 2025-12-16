@@ -19,12 +19,6 @@ start:
     int 0x13
     jc disk_error
 
-    mov si, initrd_dap
-    mov ah, 0x42
-    mov dl, [boot_drive]
-    int 0x13
-    jc disk_error
-
     call detect_memory
 
     cli
@@ -174,15 +168,6 @@ kernel_dap:
     dw KERNEL_OFFSET
     dw KERNEL_SEGMENT
     dq KERNEL_LBA
-
-    align 16
-initrd_dap:
-    db 0x10
-    db 0
-    dw INITRD_SECTORS
-    dw INITRD_OFFSET
-    dw INITRD_SEGMENT
-    dq INITRD_LBA
 
 align 8
 gdt:
