@@ -1,4 +1,3 @@
-#include "ata.h"
 #include "e820.h"
 #include "fs.h"
 #include "heap.h"
@@ -21,33 +20,7 @@ static void kmain_cont(void)
     row = vmm_print(row);
     kheap_init();
     row = kheap_print(row);
-    {
-        uint64_t phys;
-        void *rd;
-        /* Must match boot/const.inc INITRD_LBA / INITRD_SECTORS. */
-        unsigned bytes = 8u * 512u;
-        uint32_t lba = 17u + 48u;
-
-        phys = pmm_alloc_above(0x200000ull);
-        if (phys == 0) {
-            phys = pmm_alloc();
-        }
-        if (phys == 0) {
-            vga_write_at(row, 0, "ata fail");
-            fs_init(0, 0);
-        } else {
-            rd = (void *)(uintptr_t)phys_to_virt(phys);
-            if (ata_read(lba, 8u, rd) != 0) {
-                vga_write_at(row, 0, "ata fail");
-                fs_init(0, 0);
-            } else {
-                vga_write_at(row, 0, "ata ");
-                vga_write_dec_at(row, 4, bytes);
-                fs_init(rd, bytes);
-            }
-        }
-        row++;
-    }
+    row = fs_init(row);
     row = user_init(row);
     vga_set_cursor(row, 0);
     kbd_console_init();

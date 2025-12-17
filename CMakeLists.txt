@@ -48,8 +48,8 @@ set(KERNEL_BIN "${CMAKE_BINARY_DIR}/kernel.bin")
 set(DISK_IMG "${CMAKE_BINARY_DIR}/vampire.img")
 set(ECHO_ASM "${CMAKE_SOURCE_DIR}/user/echo.asm")
 set(ECHO_BIN "${CMAKE_BINARY_DIR}/echo.bin")
-set(INITRD_ASM "${CMAKE_SOURCE_DIR}/user/initrd.asm")
-set(INITRD_BIN "${CMAKE_BINARY_DIR}/initrd.bin")
+set(FAT_ASM "${CMAKE_SOURCE_DIR}/user/fat.asm")
+set(FAT_BIN "${CMAKE_BINARY_DIR}/fat.bin")
 
 add_custom_command(
     OUTPUT "${ECHO_BIN}"
@@ -60,15 +60,15 @@ add_custom_command(
 )
 
 add_custom_command(
-    OUTPUT "${INITRD_BIN}"
+    OUTPUT "${FAT_BIN}"
     COMMAND "${NASM_EXECUTABLE}"
         -f bin
         -I "${BOOT_INC_DIR}/"
         -I "${CMAKE_BINARY_DIR}/"
-        -o "${INITRD_BIN}"
-        "${INITRD_ASM}"
-    DEPENDS "${INITRD_ASM}" "${ECHO_BIN}" "${BOOT_INC}"
-    COMMENT "Packing initrd"
+        -o "${FAT_BIN}"
+        "${FAT_ASM}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${BOOT_INC}"
+    COMMENT "Packing FAT12 volume"
     VERBATIM
 )
 
@@ -197,10 +197,10 @@ add_custom_command(
         "-DFILE1=${BOOT_BIN}"
         "-DFILE2=${STAGE2_BIN}"
         "-DFILE3=${KERNEL_BIN}"
-        "-DFILE4=${INITRD_BIN}"
+        "-DFILE4=${FAT_BIN}"
         "-DOUT=${DISK_IMG}"
         -P "${CMAKE_SOURCE_DIR}/cmake/concat.cmake"
-    DEPENDS "${BOOT_BIN}" "${STAGE2_BIN}" "${KERNEL_BIN}" "${INITRD_BIN}" "${CMAKE_SOURCE_DIR}/cmake/concat.cmake"
+    DEPENDS "${BOOT_BIN}" "${STAGE2_BIN}" "${KERNEL_BIN}" "${FAT_BIN}" "${CMAKE_SOURCE_DIR}/cmake/concat.cmake"
     COMMENT "Creating disk image"
     VERBATIM
 )
