@@ -145,6 +145,28 @@ static void run_cat(const char *arg)
     }
 }
 
+static void run_put(const char *arg)
+{
+    char name[13];
+    unsigned n = 0;
+    unsigned len = 0;
+    const char *text;
+
+    arg = skip_ws(arg);
+    while (*arg != '\0' && *arg != ' ' && n < 12u) {
+        name[n++] = *arg;
+        arg++;
+    }
+    name[n] = '\0';
+    text = skip_ws(arg);
+    while (text[len] != '\0') {
+        len++;
+    }
+    if (n == 0 || len == 0 || fs_write(name, text, len) != 0) {
+        vga_putc('?');
+    }
+}
+
 static void run_prog(const char *arg)
 {
     arg = skip_ws(arg);
@@ -173,7 +195,7 @@ static void run_line(void)
     cmd = line + i;
     vga_putc('\n');
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run");
+        puts_cur("help ls mem cat run put");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "ls")) {
@@ -182,6 +204,8 @@ static void run_line(void)
         run_cat(cmd + 3);
     } else if (cmd_is(cmd, "run")) {
         run_prog(cmd + 3);
+    } else if (cmd_is(cmd, "put")) {
+        run_put(cmd + 3);
     } else {
         vga_putc('?');
     }

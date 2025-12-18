@@ -13,12 +13,18 @@
 
 struct fs_file {
     char name[13];
-    const void *data;
+    uint8_t *data;
     unsigned len;
+    unsigned cluster;
+    unsigned dir_off;
 };
 
 static struct fs_file files[FS_MAX];
 static int file_count;
+static uint8_t *g_fat;
+static uint8_t *g_sec;
+static unsigned g_first_data;
+static unsigned g_first_root;
 
 static unsigned rd_u16(const uint8_t *p)
 {
@@ -31,6 +37,14 @@ static unsigned rd_u32(const uint8_t *p)
            ((unsigned)p[3] << 24);
 }
 
+static void wr_u32(uint8_t *p, unsigned v)
+{
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16);
+    p[3] = (uint8_t)(v >> 24);
+}
+
 static void copy_bytes(uint8_t *dst, const uint8_t *src, unsigned n)
 {
     unsigned i;
@@ -38,6 +52,30 @@ static void copy_bytes(uint8_t *dst, const uint8_t *src, unsigned n)
     for (i = 0; i < n; i++) {
         dst[i] = src[i];
     }
+}
+
+static int names_eq(const char *a, const char *b)
+{
+    while (*a != '\0' && *a == *b) {
+        a++;
+        b++;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+static int find_file(const char *name)
+{
+    int i;
+
+    if (name == 0 || *name == '\0') {
+        return -1;
+    }
+    for (i = 0; i < file_count; i++) {
+        if (names_eq(name, files[i].name)) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 static uint8_t *page_buf(void)
@@ -103,8 +141,7 @@ static void fat_name(const uint8_t *ent, char *out)
     out[n] = '\0';
 }
 
-static int load_file(const uint8_t *fat, uint8_t *sec, uint8_t *dst,
-                     unsigned first_data, unsigned start, unsigned size)
+static int load_file(uint8_t *dst, unsigned start, unsigned size)
 {
     unsigned left = size;
     unsigned cl = start;
@@ -113,17 +150,17 @@ static int load_file(const uint8_t *fat, uint8_t *sec, uint8_t *dst,
     while (left > 0) {
         unsigned n;
 
-        if (cl < 2u || cl >= FAT12_EOF || hops >= 8u) {
+        if (cl < 2u || cl >= FAT12_EOF || hops >= 8u || g_fat == 0 || g_sec == 0) {
             return -1;
         }
-        if (ata_read(first_data + (cl - 2u), 1u, sec) != 0) {
+        if (ata_read(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
             return -1;
         }
         n = left < SEC ? left : SEC;
-        copy_bytes(dst, sec, n);
+        copy_bytes(dst, g_sec, n);
         dst += n;
         left -= n;
-        cl = fat12_ent(fat, cl);
+        cl = fat12_ent(g_fat, cl);
         hops++;
     }
     return 0;
@@ -132,9 +169,7 @@ static int load_file(const uint8_t *fat, uint8_t *sec, uint8_t *dst,
 int fs_init(int row)
 {
     uint8_t *scratch;
-    uint8_t *fat;
     uint8_t *root;
-    uint8_t *sec;
     uint8_t *data;
     uint8_t *bpb;
     unsigned byts;
@@ -149,21 +184,20 @@ int fs_init(int row)
     unsigned root_secs;
     unsigned data_secs;
     unsigned clusters;
-    unsigned first_root;
-    unsigned first_data;
-    unsigned used = 0;
     unsigned i;
 
     file_count = 0;
+    g_fat = 0;
+    g_sec = 0;
     scratch = page_buf();
     data = page_buf();
     if (scratch == 0 || data == 0) {
         vga_write_at(row, 0, "fat fail");
         return row + 1;
     }
-    fat = scratch;
-    root = scratch + SEC;
-    sec = scratch + SEC * 2u;
+    g_fat = scratch;
+    g_sec = scratch + SEC;
+    root = scratch + SEC * 2u;
     bpb = scratch + SEC * 3u;
 
     if (ata_read(0u, 1u, bpb) != 0) {
@@ -195,9 +229,10 @@ int fs_init(int row)
         vga_write_at(row, 0, "fat fail");
         return row + 1;
     }
-    first_root = rsvd + nfats * fatsz;
-    first_data = first_root + root_secs;
-    if (ata_read(rsvd, 1u, fat) != 0 || ata_read(first_root, 1u, root) != 0) {
+    g_first_root = rsvd + nfats * fatsz;
+    g_first_data = g_first_root + root_secs;
+    if (ata_read(rsvd, 1u, g_fat) != 0 ||
+        ata_read(g_first_root, 1u, root) != 0) {
         vga_write_at(row, 0, "fat fail");
         return row + 1;
     }
@@ -207,6 +242,7 @@ int fs_init(int row)
         unsigned attr;
         unsigned cl;
         unsigned sz;
+        uint8_t *dst;
 
         if (ent[0] == 0) {
             break;
@@ -220,17 +256,19 @@ int fs_init(int row)
         }
         cl = rd_u16(ent + 26);
         sz = rd_u32(ent + 28);
-        if (sz == 0 || sz > SEC * 8u || used + sz > 0x1000u) {
+        if (sz == 0 || sz > SEC || (unsigned)file_count * SEC + SEC > 0x1000u) {
             continue;
         }
-        if (load_file(fat, sec, data + used, first_data, cl, sz) != 0) {
+        dst = data + (unsigned)file_count * SEC;
+        if (load_file(dst, cl, sz) != 0) {
             vga_write_at(row, 0, "fat fail");
             return row + 1;
         }
         fat_name(ent, files[file_count].name);
-        files[file_count].data = data + used;
+        files[file_count].data = dst;
         files[file_count].len = sz;
-        used += sz;
+        files[file_count].cluster = cl;
+        files[file_count].dir_off = i * 32u;
         file_count++;
     }
     if (file_count == 0) {
@@ -257,24 +295,53 @@ const char *fs_name(int i)
 int fs_lookup(const char *name, const void **data, unsigned *len)
 {
     int i;
-    const char *a;
-    const char *b;
 
-    if (name == 0 || data == 0 || len == 0) {
+    if (data == 0 || len == 0) {
         return -1;
     }
-    for (i = 0; i < file_count; i++) {
-        a = name;
-        b = files[i].name;
-        while (*a != '\0' && *a == *b) {
-            a++;
-            b++;
-        }
-        if (*a == '\0' && *b == '\0') {
-            *data = files[i].data;
-            *len = files[i].len;
-            return 0;
-        }
+    i = find_file(name);
+    if (i < 0 || g_sec == 0) {
+        return -1;
     }
-    return -1;
+    if (ata_read(g_first_root, 1u, g_sec) != 0) {
+        return -1;
+    }
+    files[i].len = rd_u32(g_sec + files[i].dir_off + 28);
+    if (files[i].len == 0 || files[i].len > SEC) {
+        return -1;
+    }
+    if (load_file(files[i].data, files[i].cluster, files[i].len) != 0) {
+        return -1;
+    }
+    *data = files[i].data;
+    *len = files[i].len;
+    return 0;
+}
+
+int fs_write(const char *name, const void *src, unsigned len)
+{
+    int i;
+    unsigned k;
+
+    i = find_file(name);
+    if (i < 0 || src == 0 || len == 0 || len > SEC || g_sec == 0) {
+        return -1;
+    }
+    for (k = 0; k < SEC; k++) {
+        g_sec[k] = 0;
+    }
+    copy_bytes(g_sec, (const uint8_t *)src, len);
+    if (ata_write(g_first_data + (files[i].cluster - 2u), 1u, g_sec) != 0) {
+        return -1;
+    }
+    if (ata_read(g_first_root, 1u, g_sec) != 0) {
+        return -1;
+    }
+    wr_u32(g_sec + files[i].dir_off + 28, len);
+    if (ata_write(g_first_root, 1u, g_sec) != 0) {
+        return -1;
+    }
+    copy_bytes(files[i].data, (const uint8_t *)src, len);
+    files[i].len = len;
+    return 0;
 }
