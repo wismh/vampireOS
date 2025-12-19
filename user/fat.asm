@@ -48,3 +48,4 @@ echo_data:
     incbin "echo.bin"
 echo_len equ $ - echo_data
     times 512 - echo_len db 0
+    times (FAT_DATA_CLUSTERS - 3) * 512 db 0
