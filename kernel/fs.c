@@ -241,6 +241,43 @@ static int dir_slot(void)
     return -1;
 }
 
+static uint8_t *alloc_slot(void)
+{
+    unsigned s;
+    int j;
+
+    if (g_data == 0) {
+        return 0;
+    }
+    for (s = 0; s < (unsigned)FS_MAX; s++) {
+        uint8_t *p = g_data + s * SEC;
+        int used = 0;
+
+        for (j = 0; j < file_count; j++) {
+            if (files[j].data == p) {
+                used = 1;
+                break;
+            }
+        }
+        if (!used) {
+            return p;
+        }
+    }
+    return 0;
+}
+
+static void fat_free_chain(unsigned cl)
+{
+    unsigned hops = 0;
+
+    while (cl >= 2u && cl < FAT12_EOF && hops < 8u) {
+        unsigned next = fat12_ent(g_fat, cl);
+        fat12_set(g_fat, cl, 0);
+        cl = next;
+        hops++;
+    }
+}
+
 static void fat_name(const uint8_t *ent, char *out);
 
 static int fs_create(const char *name)
@@ -256,7 +293,8 @@ static int fs_create(const char *name)
         g_fat == 0) {
         return -1;
     }
-    if ((unsigned)file_count * SEC + SEC > 0x1000u) {
+    dst = alloc_slot();
+    if (dst == 0) {
         return -1;
     }
     cl = fat_alloc();
@@ -285,7 +323,6 @@ static int fs_create(const char *name)
         (void)fat_flush();
         return -1;
     }
-    dst = g_data + (unsigned)file_count * SEC;
     fat_name(ent, files[file_count].name);
     files[file_count].data = dst;
     files[file_count].len = 0;
@@ -539,5 +576,29 @@ int fs_write(const char *name, const void *src, unsigned len)
     }
     copy_bytes(files[i].data, (const uint8_t *)src, len);
     files[i].len = len;
+    return 0;
+}
+
+int fs_remove(const char *name)
+{
+    int i;
+
+    i = find_file(name);
+    if (i < 0 || g_sec == 0 || g_fat == 0) {
+        return -1;
+    }
+    fat_free_chain(files[i].cluster);
+    if (fat_flush() != 0) {
+        return -1;
+    }
+    if (ata_read(g_first_root, 1u, g_sec) != 0) {
+        return -1;
+    }
+    g_sec[files[i].dir_off] = 0xE5;
+    if (ata_write(g_first_root, 1u, g_sec) != 0) {
+        return -1;
+    }
+    files[i] = files[file_count - 1];
+    file_count--;
     return 0;
 }

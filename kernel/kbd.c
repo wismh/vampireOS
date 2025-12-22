@@ -167,6 +167,14 @@ static void run_put(const char *arg)
     }
 }
 
+static void run_rm(const char *arg)
+{
+    arg = skip_ws(arg);
+    if (*arg == '\0' || fs_remove(arg) != 0) {
+        vga_putc('?');
+    }
+}
+
 static void run_prog(const char *arg)
 {
     arg = skip_ws(arg);
@@ -195,7 +203,7 @@ static void run_line(void)
     cmd = line + i;
     vga_putc('\n');
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put");
+        puts_cur("help ls mem cat run put rm");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "ls")) {
@@ -206,6 +214,8 @@ static void run_line(void)
         run_prog(cmd + 3);
     } else if (cmd_is(cmd, "put")) {
         run_put(cmd + 3);
+    } else if (cmd_is(cmd, "rm")) {
+        run_rm(cmd + 2);
     } else {
         vga_putc('?');
     }
