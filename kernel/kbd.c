@@ -167,6 +167,43 @@ static void run_put(const char *arg)
     }
 }
 
+static void run_fill(const char *arg)
+{
+    char name[13];
+    unsigned n = 0;
+    unsigned len = 0;
+    unsigned i;
+    char *buf;
+
+    arg = skip_ws(arg);
+    while (*arg != '\0' && *arg != ' ' && n < 12u) {
+        name[n++] = *arg;
+        arg++;
+    }
+    name[n] = '\0';
+    arg = skip_ws(arg);
+    while (*arg >= '0' && *arg <= '9') {
+        len = len * 10u + (unsigned)(*arg - '0');
+        arg++;
+    }
+    if (n == 0 || len == 0 || len > 0x1000u) {
+        vga_putc('?');
+        return;
+    }
+    buf = (char *)kmalloc(len);
+    if (buf == 0) {
+        vga_putc('?');
+        return;
+    }
+    for (i = 0; i < len; i++) {
+        buf[i] = 'x';
+    }
+    if (fs_write(name, buf, len) != 0) {
+        vga_putc('?');
+    }
+    kfree(buf);
+}
+
 static void run_rm(const char *arg)
 {
     arg = skip_ws(arg);
@@ -203,7 +240,7 @@ static void run_line(void)
     cmd = line + i;
     vga_putc('\n');
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm");
+        puts_cur("help ls mem cat run put rm fill");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "ls")) {
@@ -216,6 +253,8 @@ static void run_line(void)
         run_put(cmd + 3);
     } else if (cmd_is(cmd, "rm")) {
         run_rm(cmd + 2);
+    } else if (cmd_is(cmd, "fill")) {
+        run_fill(cmd + 4);
     } else {
         vga_putc('?');
     }

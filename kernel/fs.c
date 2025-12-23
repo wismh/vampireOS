@@ -8,6 +8,8 @@
 
 #define FS_MAX 8
 #define SEC 512u
+#define FILE_MAX 0x1000u
+#define CHAIN_MAX 8u
 #define FAT12_EOF 0xFF8u
 #define FAT12_MAX 4084u
 
@@ -23,7 +25,6 @@ static struct fs_file files[FS_MAX];
 static int file_count;
 static uint8_t *g_fat;
 static uint8_t *g_sec;
-static uint8_t *g_data;
 static unsigned g_first_data;
 static unsigned g_first_root;
 static unsigned g_rsvd;
@@ -101,6 +102,19 @@ static uint8_t *page_buf(void)
         return 0;
     }
     return (uint8_t *)(uintptr_t)phys_to_virt(phys);
+}
+
+static void drop_page(uint8_t *p)
+{
+    uint64_t phys;
+
+    if (p == 0) {
+        return;
+    }
+    phys = virt_to_phys((uint64_t)(uintptr_t)p);
+    if (phys != 0) {
+        pmm_free(phys);
+    }
 }
 
 static unsigned fat12_ent(const uint8_t *fat, unsigned cl)
@@ -241,41 +255,84 @@ static int dir_slot(void)
     return -1;
 }
 
-static uint8_t *alloc_slot(void)
-{
-    unsigned s;
-    int j;
-
-    if (g_data == 0) {
-        return 0;
-    }
-    for (s = 0; s < (unsigned)FS_MAX; s++) {
-        uint8_t *p = g_data + s * SEC;
-        int used = 0;
-
-        for (j = 0; j < file_count; j++) {
-            if (files[j].data == p) {
-                used = 1;
-                break;
-            }
-        }
-        if (!used) {
-            return p;
-        }
-    }
-    return 0;
-}
-
 static void fat_free_chain(unsigned cl)
 {
     unsigned hops = 0;
 
-    while (cl >= 2u && cl < FAT12_EOF && hops < 8u) {
+    while (cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
         unsigned next = fat12_ent(g_fat, cl);
         fat12_set(g_fat, cl, 0);
         cl = next;
         hops++;
     }
+}
+
+static int fat_resize(unsigned *start, unsigned need)
+{
+    unsigned cls[CHAIN_MAX];
+    unsigned have = 0;
+    unsigned cl;
+    unsigned n;
+
+    if (start == 0 || need == 0 || need > CHAIN_MAX) {
+        return -1;
+    }
+    cl = *start;
+    while (cl >= 2u && cl < FAT12_EOF && have < CHAIN_MAX) {
+        cls[have++] = cl;
+        cl = fat12_ent(g_fat, cl);
+    }
+    while (have < need) {
+        n = fat_alloc();
+        if (n < 2u) {
+            return -1;
+        }
+        if (have > 0) {
+            fat12_set(g_fat, cls[have - 1u], n);
+        } else {
+            *start = n;
+        }
+        cls[have++] = n;
+    }
+    while (have > need) {
+        have--;
+        fat12_set(g_fat, cls[have], 0);
+    }
+    fat12_set(g_fat, cls[need - 1u], FAT12_EOF);
+    *start = cls[0];
+    return 0;
+}
+
+static int store_chain(unsigned start, const uint8_t *src, unsigned len)
+{
+    unsigned cl = start;
+    unsigned off = 0;
+    unsigned hops = 0;
+    unsigned k;
+
+    while (off < len) {
+        unsigned n = len - off;
+
+        if (n > SEC) {
+            n = SEC;
+        }
+        if (cl < 2u || cl >= FAT12_EOF || hops >= CHAIN_MAX || g_sec == 0) {
+            return -1;
+        }
+        for (k = 0; k < SEC; k++) {
+            g_sec[k] = 0;
+        }
+        copy_bytes(g_sec, src + off, n);
+        if (ata_write(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
+            return -1;
+        }
+        off += n;
+        hops++;
+        if (off < len) {
+            cl = fat12_ent(g_fat, cl);
+        }
+    }
+    return 0;
 }
 
 static void fat_name(const uint8_t *ent, char *out);
@@ -289,26 +346,28 @@ static int fs_create(const char *name)
     uint8_t *ent;
     uint8_t *dst;
 
-    if (to_83(name, n83) != 0 || file_count >= FS_MAX || g_data == 0 ||
-        g_fat == 0) {
+    if (to_83(name, n83) != 0 || file_count >= FS_MAX || g_fat == 0) {
         return -1;
     }
-    dst = alloc_slot();
+    dst = page_buf();
     if (dst == 0) {
         return -1;
     }
     cl = fat_alloc();
     if (cl < 2u) {
+        drop_page(dst);
         return -1;
     }
     if (fat_flush() != 0) {
         fat12_set(g_fat, cl, 0);
+        drop_page(dst);
         return -1;
     }
     off = dir_slot();
     if (off < 0) {
         fat12_set(g_fat, cl, 0);
         (void)fat_flush();
+        drop_page(dst);
         return -1;
     }
     ent = g_sec + (unsigned)off;
@@ -321,6 +380,7 @@ static int fs_create(const char *name)
     if (ata_write(g_first_root, 1u, g_sec) != 0) {
         fat12_set(g_fat, cl, 0);
         (void)fat_flush();
+        drop_page(dst);
         return -1;
     }
     fat_name(ent, files[file_count].name);
@@ -373,7 +433,7 @@ static int load_file(uint8_t *dst, unsigned start, unsigned size)
     while (left > 0) {
         unsigned n;
 
-        if (cl < 2u || cl >= FAT12_EOF || hops >= 8u || g_fat == 0 || g_sec == 0) {
+        if (cl < 2u || cl >= FAT12_EOF || hops >= CHAIN_MAX || g_fat == 0 || g_sec == 0) {
             return -1;
         }
         if (ata_read(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
@@ -393,7 +453,6 @@ int fs_init(int row)
 {
     uint8_t *scratch;
     uint8_t *root;
-    uint8_t *data;
     uint8_t *bpb;
     unsigned byts;
     unsigned spc;
@@ -412,11 +471,9 @@ int fs_init(int row)
     file_count = 0;
     g_fat = 0;
     g_sec = 0;
-    g_data = 0;
     g_fatsz = 0;
     scratch = page_buf();
-    data = page_buf();
-    if (scratch == 0 || data == 0) {
+    if (scratch == 0) {
         vga_write_at(row, 0, "fat fail");
         return row + 1;
     }
@@ -458,7 +515,6 @@ int fs_init(int row)
     g_fatsz = fatsz;
     g_root_ent = root_ent;
     g_clusters = clusters;
-    g_data = data;
     g_first_root = rsvd + nfats * fatsz;
     g_first_data = g_first_root + root_secs;
     if (ata_read(rsvd, 1u, g_fat) != 0 ||
@@ -486,10 +542,14 @@ int fs_init(int row)
         }
         cl = rd_u16(ent + 26);
         sz = rd_u32(ent + 28);
-        if (sz == 0 || sz > SEC || (unsigned)file_count * SEC + SEC > 0x1000u) {
+        if (sz == 0 || sz > FILE_MAX) {
             continue;
         }
-        dst = data + (unsigned)file_count * SEC;
+        dst = page_buf();
+        if (dst == 0) {
+            vga_write_at(row, 0, "fat fail");
+            return row + 1;
+        }
         if (load_file(dst, cl, sz) != 0) {
             vga_write_at(row, 0, "fat fail");
             return row + 1;
@@ -537,7 +597,7 @@ int fs_lookup(const char *name, const void **data, unsigned *len)
         return -1;
     }
     files[i].len = rd_u32(g_sec + files[i].dir_off + 28);
-    if (files[i].len == 0 || files[i].len > SEC) {
+    if (files[i].len == 0 || files[i].len > FILE_MAX) {
         return -1;
     }
     if (load_file(files[i].data, files[i].cluster, files[i].len) != 0) {
@@ -551,26 +611,27 @@ int fs_lookup(const char *name, const void **data, unsigned *len)
 int fs_write(const char *name, const void *src, unsigned len)
 {
     int i;
-    unsigned k;
+    unsigned need;
 
     i = find_file(name);
     if (i < 0) {
         i = fs_create(name);
     }
-    if (i < 0 || src == 0 || len == 0 || len > SEC || g_sec == 0) {
+    if (i < 0 || src == 0 || len == 0 || len > FILE_MAX || g_sec == 0) {
         return -1;
     }
-    for (k = 0; k < SEC; k++) {
-        g_sec[k] = 0;
+    need = (len + SEC - 1u) / SEC;
+    if (fat_resize(&files[i].cluster, need) != 0 || fat_flush() != 0) {
+        return -1;
     }
-    copy_bytes(g_sec, (const uint8_t *)src, len);
-    if (ata_write(g_first_data + (files[i].cluster - 2u), 1u, g_sec) != 0) {
+    if (store_chain(files[i].cluster, (const uint8_t *)src, len) != 0) {
         return -1;
     }
     if (ata_read(g_first_root, 1u, g_sec) != 0) {
         return -1;
     }
     wr_u32(g_sec + files[i].dir_off + 28, len);
+    wr_u16(g_sec + files[i].dir_off + 26, files[i].cluster);
     if (ata_write(g_first_root, 1u, g_sec) != 0) {
         return -1;
     }
@@ -582,6 +643,7 @@ int fs_write(const char *name, const void *src, unsigned len)
 int fs_remove(const char *name)
 {
     int i;
+    uint64_t phys;
 
     i = find_file(name);
     if (i < 0 || g_sec == 0 || g_fat == 0) {
@@ -598,7 +660,13 @@ int fs_remove(const char *name)
     if (ata_write(g_first_root, 1u, g_sec) != 0) {
         return -1;
     }
-    files[i] = files[file_count - 1];
+    phys = virt_to_phys((uint64_t)(uintptr_t)files[i].data);
+    if (i != file_count - 1) {
+        files[i] = files[file_count - 1];
+    }
     file_count--;
+    if (phys != 0) {
+        pmm_free(phys);
+    }
     return 0;
 }
