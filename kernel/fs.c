@@ -19,6 +19,7 @@ struct fs_file {
     unsigned len;
     unsigned cluster;
     unsigned dir_off;
+    unsigned is_dir;
 };
 
 static struct fs_file files[FS_MAX];
@@ -31,6 +32,8 @@ static unsigned g_rsvd;
 static unsigned g_fatsz;
 static unsigned g_root_ent;
 static unsigned g_clusters;
+static unsigned g_cwd;
+static uint8_t *g_dir;
 
 static unsigned rd_u16(const uint8_t *p)
 {
@@ -239,14 +242,47 @@ static unsigned fat_alloc(void)
     return 0;
 }
 
+static unsigned dir_lba(void)
+{
+    if (g_cwd < 2u) {
+        return g_first_root;
+    }
+    return g_first_data + (g_cwd - 2u);
+}
+
+static unsigned dir_ents(void)
+{
+    if (g_cwd < 2u) {
+        return g_root_ent;
+    }
+    return SEC / 32u;
+}
+
+static int dir_load(void)
+{
+    if (g_sec == 0) {
+        return -1;
+    }
+    return ata_read(dir_lba(), 1u, g_sec);
+}
+
+static int dir_store(void)
+{
+    if (g_sec == 0) {
+        return -1;
+    }
+    return ata_write(dir_lba(), 1u, g_sec);
+}
+
 static int dir_slot(void)
 {
     unsigned i;
+    unsigned n = dir_ents();
 
-    if (g_sec == 0 || ata_read(g_first_root, 1u, g_sec) != 0) {
+    if (dir_load() != 0) {
         return -1;
     }
-    for (i = 0; i < g_root_ent; i++) {
+    for (i = 0; i < n; i++) {
         uint8_t c = g_sec[i * 32u];
         if (c == 0 || c == 0xE5) {
             return (int)(i * 32u);
@@ -377,7 +413,7 @@ static int fs_create(const char *name)
     copy_bytes(ent, n83, 11u);
     ent[11] = 0x20;
     wr_u16(ent + 26, cl);
-    if (ata_write(g_first_root, 1u, g_sec) != 0) {
+    if (dir_store() != 0) {
         fat12_set(g_fat, cl, 0);
         (void)fat_flush();
         drop_page(dst);
@@ -388,6 +424,7 @@ static int fs_create(const char *name)
     files[file_count].len = 0;
     files[file_count].cluster = cl;
     files[file_count].dir_off = (unsigned)off;
+    files[file_count].is_dir = 0;
     file_count++;
     return file_count - 1;
 }
@@ -449,10 +486,72 @@ static int load_file(uint8_t *dst, unsigned start, unsigned size)
     return 0;
 }
 
+static int scan_dir(void)
+{
+    unsigned i;
+    unsigned n;
+    int old = file_count;
+
+    for (i = 0; i < (unsigned)old; i++) {
+        drop_page(files[i].data);
+        files[i].data = 0;
+    }
+    file_count = 0;
+    if (g_dir == 0 || ata_read(dir_lba(), 1u, g_dir) != 0) {
+        return -1;
+    }
+    n = dir_ents();
+    for (i = 0; i < n && file_count < FS_MAX; i++) {
+        const uint8_t *ent = g_dir + i * 32u;
+        unsigned attr;
+        unsigned cl;
+        unsigned sz;
+        uint8_t *dst;
+
+        if (ent[0] == 0) {
+            break;
+        }
+        if (ent[0] == 0xE5 || ent[0] == 0x05 || ent[0] == '.') {
+            continue;
+        }
+        attr = ent[11];
+        if ((attr & 0x08u) != 0 || attr == 0x0Fu) {
+            continue;
+        }
+        cl = rd_u16(ent + 26);
+        fat_name(ent, files[file_count].name);
+        files[file_count].cluster = cl;
+        files[file_count].dir_off = i * 32u;
+        files[file_count].data = 0;
+        files[file_count].len = 0;
+        if ((attr & 0x10u) != 0) {
+            files[file_count].is_dir = 1;
+            file_count++;
+            continue;
+        }
+        sz = rd_u32(ent + 28);
+        if (sz == 0 || sz > FILE_MAX) {
+            continue;
+        }
+        dst = page_buf();
+        if (dst == 0) {
+            return -1;
+        }
+        if (load_file(dst, cl, sz) != 0) {
+            drop_page(dst);
+            return -1;
+        }
+        files[file_count].data = dst;
+        files[file_count].len = sz;
+        files[file_count].is_dir = 0;
+        file_count++;
+    }
+    return 0;
+}
+
 int fs_init(int row)
 {
     uint8_t *scratch;
-    uint8_t *root;
     uint8_t *bpb;
     unsigned byts;
     unsigned spc;
@@ -466,12 +565,13 @@ int fs_init(int row)
     unsigned root_secs;
     unsigned data_secs;
     unsigned clusters;
-    unsigned i;
 
     file_count = 0;
     g_fat = 0;
     g_sec = 0;
+    g_dir = 0;
     g_fatsz = 0;
+    g_cwd = 0;
     scratch = page_buf();
     if (scratch == 0) {
         vga_write_at(row, 0, "fat fail");
@@ -479,7 +579,7 @@ int fs_init(int row)
     }
     g_fat = scratch;
     g_sec = scratch + SEC;
-    root = scratch + SEC * 2u;
+    g_dir = scratch + SEC * 2u;
     bpb = scratch + SEC * 3u;
 
     if (ata_read(0u, 1u, bpb) != 0) {
@@ -517,49 +617,10 @@ int fs_init(int row)
     g_clusters = clusters;
     g_first_root = rsvd + nfats * fatsz;
     g_first_data = g_first_root + root_secs;
-    if (ata_read(rsvd, 1u, g_fat) != 0 ||
-        ata_read(g_first_root, 1u, root) != 0) {
+    g_cwd = 0;
+    if (ata_read(rsvd, 1u, g_fat) != 0 || scan_dir() != 0) {
         vga_write_at(row, 0, "fat fail");
         return row + 1;
-    }
-
-    for (i = 0; i < root_ent && file_count < FS_MAX; i++) {
-        const uint8_t *ent = root + i * 32u;
-        unsigned attr;
-        unsigned cl;
-        unsigned sz;
-        uint8_t *dst;
-
-        if (ent[0] == 0) {
-            break;
-        }
-        if (ent[0] == 0xE5 || ent[0] == 0x05) {
-            continue;
-        }
-        attr = ent[11];
-        if ((attr & 0x08u) != 0 || (attr & 0x10u) != 0 || attr == 0x0Fu) {
-            continue;
-        }
-        cl = rd_u16(ent + 26);
-        sz = rd_u32(ent + 28);
-        if (sz == 0 || sz > FILE_MAX) {
-            continue;
-        }
-        dst = page_buf();
-        if (dst == 0) {
-            vga_write_at(row, 0, "fat fail");
-            return row + 1;
-        }
-        if (load_file(dst, cl, sz) != 0) {
-            vga_write_at(row, 0, "fat fail");
-            return row + 1;
-        }
-        fat_name(ent, files[file_count].name);
-        files[file_count].data = dst;
-        files[file_count].len = sz;
-        files[file_count].cluster = cl;
-        files[file_count].dir_off = i * 32u;
-        file_count++;
     }
     if (file_count == 0) {
         vga_write_at(row, 0, "fat fail");
@@ -590,10 +651,10 @@ int fs_lookup(const char *name, const void **data, unsigned *len)
         return -1;
     }
     i = find_file(name);
-    if (i < 0 || g_sec == 0) {
+    if (i < 0 || files[i].is_dir || g_sec == 0 || files[i].data == 0) {
         return -1;
     }
-    if (ata_read(g_first_root, 1u, g_sec) != 0) {
+    if (dir_load() != 0) {
         return -1;
     }
     files[i].len = rd_u32(g_sec + files[i].dir_off + 28);
@@ -614,10 +675,14 @@ int fs_write(const char *name, const void *src, unsigned len)
     unsigned need;
 
     i = find_file(name);
+    if (i >= 0 && files[i].is_dir) {
+        return -1;
+    }
     if (i < 0) {
         i = fs_create(name);
     }
-    if (i < 0 || src == 0 || len == 0 || len > FILE_MAX || g_sec == 0) {
+    if (i < 0 || src == 0 || len == 0 || len > FILE_MAX || g_sec == 0 ||
+        files[i].is_dir) {
         return -1;
     }
     need = (len + SEC - 1u) / SEC;
@@ -627,12 +692,12 @@ int fs_write(const char *name, const void *src, unsigned len)
     if (store_chain(files[i].cluster, (const uint8_t *)src, len) != 0) {
         return -1;
     }
-    if (ata_read(g_first_root, 1u, g_sec) != 0) {
+    if (dir_load() != 0) {
         return -1;
     }
     wr_u32(g_sec + files[i].dir_off + 28, len);
     wr_u16(g_sec + files[i].dir_off + 26, files[i].cluster);
-    if (ata_write(g_first_root, 1u, g_sec) != 0) {
+    if (dir_store() != 0) {
         return -1;
     }
     copy_bytes(files[i].data, (const uint8_t *)src, len);
@@ -646,18 +711,18 @@ int fs_remove(const char *name)
     uint64_t phys;
 
     i = find_file(name);
-    if (i < 0 || g_sec == 0 || g_fat == 0) {
+    if (i < 0 || files[i].is_dir || g_sec == 0 || g_fat == 0) {
         return -1;
     }
     fat_free_chain(files[i].cluster);
     if (fat_flush() != 0) {
         return -1;
     }
-    if (ata_read(g_first_root, 1u, g_sec) != 0) {
+    if (dir_load() != 0) {
         return -1;
     }
     g_sec[files[i].dir_off] = 0xE5;
-    if (ata_write(g_first_root, 1u, g_sec) != 0) {
+    if (dir_store() != 0) {
         return -1;
     }
     phys = virt_to_phys((uint64_t)(uintptr_t)files[i].data);
@@ -669,4 +734,104 @@ int fs_remove(const char *name)
         pmm_free(phys);
     }
     return 0;
+}
+
+int fs_isdir(int i)
+{
+    if (i < 0 || i >= file_count) {
+        return 0;
+    }
+    return files[i].is_dir ? 1 : 0;
+}
+
+int fs_mkdir(const char *name)
+{
+    uint8_t n83[11];
+    unsigned cl;
+    unsigned k;
+    unsigned parent;
+    int off;
+    uint8_t *ent;
+
+    if (to_83(name, n83) != 0 || find_file(name) >= 0 || file_count >= FS_MAX ||
+        g_fat == 0 || g_sec == 0) {
+        return -1;
+    }
+    cl = fat_alloc();
+    if (cl < 2u) {
+        return -1;
+    }
+    if (fat_flush() != 0) {
+        fat12_set(g_fat, cl, 0);
+        return -1;
+    }
+    parent = g_cwd < 2u ? 0 : g_cwd;
+    for (k = 0; k < SEC; k++) {
+        g_sec[k] = 0;
+    }
+    g_sec[0] = '.';
+    for (k = 1; k < 11u; k++) {
+        g_sec[k] = ' ';
+    }
+    g_sec[11] = 0x10;
+    wr_u16(g_sec + 26, cl);
+    g_sec[32] = '.';
+    g_sec[33] = '.';
+    for (k = 34; k < 43u; k++) {
+        g_sec[k] = ' ';
+    }
+    g_sec[43] = 0x10;
+    wr_u16(g_sec + 58, parent);
+    if (ata_write(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
+        fat12_set(g_fat, cl, 0);
+        (void)fat_flush();
+        return -1;
+    }
+    off = dir_slot();
+    if (off < 0) {
+        fat12_set(g_fat, cl, 0);
+        (void)fat_flush();
+        return -1;
+    }
+    ent = g_sec + (unsigned)off;
+    for (k = 0; k < 32u; k++) {
+        ent[k] = 0;
+    }
+    copy_bytes(ent, n83, 11u);
+    ent[11] = 0x10;
+    wr_u16(ent + 26, cl);
+    if (dir_store() != 0) {
+        fat12_set(g_fat, cl, 0);
+        (void)fat_flush();
+        return -1;
+    }
+    return scan_dir();
+}
+
+int fs_chdir(const char *name)
+{
+    int i;
+
+    if (name == 0 || *name == '\0') {
+        return -1;
+    }
+    if (names_eq(name, ".")) {
+        return 0;
+    }
+    if (names_eq(name, "..")) {
+        if (g_cwd < 2u) {
+            return 0;
+        }
+        if (ata_read(dir_lba(), 1u, g_sec) != 0) {
+            return -1;
+        }
+        g_cwd = rd_u16(g_sec + 58);
+        return scan_dir();
+    }
+    i = find_file(name);
+    if (i < 0 || files[i].is_dir == 0) {
+        return -1;
+    }
+    g_cwd = files[i].cluster;
+    return scan_dir();
 }

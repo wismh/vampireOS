@@ -126,6 +126,9 @@ static void run_ls(void)
             vga_putc(' ');
         }
         puts_cur(fs_name(i));
+        if (fs_isdir(i)) {
+            vga_putc('/');
+        }
     }
 }
 
@@ -212,6 +215,22 @@ static void run_rm(const char *arg)
     }
 }
 
+static void run_mkdir(const char *arg)
+{
+    arg = skip_ws(arg);
+    if (*arg == '\0' || fs_mkdir(arg) != 0) {
+        vga_putc('?');
+    }
+}
+
+static void run_cd(const char *arg)
+{
+    arg = skip_ws(arg);
+    if (*arg == '\0' || fs_chdir(arg) != 0) {
+        vga_putc('?');
+    }
+}
+
 static void run_prog(const char *arg)
 {
     arg = skip_ws(arg);
@@ -240,7 +259,7 @@ static void run_line(void)
     cmd = line + i;
     vga_putc('\n');
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm fill");
+        puts_cur("help ls mem cat run put rm fill mkdir cd");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "ls")) {
@@ -255,6 +274,10 @@ static void run_line(void)
         run_rm(cmd + 2);
     } else if (cmd_is(cmd, "fill")) {
         run_fill(cmd + 4);
+    } else if (cmd_is(cmd, "mkdir")) {
+        run_mkdir(cmd + 5);
+    } else if (cmd_is(cmd, "cd")) {
+        run_cd(cmd + 2);
     } else {
         vga_putc('?');
     }
