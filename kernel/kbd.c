@@ -116,11 +116,19 @@ static const char *skip_ws(const char *s)
     return s;
 }
 
-static void run_ls(void)
+static void run_ls(const char *arg)
 {
+    unsigned here;
     int i;
-    int n = fs_count();
+    int n;
 
+    arg = skip_ws(arg);
+    here = fs_cwd();
+    if (*arg != '\0' && fs_chdir(arg) != 0) {
+        vga_putc('?');
+        return;
+    }
+    n = fs_count();
     for (i = 0; i < n; i++) {
         if (i != 0) {
             vga_putc(' ');
@@ -129,6 +137,9 @@ static void run_ls(void)
         if (fs_isdir(i)) {
             vga_putc('/');
         }
+    }
+    if (*arg != '\0') {
+        (void)fs_setcwd(here);
     }
 }
 
@@ -150,13 +161,13 @@ static void run_cat(const char *arg)
 
 static void run_put(const char *arg)
 {
-    char name[13];
+    char name[40];
     unsigned n = 0;
     unsigned len = 0;
     const char *text;
 
     arg = skip_ws(arg);
-    while (*arg != '\0' && *arg != ' ' && n < 12u) {
+    while (*arg != '\0' && *arg != ' ' && n < 39u) {
         name[n++] = *arg;
         arg++;
     }
@@ -172,14 +183,14 @@ static void run_put(const char *arg)
 
 static void run_fill(const char *arg)
 {
-    char name[13];
+    char name[40];
     unsigned n = 0;
     unsigned len = 0;
     unsigned i;
     char *buf;
 
     arg = skip_ws(arg);
-    while (*arg != '\0' && *arg != ' ' && n < 12u) {
+    while (*arg != '\0' && *arg != ' ' && n < 39u) {
         name[n++] = *arg;
         arg++;
     }
@@ -262,8 +273,8 @@ static void run_line(void)
         puts_cur("help ls mem cat run put rm fill mkdir cd");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
-    } else if (streq(cmd, "ls")) {
-        run_ls();
+    } else if (cmd_is(cmd, "ls")) {
+        run_ls(cmd + 2);
     } else if (cmd_is(cmd, "cat")) {
         run_cat(cmd + 3);
     } else if (cmd_is(cmd, "run")) {

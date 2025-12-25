@@ -33,7 +33,9 @@ static unsigned g_fatsz;
 static unsigned g_root_ent;
 static unsigned g_clusters;
 static unsigned g_cwd;
+static unsigned g_saved_cwd;
 static uint8_t *g_dir;
+static uint8_t *g_view;
 
 static unsigned rd_u16(const uint8_t *p)
 {
@@ -91,6 +93,180 @@ static int find_file(const char *name)
         }
     }
     return -1;
+}
+
+static int copy_str(char *dst, unsigned max, const char *src)
+{
+    unsigned n = 0;
+
+    if (dst == 0 || src == 0 || max == 0) {
+        return -1;
+    }
+    while (src[n] != '\0') {
+        if (n + 1u >= max) {
+            return -1;
+        }
+        dst[n] = src[n];
+        n++;
+    }
+    dst[n] = '\0';
+    return 0;
+}
+
+static int scan_dir(void);
+static unsigned dir_lba(void);
+
+static int split_next(const char **sp, char *comp, unsigned max)
+{
+    const char *s;
+    unsigned n = 0;
+
+    if (sp == 0 || *sp == 0 || comp == 0 || max == 0) {
+        return -1;
+    }
+    s = *sp;
+    while (*s == '/') {
+        s++;
+    }
+    if (*s == '\0') {
+        *sp = s;
+        return 0;
+    }
+    while (*s != '\0' && *s != '/') {
+        if (n + 1u >= max) {
+            return -1;
+        }
+        comp[n++] = *s++;
+    }
+    comp[n] = '\0';
+    *sp = s;
+    return 1;
+}
+
+static int chdir_one(const char *name)
+{
+    int i;
+
+    if (name == 0 || *name == '\0') {
+        return -1;
+    }
+    if (names_eq(name, ".")) {
+        return 0;
+    }
+    if (names_eq(name, "..")) {
+        if (g_cwd < 2u) {
+            return 0;
+        }
+        if (ata_read(dir_lba(), 1u, g_sec) != 0) {
+            return -1;
+        }
+        g_cwd = rd_u16(g_sec + 58);
+        return scan_dir();
+    }
+    i = find_file(name);
+    if (i < 0 || files[i].is_dir == 0) {
+        return -1;
+    }
+    g_cwd = files[i].cluster;
+    return scan_dir();
+}
+
+static int walk_all(const char *path)
+{
+    char comp[13];
+    int got;
+
+    if (path == 0) {
+        return -1;
+    }
+    if (*path == '/') {
+        if (g_cwd >= 2u) {
+            g_cwd = 0;
+            if (scan_dir() != 0) {
+                return -1;
+            }
+        }
+        path++;
+    }
+    for (;;) {
+        got = split_next(&path, comp, 13u);
+        if (got < 0) {
+            return -1;
+        }
+        if (got == 0) {
+            return 0;
+        }
+        if (chdir_one(comp) != 0) {
+            return -1;
+        }
+    }
+}
+
+static int enter_parent(const char *path, char *leaf)
+{
+    char comp[13];
+    const char *s;
+    int got;
+
+    g_saved_cwd = g_cwd;
+    if (path == 0 || *path == '\0' || leaf == 0) {
+        return -1;
+    }
+    s = path;
+    if (*s == '/') {
+        if (g_cwd >= 2u) {
+            g_cwd = 0;
+            if (scan_dir() != 0) {
+                goto fail;
+            }
+        }
+        s++;
+        if (*s == '\0') {
+            goto fail;
+        }
+    }
+    got = split_next(&s, comp, 13u);
+    if (got <= 0) {
+        goto fail;
+    }
+    for (;;) {
+        char more[13];
+        int g2;
+        const char *rest = s;
+
+        g2 = split_next(&rest, more, 13u);
+        if (g2 < 0) {
+            goto fail;
+        }
+        if (g2 == 0) {
+            if (copy_str(leaf, 13u, comp) != 0) {
+                goto fail;
+            }
+            return 0;
+        }
+        if (chdir_one(comp) != 0) {
+            goto fail;
+        }
+        if (copy_str(comp, 13u, more) != 0) {
+            goto fail;
+        }
+        s = rest;
+    }
+fail:
+    if (g_cwd != g_saved_cwd) {
+        g_cwd = g_saved_cwd;
+        (void)scan_dir();
+    }
+    return -1;
+}
+
+static int leave_parent(void)
+{
+    if (g_cwd == g_saved_cwd) {
+        return 0;
+    }
+    g_cwd = g_saved_cwd;
+    return scan_dir();
 }
 
 static uint8_t *page_buf(void)
@@ -570,8 +746,10 @@ int fs_init(int row)
     g_fat = 0;
     g_sec = 0;
     g_dir = 0;
+    g_view = 0;
     g_fatsz = 0;
     g_cwd = 0;
+    g_saved_cwd = 0;
     scratch = page_buf();
     if (scratch == 0) {
         vga_write_at(row, 0, "fat fail");
@@ -645,95 +823,117 @@ const char *fs_name(int i)
 
 int fs_lookup(const char *name, const void **data, unsigned *len)
 {
+    char leaf[13];
     int i;
+    int r = -1;
 
     if (data == 0 || len == 0) {
         return -1;
     }
-    i = find_file(name);
-    if (i < 0 || files[i].is_dir || g_sec == 0 || files[i].data == 0) {
+    if (enter_parent(name, leaf) != 0) {
         return -1;
     }
-    if (dir_load() != 0) {
+    i = find_file(leaf);
+    if (i >= 0 && files[i].is_dir == 0 && g_sec != 0 && files[i].data != 0) {
+        if (dir_load() == 0) {
+            files[i].len = rd_u32(g_sec + files[i].dir_off + 28);
+            if (files[i].len != 0 && files[i].len <= FILE_MAX &&
+                load_file(files[i].data, files[i].cluster, files[i].len) == 0) {
+                if (g_cwd != g_saved_cwd) {
+                    if (g_view == 0) {
+                        g_view = page_buf();
+                    }
+                    if (g_view != 0) {
+                        copy_bytes(g_view, files[i].data, files[i].len);
+                        *data = g_view;
+                        *len = files[i].len;
+                        r = 0;
+                    }
+                } else {
+                    *data = files[i].data;
+                    *len = files[i].len;
+                    r = 0;
+                }
+            }
+        }
+    }
+    if (leave_parent() != 0) {
         return -1;
     }
-    files[i].len = rd_u32(g_sec + files[i].dir_off + 28);
-    if (files[i].len == 0 || files[i].len > FILE_MAX) {
-        return -1;
-    }
-    if (load_file(files[i].data, files[i].cluster, files[i].len) != 0) {
-        return -1;
-    }
-    *data = files[i].data;
-    *len = files[i].len;
-    return 0;
+    return r;
 }
 
 int fs_write(const char *name, const void *src, unsigned len)
 {
+    char leaf[13];
     int i;
     unsigned need;
+    int r = -1;
 
-    i = find_file(name);
+    if (enter_parent(name, leaf) != 0) {
+        return -1;
+    }
+    i = find_file(leaf);
     if (i >= 0 && files[i].is_dir) {
+        (void)leave_parent();
         return -1;
     }
     if (i < 0) {
-        i = fs_create(name);
+        i = fs_create(leaf);
     }
-    if (i < 0 || src == 0 || len == 0 || len > FILE_MAX || g_sec == 0 ||
-        files[i].is_dir) {
+    if (i >= 0 && src != 0 && len != 0 && len <= FILE_MAX && g_sec != 0 &&
+        files[i].is_dir == 0) {
+        need = (len + SEC - 1u) / SEC;
+        if (fat_resize(&files[i].cluster, need) == 0 && fat_flush() == 0 &&
+            store_chain(files[i].cluster, (const uint8_t *)src, len) == 0 &&
+            dir_load() == 0) {
+            wr_u32(g_sec + files[i].dir_off + 28, len);
+            wr_u16(g_sec + files[i].dir_off + 26, files[i].cluster);
+            if (dir_store() == 0) {
+                copy_bytes(files[i].data, (const uint8_t *)src, len);
+                files[i].len = len;
+                r = 0;
+            }
+        }
+    }
+    if (leave_parent() != 0) {
         return -1;
     }
-    need = (len + SEC - 1u) / SEC;
-    if (fat_resize(&files[i].cluster, need) != 0 || fat_flush() != 0) {
-        return -1;
-    }
-    if (store_chain(files[i].cluster, (const uint8_t *)src, len) != 0) {
-        return -1;
-    }
-    if (dir_load() != 0) {
-        return -1;
-    }
-    wr_u32(g_sec + files[i].dir_off + 28, len);
-    wr_u16(g_sec + files[i].dir_off + 26, files[i].cluster);
-    if (dir_store() != 0) {
-        return -1;
-    }
-    copy_bytes(files[i].data, (const uint8_t *)src, len);
-    files[i].len = len;
-    return 0;
+    return r;
 }
 
 int fs_remove(const char *name)
 {
+    char leaf[13];
     int i;
     uint64_t phys;
+    int r = -1;
 
-    i = find_file(name);
-    if (i < 0 || files[i].is_dir || g_sec == 0 || g_fat == 0) {
+    if (enter_parent(name, leaf) != 0) {
         return -1;
     }
-    fat_free_chain(files[i].cluster);
-    if (fat_flush() != 0) {
+    i = find_file(leaf);
+    if (i >= 0 && files[i].is_dir == 0 && g_sec != 0 && g_fat != 0) {
+        fat_free_chain(files[i].cluster);
+        if (fat_flush() == 0 && dir_load() == 0) {
+            g_sec[files[i].dir_off] = 0xE5;
+            if (dir_store() == 0) {
+                phys = virt_to_phys((uint64_t)(uintptr_t)files[i].data);
+                if (i != file_count - 1) {
+                    files[i] = files[file_count - 1];
+                }
+                file_count--;
+                if (phys != 0) {
+                    pmm_free(phys);
+                }
+                r = 0;
+            }
+        }
+    }
+    if (leave_parent() != 0) {
         return -1;
     }
-    if (dir_load() != 0) {
-        return -1;
-    }
-    g_sec[files[i].dir_off] = 0xE5;
-    if (dir_store() != 0) {
-        return -1;
-    }
-    phys = virt_to_phys((uint64_t)(uintptr_t)files[i].data);
-    if (i != file_count - 1) {
-        files[i] = files[file_count - 1];
-    }
-    file_count--;
-    if (phys != 0) {
-        pmm_free(phys);
-    }
-    return 0;
+    return r;
 }
 
 int fs_isdir(int i)
@@ -746,23 +946,31 @@ int fs_isdir(int i)
 
 int fs_mkdir(const char *name)
 {
+    char leaf[13];
     uint8_t n83[11];
     unsigned cl;
     unsigned k;
     unsigned parent;
     int off;
     uint8_t *ent;
+    int r;
 
-    if (to_83(name, n83) != 0 || find_file(name) >= 0 || file_count >= FS_MAX ||
+    if (enter_parent(name, leaf) != 0) {
+        return -1;
+    }
+    if (to_83(leaf, n83) != 0 || find_file(leaf) >= 0 || file_count >= FS_MAX ||
         g_fat == 0 || g_sec == 0) {
+        (void)leave_parent();
         return -1;
     }
     cl = fat_alloc();
     if (cl < 2u) {
+        (void)leave_parent();
         return -1;
     }
     if (fat_flush() != 0) {
         fat12_set(g_fat, cl, 0);
+        (void)leave_parent();
         return -1;
     }
     parent = g_cwd < 2u ? 0 : g_cwd;
@@ -785,12 +993,14 @@ int fs_mkdir(const char *name)
     if (ata_write(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
         fat12_set(g_fat, cl, 0);
         (void)fat_flush();
+        (void)leave_parent();
         return -1;
     }
     off = dir_slot();
     if (off < 0) {
         fat12_set(g_fat, cl, 0);
         (void)fat_flush();
+        (void)leave_parent();
         return -1;
     }
     ent = g_sec + (unsigned)off;
@@ -803,35 +1013,41 @@ int fs_mkdir(const char *name)
     if (dir_store() != 0) {
         fat12_set(g_fat, cl, 0);
         (void)fat_flush();
+        (void)leave_parent();
         return -1;
     }
-    return scan_dir();
+    r = scan_dir();
+    if (leave_parent() != 0) {
+        return -1;
+    }
+    return r;
 }
 
 int fs_chdir(const char *name)
 {
-    int i;
+    unsigned saved;
 
     if (name == 0 || *name == '\0') {
         return -1;
     }
-    if (names_eq(name, ".")) {
-        return 0;
-    }
-    if (names_eq(name, "..")) {
-        if (g_cwd < 2u) {
-            return 0;
+    saved = g_cwd;
+    if (walk_all(name) != 0) {
+        if (g_cwd != saved) {
+            g_cwd = saved;
+            (void)scan_dir();
         }
-        if (ata_read(dir_lba(), 1u, g_sec) != 0) {
-            return -1;
-        }
-        g_cwd = rd_u16(g_sec + 58);
-        return scan_dir();
-    }
-    i = find_file(name);
-    if (i < 0 || files[i].is_dir == 0) {
         return -1;
     }
-    g_cwd = files[i].cluster;
+    return 0;
+}
+
+unsigned fs_cwd(void)
+{
+    return g_cwd;
+}
+
+int fs_setcwd(unsigned cl)
+{
+    g_cwd = cl;
     return scan_dir();
 }

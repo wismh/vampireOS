@@ -9,3 +9,5 @@ int fs_remove(const char *name);
 int fs_isdir(int i);
 int fs_mkdir(const char *name);
 int fs_chdir(const char *name);
+unsigned fs_cwd(void);
+int fs_setcwd(unsigned cl);
