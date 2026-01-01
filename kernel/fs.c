@@ -1023,6 +1023,60 @@ int fs_mkdir(const char *name)
     return r;
 }
 
+static int dir_empty(unsigned cl)
+{
+    unsigned i;
+
+    if (cl < 2u || g_sec == 0) {
+        return 0;
+    }
+    if (ata_read(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
+        return 0;
+    }
+    for (i = 0; i < SEC / 32u; i++) {
+        uint8_t c = g_sec[i * 32u];
+
+        if (c == 0) {
+            return 1;
+        }
+        if (c == 0xE5 || c == '.') {
+            continue;
+        }
+        return 0;
+    }
+    return 1;
+}
+
+int fs_rmdir(const char *name)
+{
+    char leaf[13];
+    int i;
+    int r = -1;
+
+    if (enter_parent(name, leaf) != 0) {
+        return -1;
+    }
+    i = find_file(leaf);
+    if (i >= 0 && files[i].is_dir != 0 && g_sec != 0 && g_fat != 0 &&
+        files[i].cluster != g_saved_cwd && dir_empty(files[i].cluster)) {
+        fat_free_chain(files[i].cluster);
+        if (fat_flush() == 0 && dir_load() == 0) {
+            g_sec[files[i].dir_off] = 0xE5;
+            if (dir_store() == 0) {
+                if (i != file_count - 1) {
+                    files[i] = files[file_count - 1];
+                }
+                file_count--;
+                r = 0;
+            }
+        }
+    }
+    if (leave_parent() != 0) {
+        return -1;
+    }
+    return r;
+}
+
 int fs_chdir(const char *name)
 {
     unsigned saved;
