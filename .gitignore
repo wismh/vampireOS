@@ -4,4 +4,4 @@ build/
 *.img
 .cache/
 CMakeUserPresets.json
-.cursor/skills/
+.cursor/
