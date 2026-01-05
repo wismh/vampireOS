@@ -6,7 +6,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 ## Now
 
-- Volume: 16 data clusters, 16 root entries, files up to 4 KiB, directories one cluster.
+- Volume: 128 data clusters, 16 root entries, files up to 4 KiB, directories one cluster.
 - Shell: `help ls mem cat run put rm fill mkdir rmdir cd`. Paths work. No `pwd`.
 - Tasks A/B/C are bytes poked into pages at `0x400000` / `0x402000` / `0x404000`. `echo` is an ELF at `0x406000`. `copy_from_user` trusts `[0x400000, 0x408000)`. `TASK_MAX` is 4.
 - Syscalls: write, exit, yield, sleep, wait. No open/read. No per-task CR3.
