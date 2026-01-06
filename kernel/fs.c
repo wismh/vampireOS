@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-#define FS_MAX 8
+#define FS_MAX 32
 #define SEC 512u
 #define FILE_MAX 0x1000u
 #define CHAIN_MAX 8u
@@ -35,6 +35,7 @@ static unsigned g_clusters;
 static unsigned g_cwd;
 static unsigned g_saved_cwd;
 static uint8_t *g_dir;
+static unsigned g_dir_bytes;
 static uint8_t *g_view;
 
 static unsigned rd_u16(const uint8_t *p)
@@ -431,40 +432,115 @@ static unsigned dir_ents(void)
     if (g_cwd < 2u) {
         return g_root_ent;
     }
-    return SEC / 32u;
+    return g_dir_bytes / 32u;
 }
 
 static int dir_load(void)
 {
-    if (g_sec == 0) {
+    unsigned cl;
+    unsigned hops;
+    unsigned off;
+
+    if (g_dir == 0) {
         return -1;
     }
-    return ata_read(dir_lba(), 1u, g_sec);
+    if (g_cwd < 2u) {
+        if (ata_read(g_first_root, 1u, g_dir) != 0) {
+            return -1;
+        }
+        g_dir_bytes = SEC;
+        return 0;
+    }
+    cl = g_cwd;
+    hops = 0;
+    off = 0;
+    while (cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
+        if (ata_read(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
+            return -1;
+        }
+        off += SEC;
+        hops++;
+        cl = fat12_ent(g_fat, cl);
+    }
+    g_dir_bytes = off;
+    return off == 0 ? -1 : 0;
 }
 
 static int dir_store(void)
 {
-    if (g_sec == 0) {
+    unsigned cl;
+    unsigned hops;
+    unsigned off;
+
+    if (g_dir == 0 || g_dir_bytes == 0) {
         return -1;
     }
-    return ata_write(dir_lba(), 1u, g_sec);
+    if (g_cwd < 2u) {
+        return ata_write(g_first_root, 1u, g_dir);
+    }
+    cl = g_cwd;
+    hops = 0;
+    off = 0;
+    while (off < g_dir_bytes && cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
+        if (ata_write(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
+            return -1;
+        }
+        off += SEC;
+        hops++;
+        cl = fat12_ent(g_fat, cl);
+    }
+    return off < g_dir_bytes ? -1 : 0;
 }
 
 static int dir_slot(void)
 {
     unsigned i;
-    unsigned n = dir_ents();
+    unsigned n;
+    unsigned cl;
+    unsigned last;
+    unsigned next;
+    unsigned hops;
+    unsigned off;
+    unsigned k;
 
     if (dir_load() != 0) {
         return -1;
     }
+    n = dir_ents();
     for (i = 0; i < n; i++) {
-        uint8_t c = g_sec[i * 32u];
+        uint8_t c = g_dir[i * 32u];
         if (c == 0 || c == 0xE5) {
             return (int)(i * 32u);
         }
     }
-    return -1;
+    if (g_cwd < 2u || g_fat == 0 || g_dir_bytes + SEC > CHAIN_MAX * SEC) {
+        return -1;
+    }
+    cl = g_cwd;
+    last = cl;
+    hops = 0;
+    while (cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
+        last = cl;
+        cl = fat12_ent(g_fat, cl);
+        hops++;
+    }
+    next = fat_alloc();
+    if (next < 2u) {
+        return -1;
+    }
+    fat12_set(g_fat, last, next);
+    if (fat_flush() != 0) {
+        fat12_set(g_fat, last, FAT12_EOF);
+        fat12_set(g_fat, next, 0);
+        (void)fat_flush();
+        return -1;
+    }
+    off = g_dir_bytes;
+    for (k = 0; k < SEC; k++) {
+        g_dir[off + k] = 0;
+    }
+    g_dir_bytes = off + SEC;
+    return (int)off;
 }
 
 static void fat_free_chain(unsigned cl)
@@ -582,7 +658,7 @@ static int fs_create(const char *name)
         drop_page(dst);
         return -1;
     }
-    ent = g_sec + (unsigned)off;
+    ent = g_dir + (unsigned)off;
     for (k = 0; k < 32u; k++) {
         ent[k] = 0;
     }
@@ -673,7 +749,7 @@ static int scan_dir(void)
         files[i].data = 0;
     }
     file_count = 0;
-    if (g_dir == 0 || ata_read(dir_lba(), 1u, g_dir) != 0) {
+    if (dir_load() != 0) {
         return -1;
     }
     n = dir_ents();
@@ -746,6 +822,7 @@ int fs_init(int row)
     g_fat = 0;
     g_sec = 0;
     g_dir = 0;
+    g_dir_bytes = 0;
     g_view = 0;
     g_fatsz = 0;
     g_cwd = 0;
@@ -757,8 +834,12 @@ int fs_init(int row)
     }
     g_fat = scratch;
     g_sec = scratch + SEC;
-    g_dir = scratch + SEC * 2u;
-    bpb = scratch + SEC * 3u;
+    bpb = scratch + SEC * 2u;
+    g_dir = page_buf();
+    if (g_dir == 0) {
+        vga_write_at(row, 0, "fat fail");
+        return row + 1;
+    }
 
     if (ata_read(0u, 1u, bpb) != 0) {
         vga_write_at(row, 0, "fat fail");
@@ -834,9 +915,9 @@ int fs_lookup(const char *name, const void **data, unsigned *len)
         return -1;
     }
     i = find_file(leaf);
-    if (i >= 0 && files[i].is_dir == 0 && g_sec != 0 && files[i].data != 0) {
+    if (i >= 0 && files[i].is_dir == 0 && g_dir != 0 && files[i].data != 0) {
         if (dir_load() == 0) {
-            files[i].len = rd_u32(g_sec + files[i].dir_off + 28);
+            files[i].len = rd_u32(g_dir + files[i].dir_off + 28);
             if (files[i].len != 0 && files[i].len <= FILE_MAX &&
                 load_file(files[i].data, files[i].cluster, files[i].len) == 0) {
                 if (g_cwd != g_saved_cwd) {
@@ -881,14 +962,14 @@ int fs_write(const char *name, const void *src, unsigned len)
     if (i < 0) {
         i = fs_create(leaf);
     }
-    if (i >= 0 && src != 0 && len != 0 && len <= FILE_MAX && g_sec != 0 &&
+    if (i >= 0 && src != 0 && len != 0 && len <= FILE_MAX && g_dir != 0 &&
         files[i].is_dir == 0) {
         need = (len + SEC - 1u) / SEC;
         if (fat_resize(&files[i].cluster, need) == 0 && fat_flush() == 0 &&
             store_chain(files[i].cluster, (const uint8_t *)src, len) == 0 &&
             dir_load() == 0) {
-            wr_u32(g_sec + files[i].dir_off + 28, len);
-            wr_u16(g_sec + files[i].dir_off + 26, files[i].cluster);
+            wr_u32(g_dir + files[i].dir_off + 28, len);
+            wr_u16(g_dir + files[i].dir_off + 26, files[i].cluster);
             if (dir_store() == 0) {
                 copy_bytes(files[i].data, (const uint8_t *)src, len);
                 files[i].len = len;
@@ -913,10 +994,10 @@ int fs_remove(const char *name)
         return -1;
     }
     i = find_file(leaf);
-    if (i >= 0 && files[i].is_dir == 0 && g_sec != 0 && g_fat != 0) {
+    if (i >= 0 && files[i].is_dir == 0 && g_dir != 0 && g_fat != 0) {
         fat_free_chain(files[i].cluster);
         if (fat_flush() == 0 && dir_load() == 0) {
-            g_sec[files[i].dir_off] = 0xE5;
+            g_dir[files[i].dir_off] = 0xE5;
             if (dir_store() == 0) {
                 phys = virt_to_phys((uint64_t)(uintptr_t)files[i].data);
                 if (i != file_count - 1) {
@@ -959,7 +1040,7 @@ int fs_mkdir(const char *name)
         return -1;
     }
     if (to_83(leaf, n83) != 0 || find_file(leaf) >= 0 || file_count >= FS_MAX ||
-        g_fat == 0 || g_sec == 0) {
+        g_fat == 0 || g_dir == 0 || g_sec == 0) {
         (void)leave_parent();
         return -1;
     }
@@ -1003,7 +1084,7 @@ int fs_mkdir(const char *name)
         (void)leave_parent();
         return -1;
     }
-    ent = g_sec + (unsigned)off;
+    ent = g_dir + (unsigned)off;
     for (k = 0; k < 32u; k++) {
         ent[k] = 0;
     }
@@ -1026,23 +1107,28 @@ int fs_mkdir(const char *name)
 static int dir_empty(unsigned cl)
 {
     unsigned i;
+    unsigned hops = 0;
 
-    if (cl < 2u || g_sec == 0) {
+    if (cl < 2u || g_sec == 0 || g_fat == 0) {
         return 0;
     }
-    if (ata_read(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
-        return 0;
-    }
-    for (i = 0; i < SEC / 32u; i++) {
-        uint8_t c = g_sec[i * 32u];
+    while (cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
+        if (ata_read(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
+            return 0;
+        }
+        for (i = 0; i < SEC / 32u; i++) {
+            uint8_t c = g_sec[i * 32u];
 
-        if (c == 0) {
-            return 1;
+            if (c == 0) {
+                return 1;
+            }
+            if (c == 0xE5 || c == '.') {
+                continue;
+            }
+            return 0;
         }
-        if (c == 0xE5 || c == '.') {
-            continue;
-        }
-        return 0;
+        cl = fat12_ent(g_fat, cl);
+        hops++;
     }
     return 1;
 }
@@ -1057,11 +1143,11 @@ int fs_rmdir(const char *name)
         return -1;
     }
     i = find_file(leaf);
-    if (i >= 0 && files[i].is_dir != 0 && g_sec != 0 && g_fat != 0 &&
+    if (i >= 0 && files[i].is_dir != 0 && g_dir != 0 && g_fat != 0 &&
         files[i].cluster != g_saved_cwd && dir_empty(files[i].cluster)) {
         fat_free_chain(files[i].cluster);
         if (fat_flush() == 0 && dir_load() == 0) {
-            g_sec[files[i].dir_off] = 0xE5;
+            g_dir[files[i].dir_off] = 0xE5;
             if (dir_store() == 0) {
                 if (i != file_count - 1) {
                     files[i] = files[file_count - 1];

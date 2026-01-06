@@ -6,14 +6,14 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 ## Now
 
-- Volume: 128 data clusters, 16 root entries, files up to 4 KiB, directories one cluster.
+- Volume: 128 data clusters, 16 root entries, files up to 4 KiB. Subdirs grow across FAT clusters; root stays one sector.
 - Shell: `help ls mem cat run put rm fill mkdir rmdir cd`. Paths work. No `pwd`.
 - Tasks A/B/C are bytes poked into pages at `0x400000` / `0x402000` / `0x404000`. `echo` is an ELF at `0x406000`. `copy_from_user` trusts `[0x400000, 0x408000)`. `TASK_MAX` is 4.
 - Syscalls: write, exit, yield, sleep, wait. No open/read. No per-task CR3.
 
 ## Week 1 — finish the volume
 
-Directories exist; they still cannot be removed, and a directory that fills its 512-byte cluster cannot grow.
+Directories exist and subdirs can span a FAT chain; root is still one sector. Next is remembering the path string.
 
 1. **`rmdir`** — refuse unless the cluster holds only `.` / `..` (and `0x00` / `0xE5`). Free the cluster, mark the parent entry deleted. `rmdir sub` after `mkdir sub` leaves `ls` without `sub/`. `rmdir` of a file or a non-empty dir prints `?`.
 2. **More data clusters** — raise `FAT_DATA_CLUSTERS` (and `FAT_TOTAL_SECS`) so nested dirs plus `fill` chains still fit. Keep FAT12 (clusters ≤ 4084) and one sector per FAT until a later slice needs two.
