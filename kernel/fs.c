@@ -12,6 +12,7 @@
 #define CHAIN_MAX 8u
 #define FAT12_EOF 0xFF8u
 #define FAT12_MAX 4084u
+#define PATH_MAX 80u
 
 struct fs_file {
     char name[13];
@@ -34,6 +35,7 @@ static unsigned g_root_ent;
 static unsigned g_clusters;
 static unsigned g_cwd;
 static unsigned g_saved_cwd;
+static char g_path[PATH_MAX];
 static uint8_t *g_dir;
 static unsigned g_dir_bytes;
 static uint8_t *g_view;
@@ -116,6 +118,95 @@ static int copy_str(char *dst, unsigned max, const char *src)
 
 static int scan_dir(void);
 static unsigned dir_lba(void);
+static int split_next(const char **sp, char *comp, unsigned max);
+
+static void path_reset(void)
+{
+    g_path[0] = '/';
+    g_path[1] = '\0';
+}
+
+static int path_pop(void)
+{
+    unsigned n = 0;
+    unsigned last = 0;
+
+    while (g_path[n] != '\0') {
+        if (g_path[n] == '/' && n > 0u) {
+            last = n;
+        }
+        n++;
+    }
+    if (last == 0u) {
+        path_reset();
+        return 0;
+    }
+    g_path[last] = '\0';
+    return 0;
+}
+
+static int path_push(const char *name)
+{
+    unsigned n = 0;
+    unsigned m = 0;
+
+    if (name == 0 || *name == '\0') {
+        return -1;
+    }
+    while (g_path[n] != '\0') {
+        n++;
+    }
+    if (!(n == 1u && g_path[0] == '/')) {
+        if (n + 1u >= PATH_MAX) {
+            return -1;
+        }
+        g_path[n++] = '/';
+    }
+    while (name[m] != '\0') {
+        if (n + 1u >= PATH_MAX) {
+            return -1;
+        }
+        g_path[n++] = name[m++];
+    }
+    g_path[n] = '\0';
+    return 0;
+}
+
+static int path_apply(const char *path)
+{
+    char comp[13];
+    char saved[PATH_MAX];
+    int got;
+
+    if (path == 0 || copy_str(saved, PATH_MAX, g_path) != 0) {
+        return -1;
+    }
+    if (*path == '/') {
+        path_reset();
+        path++;
+    }
+    for (;;) {
+        got = split_next(&path, comp, 13u);
+        if (got < 0) {
+            (void)copy_str(g_path, PATH_MAX, saved);
+            return -1;
+        }
+        if (got == 0) {
+            return 0;
+        }
+        if (names_eq(comp, ".")) {
+            continue;
+        }
+        if (names_eq(comp, "..")) {
+            (void)path_pop();
+            continue;
+        }
+        if (path_push(comp) != 0) {
+            (void)copy_str(g_path, PATH_MAX, saved);
+            return -1;
+        }
+    }
+}
 
 static int split_next(const char **sp, char *comp, unsigned max)
 {
@@ -827,6 +918,7 @@ int fs_init(int row)
     g_fatsz = 0;
     g_cwd = 0;
     g_saved_cwd = 0;
+    path_reset();
     scratch = page_buf();
     if (scratch == 0) {
         vga_write_at(row, 0, "fat fail");
@@ -1166,16 +1258,24 @@ int fs_rmdir(const char *name)
 int fs_chdir(const char *name)
 {
     unsigned saved;
+    char path_saved[PATH_MAX];
 
     if (name == 0 || *name == '\0') {
         return -1;
     }
     saved = g_cwd;
+    if (copy_str(path_saved, PATH_MAX, g_path) != 0) {
+        return -1;
+    }
+    if (path_apply(name) != 0) {
+        return -1;
+    }
     if (walk_all(name) != 0) {
         if (g_cwd != saved) {
             g_cwd = saved;
             (void)scan_dir();
         }
+        (void)copy_str(g_path, PATH_MAX, path_saved);
         return -1;
     }
     return 0;
@@ -1190,4 +1290,17 @@ int fs_setcwd(unsigned cl)
 {
     g_cwd = cl;
     return scan_dir();
+}
+
+const char *fs_pwd(void)
+{
+    return g_path;
+}
+
+int fs_setpwd(const char *path)
+{
+    if (path == 0 || *path == '\0') {
+        return -1;
+    }
+    return copy_str(g_path, PATH_MAX, path);
 }
