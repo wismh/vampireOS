@@ -12,3 +12,5 @@ int fs_rmdir(const char *name);
 int fs_chdir(const char *name);
 unsigned fs_cwd(void);
 int fs_setcwd(unsigned cl);
+const char *fs_pwd(void);
+int fs_setpwd(const char *path);

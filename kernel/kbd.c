@@ -119,11 +119,21 @@ static const char *skip_ws(const char *s)
 static void run_ls(const char *arg)
 {
     unsigned here;
+    char path_here[80];
+    const char *pwd;
+    unsigned k;
     int i;
     int n;
 
     arg = skip_ws(arg);
     here = fs_cwd();
+    pwd = fs_pwd();
+    k = 0;
+    while (pwd[k] != '\0' && k + 1u < 80u) {
+        path_here[k] = pwd[k];
+        k++;
+    }
+    path_here[k] = '\0';
     if (*arg != '\0' && fs_chdir(arg) != 0) {
         vga_putc('?');
         return;
@@ -140,6 +150,7 @@ static void run_ls(const char *arg)
     }
     if (*arg != '\0') {
         (void)fs_setcwd(here);
+        (void)fs_setpwd(path_here);
     }
 }
 
@@ -250,6 +261,11 @@ static void run_cd(const char *arg)
     }
 }
 
+static void run_pwd(void)
+{
+    puts_cur(fs_pwd());
+}
+
 static void run_prog(const char *arg)
 {
     arg = skip_ws(arg);
@@ -278,9 +294,11 @@ static void run_line(void)
     cmd = line + i;
     vga_putc('\n');
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm fill mkdir rmdir cd");
+        puts_cur("help ls mem cat run put rm fill mkdir rmdir cd pwd");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
+    } else if (streq(cmd, "pwd")) {
+        run_pwd();
     } else if (cmd_is(cmd, "ls")) {
         run_ls(cmd + 2);
     } else if (cmd_is(cmd, "cat")) {
