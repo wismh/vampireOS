@@ -48,6 +48,12 @@ set(KERNEL_BIN "${CMAKE_BINARY_DIR}/kernel.bin")
 set(DISK_IMG "${CMAKE_BINARY_DIR}/vampire.img")
 set(ECHO_ASM "${CMAKE_SOURCE_DIR}/user/echo.asm")
 set(ECHO_BIN "${CMAKE_BINARY_DIR}/echo.bin")
+set(A_ASM "${CMAKE_SOURCE_DIR}/user/a.asm")
+set(A_BIN "${CMAKE_BINARY_DIR}/a.bin")
+set(B_ASM "${CMAKE_SOURCE_DIR}/user/b.asm")
+set(B_BIN "${CMAKE_BINARY_DIR}/b.bin")
+set(C_ASM "${CMAKE_SOURCE_DIR}/user/c.asm")
+set(C_BIN "${CMAKE_BINARY_DIR}/c.bin")
 set(FAT_ASM "${CMAKE_SOURCE_DIR}/user/fat.asm")
 set(FAT_BIN "${CMAKE_BINARY_DIR}/fat.bin")
 
@@ -60,6 +66,30 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${A_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${A_BIN}" "${A_ASM}"
+    DEPENDS "${A_ASM}"
+    COMMENT "Assembling user ELF a"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${B_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${B_BIN}" "${B_ASM}"
+    DEPENDS "${B_ASM}"
+    COMMENT "Assembling user ELF b"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${C_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${C_BIN}" "${C_ASM}"
+    DEPENDS "${C_ASM}"
+    COMMENT "Assembling user ELF c"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${FAT_BIN}"
     COMMAND "${NASM_EXECUTABLE}"
         -f bin
@@ -67,7 +97,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )
