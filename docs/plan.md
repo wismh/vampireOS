@@ -8,7 +8,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 - Volume: 128 data clusters, 16 root entries, files up to 4 KiB. Subdirs grow across FAT clusters; root stays one sector.
 - Shell: `help ls mem cat run put rm fill mkdir rmdir cd pwd`. Paths work.
-- Tasks A/B/C are ELFs on the volume at `0x400000` / `0x402000` / `0x404000`. `echo` is an ELF at `0x406000`. `copy_from_user` trusts `[0x400000, 0x408000)`. `TASK_MAX` is 4.
+- Each ELF maps at a BASE with code at BASE and stack at BASE+0x1000 (top BASE+0x2000) via one `map_load_elf` helper. A/B/C/echo keep distinct BASEs `0x400000` / `0x402000` / `0x404000` / `0x406000` while CR3 is shared; true same-address needs week 3. `copy_from_user` trusts `[0x400000, 0x408000)`. `TASK_MAX` is 4.
 - Syscalls: write, exit, yield, sleep, wait. No open/read. No per-task CR3.
 
 ## Week 1 — finish the volume

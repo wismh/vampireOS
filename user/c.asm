@@ -1,3 +1,4 @@
+; BASE 0x404000; stack page at BASE+0x1000
 bits 64
 org 0x404000
 
