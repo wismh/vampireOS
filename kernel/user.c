@@ -15,19 +15,15 @@
 #define USER_DS 0x23
 #define TSS_SEL 0x30
 #define PAGE_4K 0x1000ull
-#define USER_CODE 0x400000ull
-#define USER_STACK 0x401000ull
-#define USER_STACK_TOP 0x402000ull
-#define USER_B_CODE 0x402000ull
-#define USER_B_STACK 0x403000ull
-#define USER_B_STACK_TOP 0x404000ull
-#define USER_C_CODE 0x404000ull
-#define USER_C_STACK 0x405000ull
-#define USER_C_STACK_TOP 0x406000ull
-#define USER_E_CODE 0x406000ull
-#define USER_E_STACK 0x407000ull
-#define USER_E_STACK_TOP 0x408000ull
-#define USER_LIMIT 0x408000ull
+/* Code at BASE, stack page at BASE+0x1000, stack top BASE+0x2000.
+ * Distinct BASEs while CR3 is shared; same address waits on week 3. */
+#define USER_SLOT 0x2000ull
+#define USER_BASE 0x400000ull
+#define USER_BASE_A (USER_BASE + 0ull * USER_SLOT)
+#define USER_BASE_B (USER_BASE + 1ull * USER_SLOT)
+#define USER_BASE_C (USER_BASE + 2ull * USER_SLOT)
+#define USER_BASE_E (USER_BASE + 3ull * USER_SLOT)
+#define USER_LIMIT (USER_BASE + 4ull * USER_SLOT)
 #define KERNEL_STACK_MIN 0x200000ull
 #define SYS_WRITE 1ull
 #define SYS_EXIT 2ull
@@ -105,6 +101,11 @@ static uint64_t alloc_page(void)
         zero_page(phys);
     }
     return phys;
+}
+
+static uint64_t user_stack_top(uint64_t base)
+{
+    return base + 2ull * PAGE_4K;
 }
 
 static void gdt_set_tss(void)
@@ -188,21 +189,41 @@ int user_ready(void)
     return enter_ready;
 }
 
-static int load_boot_elf(const char *name, uint64_t vaddr, uint64_t code_phys,
-                         uint64_t *entry)
+/* Map code+stack at BASE, load ELF into the code page. */
+static int map_load_elf(const void *data, unsigned len, uint64_t base,
+                        uint64_t *entry, uint64_t *stack_top)
+{
+    uint64_t code;
+    uint64_t stack;
+    uint8_t *dest;
+
+    code = alloc_page();
+    stack = alloc_page();
+    if (code == 0 || stack == 0) {
+        return -1;
+    }
+    dest = (uint8_t *)(uintptr_t)phys_to_virt(code);
+    if (elf_load(data, len, dest, (unsigned)PAGE_4K, base, entry) != 0) {
+        return -1;
+    }
+    if (vmm_map_user(base, code) != 0 ||
+        vmm_map_user(base + PAGE_4K, stack) != 0) {
+        return -1;
+    }
+    *stack_top = user_stack_top(base);
+    return 0;
+}
+
+static int map_load_elf_name(const char *name, uint64_t base, uint64_t *entry,
+                             uint64_t *stack_top)
 {
     const void *data;
     unsigned len;
-    uint8_t *dest;
 
     if (fs_lookup(name, &data, &len) != 0) {
         return -1;
     }
-    dest = (uint8_t *)(uintptr_t)phys_to_virt(code_phys);
-    if (elf_load(data, len, dest, (unsigned)PAGE_4K, vaddr, entry) != 0) {
-        return -1;
-    }
-    return 0;
+    return map_load_elf(data, len, base, entry, stack_top);
 }
 
 int user_init(int row)
@@ -213,19 +234,16 @@ int user_init(int row)
     uint64_t ktop_a;
     uint64_t ktop_b;
     uint64_t ktop_c;
-    uint64_t code_a;
-    uint64_t stack_a;
-    uint64_t code_b;
-    uint64_t stack_b;
-    uint64_t code_c;
-    uint64_t stack_c;
     uint64_t entry_a;
     uint64_t entry_b;
     uint64_t entry_c;
+    uint64_t stack_a;
+    uint64_t stack_b;
+    uint64_t stack_c;
     uint16_t tr = TSS_SEL;
 
     enter_ready = 0;
-    enter_rip = USER_CODE;
+    enter_rip = USER_BASE_A;
     user_row = row;
     if (row >= VGA_HEIGHT - 6) {
         return row;
@@ -239,15 +257,7 @@ int user_init(int row)
     kstack_a = alloc_page();
     kstack_b = alloc_page();
     kstack_c = alloc_page();
-    code_a = alloc_page();
-    stack_a = alloc_page();
-    code_b = alloc_page();
-    stack_b = alloc_page();
-    code_c = alloc_page();
-    stack_c = alloc_page();
-    if (kstack_a == 0 || kstack_b == 0 || kstack_c == 0 || code_a == 0 ||
-        stack_a == 0 || code_b == 0 || stack_b == 0 || code_c == 0 ||
-        stack_c == 0) {
+    if (kstack_a == 0 || kstack_b == 0 || kstack_c == 0) {
         vga_write_at(row, 0, "user fail");
         return row + 1;
     }
@@ -258,27 +268,17 @@ int user_init(int row)
     tss_set_rsp0(ktop_a);
     __asm__ volatile ("ltr %0" : : "r"(tr) : "memory");
 
-    if (vmm_map_user(USER_CODE, code_a) != 0 ||
-        vmm_map_user(USER_STACK, stack_a) != 0 ||
-        vmm_map_user(USER_B_CODE, code_b) != 0 ||
-        vmm_map_user(USER_B_STACK, stack_b) != 0 ||
-        vmm_map_user(USER_C_CODE, code_c) != 0 ||
-        vmm_map_user(USER_C_STACK, stack_c) != 0) {
-        vga_write_at(row, 0, "user fail");
-        return row + 1;
-    }
-
-    if (load_boot_elf("a", USER_CODE, code_a, &entry_a) != 0 ||
-        load_boot_elf("b", USER_B_CODE, code_b, &entry_b) != 0 ||
-        load_boot_elf("c", USER_C_CODE, code_c, &entry_c) != 0) {
+    if (map_load_elf_name("a", USER_BASE_A, &entry_a, &stack_a) != 0 ||
+        map_load_elf_name("b", USER_BASE_B, &entry_b, &stack_b) != 0 ||
+        map_load_elf_name("c", USER_BASE_C, &entry_c, &stack_c) != 0) {
         vga_write_at(row, 0, "user fail");
         return row + 1;
     }
 
     sched_init();
-    if (sched_add_user(entry_a, USER_STACK_TOP, ktop_a, row + 1) != 0 ||
-        sched_add_user(entry_b, USER_B_STACK_TOP, ktop_b, row + 2) != 0 ||
-        sched_add_user(entry_c, USER_C_STACK_TOP, ktop_c, row + 3) != 0) {
+    if (sched_add_user(entry_a, stack_a, ktop_a, row + 1) != 0 ||
+        sched_add_user(entry_b, stack_b, ktop_b, row + 2) != 0 ||
+        sched_add_user(entry_c, stack_c, ktop_c, row + 3) != 0) {
         vga_write_at(row, 0, "user fail");
         return row + 1;
     }
@@ -304,7 +304,7 @@ static int copy_from_user(char *dst, uint64_t src, uint64_t max)
     uint64_t i;
     const volatile uint8_t *p;
 
-    if (max == 0 || src < USER_CODE || src >= USER_LIMIT) {
+    if (max == 0 || src < USER_BASE || src >= USER_LIMIT) {
         return -1;
     }
 
@@ -327,10 +327,8 @@ int user_run(const char *name)
     unsigned len;
     uint64_t entry;
     uint64_t kstack;
-    uint64_t code;
-    uint64_t stack;
     uint64_t ktop;
-    uint8_t *dest;
+    uint64_t stack_top;
 
     if (!enter_ready || echo_running || name == 0 || *name == '\0') {
         return -1;
@@ -339,21 +337,14 @@ int user_run(const char *name)
         return -1;
     }
     kstack = alloc_page();
-    code = alloc_page();
-    stack = alloc_page();
-    if (kstack == 0 || code == 0 || stack == 0) {
+    if (kstack == 0) {
         return -1;
     }
-    dest = (uint8_t *)(uintptr_t)phys_to_virt(code);
-    if (elf_load(data, len, dest, (unsigned)PAGE_4K, USER_E_CODE, &entry) != 0) {
-        return -1;
-    }
-    if (vmm_map_user(USER_E_CODE, code) != 0 ||
-        vmm_map_user(USER_E_STACK, stack) != 0) {
+    if (map_load_elf(data, len, USER_BASE_E, &entry, &stack_top) != 0) {
         return -1;
     }
     ktop = phys_to_virt(kstack) + PAGE_4K;
-    if (sched_add_user(entry, USER_E_STACK_TOP, ktop, run_row) != 0) {
+    if (sched_add_user(entry, stack_top, ktop, run_row) != 0) {
         return -1;
     }
     echo_running = 1;
@@ -407,7 +398,7 @@ __attribute__((noreturn))
 void user_enter(void)
 {
     uint64_t rip = enter_rip;
-    uint64_t rsp = USER_STACK_TOP;
+    uint64_t rsp = user_stack_top(USER_BASE_A);
     uint64_t rflags = 0x202;
 
     if (!enter_ready) {
