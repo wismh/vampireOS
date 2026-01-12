@@ -35,6 +35,7 @@ struct task {
     uint64_t rsp;
     uint64_t ss;
     uint64_t kstack_top;
+    uint64_t user_base;
     int state;
     int row;
     unsigned writes;
@@ -124,17 +125,51 @@ void sched_init(void)
         tasks[i].writes = 0;
         tasks[i].wake_tick = 0;
         tasks[i].kstack_top = 0;
+        tasks[i].user_base = 0;
     }
 }
 
-int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row)
+int sched_base_busy(uint64_t user_base)
+{
+    int i;
+
+    if (user_base == 0) {
+        return 1;
+    }
+    for (i = 0; i < task_count; i++) {
+        if (tasks[i].state != TASK_DEAD && tasks[i].user_base == user_base) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
+                   uint64_t user_base)
 {
     struct task *t;
+    int i;
 
-    if (task_count >= TASK_MAX || kstack_top == 0) {
+    if (kstack_top == 0 || user_base == 0) {
         return -1;
     }
-    t = &tasks[task_count];
+    t = 0;
+    for (i = 0; i < task_count; i++) {
+        if (tasks[i].state == TASK_DEAD) {
+            t = &tasks[i];
+            break;
+        }
+    }
+    if (t == 0) {
+        if (task_count >= TASK_MAX) {
+            return -1;
+        }
+        t = &tasks[task_count];
+        if (task_count == 0) {
+            current = 0;
+        }
+        task_count++;
+    }
     t->rax = 0;
     t->rbx = 0;
     t->rcx = 0;
@@ -156,14 +191,11 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row)
     t->rsp = rsp;
     t->ss = USER_DS;
     t->kstack_top = kstack_top;
+    t->user_base = user_base;
     t->state = TASK_READY;
     t->row = row;
     t->writes = 0;
     t->wake_tick = 0;
-    if (task_count == 0) {
-        current = 0;
-    }
-    task_count++;
     return 0;
 }
 
