@@ -73,7 +73,6 @@ static int gdt_ready;
 static int enter_ready;
 static int user_row;
 static int run_row;
-static int echo_running;
 static uint64_t enter_rip;
 
 _Static_assert(sizeof(struct tss) == 104, "long-mode TSS is 104 bytes");
@@ -276,9 +275,9 @@ int user_init(int row)
     }
 
     sched_init();
-    if (sched_add_user(entry_a, stack_a, ktop_a, row + 1) != 0 ||
-        sched_add_user(entry_b, stack_b, ktop_b, row + 2) != 0 ||
-        sched_add_user(entry_c, stack_c, ktop_c, row + 3) != 0) {
+    if (sched_add_user(entry_a, stack_a, ktop_a, row + 1, USER_BASE_A) != 0 ||
+        sched_add_user(entry_b, stack_b, ktop_b, row + 2, USER_BASE_B) != 0 ||
+        sched_add_user(entry_c, stack_c, ktop_c, row + 3, USER_BASE_C) != 0) {
         vga_write_at(row, 0, "user fail");
         return row + 1;
     }
@@ -295,7 +294,6 @@ int user_init(int row)
     enter_rip = entry_a;
     enter_ready = 1;
     run_row = row + 4;
-    echo_running = 0;
     return row + 5;
 }
 
@@ -325,29 +323,46 @@ int user_run(const char *name)
 {
     const void *data;
     unsigned len;
+    uint64_t base;
     uint64_t entry;
     uint64_t kstack;
     uint64_t ktop;
     uint64_t stack_top;
+    int row;
+    int slot;
 
-    if (!enter_ready || echo_running || name == 0 || *name == '\0') {
+    if (!enter_ready || name == 0 || *name == '\0') {
         return -1;
     }
     if (fs_lookup(name, &data, &len) != 0) {
         return -1;
     }
+    if (elf_image_base(data, len, &base) != 0) {
+        return -1;
+    }
+    if (base < USER_BASE || base >= USER_LIMIT ||
+        ((base - USER_BASE) % USER_SLOT) != 0) {
+        return -1;
+    }
+    if (sched_base_busy(base)) {
+        return -1;
+    }
+    slot = (int)((base - USER_BASE) / USER_SLOT);
+    row = user_row + 1 + slot;
+    if (row < 0 || row >= VGA_HEIGHT) {
+        row = run_row;
+    }
     kstack = alloc_page();
     if (kstack == 0) {
         return -1;
     }
-    if (map_load_elf(data, len, USER_BASE_E, &entry, &stack_top) != 0) {
+    if (map_load_elf(data, len, base, &entry, &stack_top) != 0) {
         return -1;
     }
     ktop = phys_to_virt(kstack) + PAGE_4K;
-    if (sched_add_user(entry, stack_top, ktop, run_row) != 0) {
+    if (sched_add_user(entry, stack_top, ktop, row, base) != 0) {
         return -1;
     }
-    echo_running = 1;
     return 0;
 }
 

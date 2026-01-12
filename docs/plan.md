@@ -9,6 +9,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - Volume: 128 data clusters, 16 root entries, files up to 4 KiB. Subdirs grow across FAT clusters; root stays one sector.
 - Shell: `help ls mem cat run put rm fill mkdir rmdir cd pwd`. Paths work.
 - Each ELF maps at a BASE with code at BASE and stack at BASE+0x1000 (top BASE+0x2000) via one `map_load_elf` helper. A/B/C/echo keep distinct BASEs `0x400000` / `0x402000` / `0x404000` / `0x406000` while CR3 is shared; true same-address needs week 3. `copy_from_user` trusts `[0x400000, 0x408000)`. `TASK_MAX` is 4.
+- `run <name>` loads any FAT12 ELF whose linked BASE is free (exited or unused slot). A/B never exit, so `run a` / `run b` need those tasks dead; after C exits, `run c` reuses its slot/base. `run echo` uses the E base when free.
 - Syscalls: write, exit, yield, sleep, wait. No open/read. No per-task CR3.
 
 ## Week 1 — finish the volume
@@ -26,7 +27,7 @@ Stop emitting machine code in `user.c`. The volume already knows how to store an
 
 5. **ELF A, B, C** — `user/a.asm`, `b.asm`, `c.asm` packed next to `echo` on FAT12. `user_init` loads them with `elf_load` the same way `run echo` does. Drop `emit_*`. Boot screen still shows A / B / C counts.
 6. **Same load address** — map every ELF at `0x400000` plus a stack page, not a hand-placed slot per task. Requires week 3 if two programs run at once; until then keep distinct vaddrs only if CR3 is still shared.
-7. **`run` more than echo** — `run a` after A has exited (or never started) loads that file. `echo_running` becomes a free task slot, not a special case for one name.
+7. **`run` more than echo** — done: `run <name>` loads any FAT12 ELF at its linked BASE when that slot is free; exited tasks free their slot/base. `TASK_MAX` still 4.
 8. **`TASK_MAX` 8** — enough for three boot tasks plus a few `run`s. Exit must free the code/stack pages or the PMM will drain across `run` loops.
 
 ## Week 3 — private address spaces
