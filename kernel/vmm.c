@@ -286,6 +286,57 @@ int vmm_map_user(uint64_t virt, uint64_t phys)
     return 0;
 }
 
+int vmm_unmap_user(uint64_t virt)
+{
+    volatile uint64_t *pml4;
+    volatile uint64_t *pdpt;
+    volatile uint64_t *pd;
+    volatile uint64_t *pt;
+    uint64_t pml4_i = (virt >> 39) & (PD_ENTRIES - 1);
+    uint64_t pdpt_i = (virt >> 30) & (PD_ENTRIES - 1);
+    uint64_t pd_i = (virt >> 21) & (PD_ENTRIES - 1);
+    uint64_t pt_i = (virt >> 12) & (PT_ENTRIES - 1);
+    uint64_t e;
+    uint64_t phys;
+    uint64_t cr3 = PML4_PHYS;
+
+    if ((virt & (PAGE_4K - 1)) != 0) {
+        return -1;
+    }
+    if (pml4_i == HHDM_PML4_INDEX || pml4_i == KERNEL_PML4_INDEX) {
+        return -1;
+    }
+    if (!hhdm_ready) {
+        return -1;
+    }
+
+    pml4 = kmap(PML4_PHYS);
+    e = pml4[pml4_i];
+    if ((e & PDE_PRESENT) == 0 || (e & PDE_LARGE) != 0) {
+        return -1;
+    }
+    pdpt = kmap(e & ADDR_MASK);
+    e = pdpt[pdpt_i];
+    if ((e & PDE_PRESENT) == 0 || (e & PDE_LARGE) != 0) {
+        return -1;
+    }
+    pd = kmap(e & ADDR_MASK);
+    e = pd[pd_i];
+    if ((e & PDE_PRESENT) == 0 || (e & PDE_LARGE) != 0) {
+        return -1;
+    }
+    pt = kmap(e & ADDR_MASK);
+    e = pt[pt_i];
+    if ((e & PDE_PRESENT) == 0) {
+        return -1;
+    }
+    phys = e & ADDR_MASK;
+    pt[pt_i] = 0;
+    __asm__ volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
+    pmm_free(phys);
+    return 0;
+}
+
 int vmm_drop_identity(int row)
 {
     struct {
