@@ -1,17 +1,20 @@
 #include "sched.h"
 #include "idt.h"
+#include "pmm.h"
 #include "user.h"
 #include "vga.h"
+#include "vmm.h"
 
 #include <stdint.h>
 
-#define TASK_MAX 4
+#define TASK_MAX 8
 #define TASK_DEAD 0
 #define TASK_READY 1
 #define TASK_SLEEP 2
 #define TASK_WAIT 3
 #define USER_CS 0x2B
 #define USER_DS 0x23
+#define PAGE_4K 0x1000ull
 
 struct task {
     uint64_t rax;
@@ -114,6 +117,32 @@ static void set_current(int idx)
     tss_set_rsp0(tasks[idx].kstack_top);
 }
 
+/* Unmap and free user code/stack frames for this task's BASE. */
+static void free_task_user(struct task *t)
+{
+    if (t == 0 || t->user_base == 0) {
+        return;
+    }
+    vmm_unmap_user(t->user_base);
+    vmm_unmap_user(t->user_base + PAGE_4K);
+    t->user_base = 0;
+}
+
+/* Free a dead task's kernel stack (never while still running on it). */
+static void free_task_kstack(struct task *t)
+{
+    uint64_t kphys;
+
+    if (t == 0 || t->kstack_top == 0) {
+        return;
+    }
+    kphys = virt_to_phys(t->kstack_top - PAGE_4K);
+    if (kphys != 0) {
+        pmm_free(kphys);
+    }
+    t->kstack_top = 0;
+}
+
 void sched_init(void)
 {
     int i;
@@ -157,6 +186,8 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     for (i = 0; i < task_count; i++) {
         if (tasks[i].state == TASK_DEAD) {
             t = &tasks[i];
+            free_task_user(t);
+            free_task_kstack(t);
             break;
         }
     }
@@ -342,6 +373,8 @@ void sched_exit(struct interrupt_frame *frame)
     if (task_count != 0) {
         row = tasks[current].row;
         vga_write_at(row, 2, "done");
+        /* Still on this task's kstack until iretq; free that on slot reuse. */
+        free_task_user(&tasks[current]);
         tasks[current].state = TASK_DEAD;
         wake_waiters();
     }
