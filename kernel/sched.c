@@ -39,6 +39,7 @@ struct task {
     uint64_t ss;
     uint64_t kstack_top;
     uint64_t user_base;
+    uint64_t cr3; /* cloned PML4 phys; boot CR3 still used until item 10 */
     int state;
     int row;
     unsigned writes;
@@ -143,6 +144,18 @@ static void free_task_kstack(struct task *t)
     t->kstack_top = 0;
 }
 
+/* Free only the cloned PML4 page (kernel/HHDM lower tables stay shared). */
+static void free_task_pml4(struct task *t)
+{
+    if (t == 0 || t->cr3 == 0) {
+        return;
+    }
+    if (t->cr3 != vmm_boot_cr3()) {
+        pmm_free(t->cr3);
+    }
+    t->cr3 = 0;
+}
+
 void sched_init(void)
 {
     int i;
@@ -155,6 +168,7 @@ void sched_init(void)
         tasks[i].wake_tick = 0;
         tasks[i].kstack_top = 0;
         tasks[i].user_base = 0;
+        tasks[i].cr3 = 0;
     }
 }
 
@@ -178,8 +192,16 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
 {
     struct task *t;
     int i;
+    uint64_t cr3;
 
     if (kstack_top == 0 || user_base == 0) {
+        return -1;
+    }
+    cr3 = vmm_clone_pml4();
+    if (cr3 == 0 || cr3 == vmm_boot_cr3()) {
+        if (cr3 != 0) {
+            pmm_free(cr3);
+        }
         return -1;
     }
     t = 0;
@@ -188,11 +210,13 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
             t = &tasks[i];
             free_task_user(t);
             free_task_kstack(t);
+            free_task_pml4(t);
             break;
         }
     }
     if (t == 0) {
         if (task_count >= TASK_MAX) {
+            pmm_free(cr3);
             return -1;
         }
         t = &tasks[task_count];
@@ -223,6 +247,7 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->ss = USER_DS;
     t->kstack_top = kstack_top;
     t->user_base = user_base;
+    t->cr3 = cr3;
     t->state = TASK_READY;
     t->row = row;
     t->writes = 0;

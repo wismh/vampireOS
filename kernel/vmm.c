@@ -202,6 +202,39 @@ void vmm_hhdm_init(void)
     hhdm_ready = 1;
 }
 
+uint64_t vmm_boot_cr3(void)
+{
+    return PML4_PHYS;
+}
+
+/* Fresh PML4 page: copy HHDM/kernel half from boot; low (user) half stays zero.
+ * Lower tables are shared by pointer; CR3 switch is a later slice. */
+uint64_t vmm_clone_pml4(void)
+{
+    uint64_t new_phys;
+    volatile uint64_t *src;
+    volatile uint64_t *dst;
+    uint64_t i;
+
+    if (!hhdm_ready) {
+        return 0;
+    }
+    new_phys = pmm_alloc();
+    if (new_phys == 0) {
+        return 0;
+    }
+    src = kmap(PML4_PHYS);
+    dst = kmap(new_phys);
+    for (i = 0; i < PD_ENTRIES; i++) {
+        if (i >= HHDM_PML4_INDEX) {
+            dst[i] = src[i];
+        } else {
+            dst[i] = 0;
+        }
+    }
+    return new_phys;
+}
+
 uint64_t phys_to_virt(uint64_t phys)
 {
     if (!hhdm_ready) {
