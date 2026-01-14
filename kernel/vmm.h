@@ -8,6 +8,9 @@
 
 void vmm_map_usable(const struct e820_map *map);
 void vmm_hhdm_init(void);
+/* New PML4 with kernel/HHDM entries from the boot tables; user half empty. */
+uint64_t vmm_clone_pml4(void);
+uint64_t vmm_boot_cr3(void);
 int vmm_map_user(uint64_t virt, uint64_t phys);
 int vmm_unmap_user(uint64_t virt);
 int vmm_drop_identity(int row);

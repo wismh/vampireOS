@@ -10,7 +10,8 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - Shell: `help ls mem cat run put rm fill mkdir rmdir cd pwd`. Paths work.
 - Each ELF maps at a BASE with code at BASE and stack at BASE+0x1000 (top BASE+0x2000) via one `map_load_elf` helper. A/B/C/echo keep distinct BASEs `0x400000` / `0x402000` / `0x404000` / `0x406000` while CR3 is shared; true same-address needs week 3. `copy_from_user` trusts `[0x400000, 0x408000)`. `TASK_MAX` is 8; exit frees that task’s user code/stack frames and its kernel stack so `run` loops do not drain the PMM.
 - `run <name>` loads any FAT12 ELF whose linked BASE is free (exited or unused slot). A/B never exit, so `run a` / `run b` need those tasks dead; after C exits, `run c` reuses its slot/base. `run echo` uses the E base when free.
-- Syscalls: write, exit, yield, sleep, wait. No open/read. No per-task CR3.
+- Syscalls: write, exit, yield, sleep, wait. No open/read.
+- Each user task stores a cloned PML4 (`task->cr3`) with kernel/HHDM entries from the boot tables and an empty user half. Execution still uses the boot CR3; loading the clone on switch is the next slice.
 
 ## Week 1 — finish the volume
 
@@ -34,7 +35,7 @@ Stop emitting machine code in `user.c`. The volume already knows how to store an
 
 Shared user PTEs are why A/B/C/echo sit at different vaddrs and why `copy_from_user` is a range check.
 
-9. **Clone kernel tables** — each task gets its own PML4. Copy kernel / HHDM entries from the boot tables; user entries start empty.
+9. **Clone kernel tables** — done: each task gets its own PML4 via `vmm_clone_pml4`; kernel/HHDM half copied from boot, user half empty; `task->cr3` stores the phys addr. Boot CR3 still used for execution until item 10.
 10. **CR3 on switch** — `sched` stores `cr3` in `struct task`. `load_task` / first `iretq` writes CR3. Idle / syscall entry still uses the kernel map.
 11. **Map into the current CR3** — `vmm_map_user` takes a PML4 (or uses the running task). Boot tasks and `run` map code/stack only there. Two ELFs may both live at `0x400000`.
 12. **User copy walks PTEs** — `copy_from_user` translates `rdi` through the current task’s tables, then copies. A range check against `USER_LIMIT` goes away. `write` of a kernel pointer from ring 3 fails.
