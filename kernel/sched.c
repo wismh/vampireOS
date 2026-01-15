@@ -39,7 +39,7 @@ struct task {
     uint64_t ss;
     uint64_t kstack_top;
     uint64_t user_base;
-    uint64_t cr3; /* cloned PML4 phys; boot CR3 still used until item 10 */
+    uint64_t cr3; /* cloned PML4 phys; loaded on switch */
     int state;
     int row;
     unsigned writes;
@@ -96,6 +96,7 @@ static void load_task(struct interrupt_frame *f, const struct task *t)
     f->rflags = t->rflags;
     f->rsp = t->rsp;
     f->ss = t->ss;
+    vmm_set_cr3(t->cr3);
 }
 
 static int pick_next(int from)
@@ -248,11 +249,20 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->kstack_top = kstack_top;
     t->user_base = user_base;
     t->cr3 = cr3;
+    vmm_share_user(cr3);
     t->state = TASK_READY;
     t->row = row;
     t->writes = 0;
     t->wake_tick = 0;
     return 0;
+}
+
+uint64_t sched_current_cr3(void)
+{
+    if (task_count == 0 || tasks[current].cr3 == 0) {
+        return vmm_boot_cr3();
+    }
+    return tasks[current].cr3;
 }
 
 int sched_row(void)
@@ -299,6 +309,7 @@ static void idle_until_ready(struct interrupt_frame *frame)
 {
     int next;
 
+    vmm_set_cr3(vmm_boot_cr3());
     for (;;) {
         wake_sleepers();
         next = pick_next(current);
@@ -405,6 +416,7 @@ void sched_exit(struct interrupt_frame *frame)
     }
     next = pick_next(current);
     if (next < 0 || frame == 0) {
+        vmm_set_cr3(vmm_boot_cr3());
         __asm__ volatile ("sti");
         for (;;) {
             __asm__ volatile ("hlt");

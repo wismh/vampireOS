@@ -207,8 +207,16 @@ uint64_t vmm_boot_cr3(void)
     return PML4_PHYS;
 }
 
+void vmm_set_cr3(uint64_t cr3)
+{
+    if (cr3 == 0) {
+        cr3 = PML4_PHYS;
+    }
+    __asm__ volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
+}
+
 /* Fresh PML4 page: copy HHDM/kernel half from boot; low (user) half stays zero.
- * Lower tables are shared by pointer; CR3 switch is a later slice. */
+ * Call vmm_share_user after mapping so the clone sees boot user PTEs. */
 uint64_t vmm_clone_pml4(void)
 {
     uint64_t new_phys;
@@ -233,6 +241,24 @@ uint64_t vmm_clone_pml4(void)
         }
     }
     return new_phys;
+}
+
+/* Point the clone's user PML4 slots at the same lower tables as boot.
+ * Maps still go into boot; item 11 will give each task private user tables. */
+void vmm_share_user(uint64_t cr3)
+{
+    volatile uint64_t *src;
+    volatile uint64_t *dst;
+    uint64_t i;
+
+    if (!hhdm_ready || cr3 == 0 || cr3 == PML4_PHYS) {
+        return;
+    }
+    src = kmap(PML4_PHYS);
+    dst = kmap(cr3);
+    for (i = 0; i < HHDM_PML4_INDEX; i++) {
+        dst[i] = src[i];
+    }
 }
 
 uint64_t phys_to_virt(uint64_t phys)
