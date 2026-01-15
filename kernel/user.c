@@ -16,7 +16,7 @@
 #define TSS_SEL 0x30
 #define PAGE_4K 0x1000ull
 /* Code at BASE, stack page at BASE+0x1000, stack top BASE+0x2000.
- * Distinct BASEs while CR3 is shared; same address waits on week 3. */
+ * Distinct BASEs while user lower tables stay shared; same address is item 11. */
 #define USER_SLOT 0x2000ull
 #define USER_BASE 0x400000ull
 #define USER_BASE_A (USER_BASE + 0ull * USER_SLOT)
@@ -376,9 +376,12 @@ void user_on_syscall(struct interrupt_frame *frame)
         vga_write_at(user_row, 0, "user fail");
         return;
     }
+    /* Kernel/idle map for the syscall body; restore task CR3 before iretq. */
+    vmm_set_cr3(vmm_boot_cr3());
     if (frame->rax == SYS_WRITE) {
         if (copy_from_user(buf, frame->rdi, USER_STR_MAX) != 0) {
             vga_write_at(user_row, 0, "user fail");
+            vmm_set_cr3(sched_current_cr3());
             return;
         }
         row = sched_row();
@@ -388,6 +391,7 @@ void user_on_syscall(struct interrupt_frame *frame)
             vga_write_at(row, 2, "          ");
             vga_write_dec_at(row, 2, n);
         }
+        vmm_set_cr3(sched_current_cr3());
         return;
     }
     if (frame->rax == SYS_EXIT) {
@@ -396,17 +400,21 @@ void user_on_syscall(struct interrupt_frame *frame)
     }
     if (frame->rax == SYS_YIELD) {
         sched_yield(frame);
+        vmm_set_cr3(sched_current_cr3());
         return;
     }
     if (frame->rax == SYS_SLEEP) {
         sched_sleep(frame, frame->rdi);
+        vmm_set_cr3(sched_current_cr3());
         return;
     }
     if (frame->rax == SYS_WAIT) {
         sched_wait(frame);
+        vmm_set_cr3(sched_current_cr3());
         return;
     }
     vga_write_at(user_row, 0, "user fail");
+    vmm_set_cr3(sched_current_cr3());
 }
 
 __attribute__((noreturn))
@@ -422,6 +430,7 @@ void user_enter(void)
         }
     }
 
+    vmm_set_cr3(sched_current_cr3());
     __asm__ volatile (
         "mov %0, %%ax\n"
         "mov %%ax, %%ds\n"
