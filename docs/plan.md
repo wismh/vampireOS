@@ -8,10 +8,10 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 - Volume: 128 data clusters, 16 root entries, files up to 4 KiB. Subdirs grow across FAT clusters; root stays one sector.
 - Shell: `help ls mem cat run put rm fill mkdir rmdir cd pwd`. Paths work.
-- Each ELF maps at a BASE with code at BASE and stack at BASE+0x1000 (top BASE+0x2000) via one `map_load_elf` helper. A/B/C/echo keep distinct BASEs `0x400000` / `0x402000` / `0x404000` / `0x406000` while user lower tables are still shared via boot; true same-address needs item 11. `copy_from_user` trusts `[0x400000, 0x408000)`. `TASK_MAX` is 8; exit frees that task’s user code/stack frames and its kernel stack so `run` loops do not drain the PMM.
-- `run <name>` loads any FAT12 ELF whose linked BASE is free (exited or unused slot). A/B never exit, so `run a` / `run b` need those tasks dead; after C exits, `run c` reuses its slot/base. `run echo` uses the E base when free.
+- Every user ELF links at `0x400000` with stack at `0x401000` (top `0x402000`). Each task maps those pages privately into its own cloned PML4; concurrent A/B/C/echo share the same vaddr safely. `copy_from_user` still range-checks `[0x400000, 0x402000)` (PTE walk is item 12). `TASK_MAX` is 8; exit frees that task’s user code/stack frames and its kernel stack so `run` loops do not drain the PMM.
+- `run <name>` loads any FAT12 ELF linked at `0x400000` into a fresh task CR3 (same address is not a global collision). After C exits, `run c` reuses a free slot.
 - Syscalls: write, exit, yield, sleep, wait. No open/read.
-- Context switch loads each task’s cloned PML4 (`task->cr3`); idle and syscall entry use the boot/kernel CR3. User PTEs are still installed in the boot tables and shared into each clone’s user half until item 11 maps privately.
+- Context switch loads each task’s cloned PML4 (`task->cr3`); idle and syscall entry use the boot/kernel CR3. `vmm_map_user` / `vmm_unmap_user` take that PML4 phys and install private user PTEs (no boot→clone share).
 
 ## Week 1 — finish the volume
 
@@ -27,7 +27,7 @@ Directories exist and subdirs can span a FAT chain; root is still one sector. Ne
 Stop emitting machine code in `user.c`. The volume already knows how to store an ELF.
 
 5. **ELF A, B, C** — `user/a.asm`, `b.asm`, `c.asm` packed next to `echo` on FAT12. `user_init` loads them with `elf_load` the same way `run echo` does. Drop `emit_*`. Boot screen still shows A / B / C counts.
-6. **Same load address** — map every ELF at `0x400000` plus a stack page, not a hand-placed slot per task. Requires week 3 if two programs run at once; until then keep distinct vaddrs only if CR3 is still shared.
+6. **Same load address** — done with item 11: every ELF at `0x400000` plus a stack page; concurrent tasks rely on private CR3.
 7. **`run` more than echo** — done: `run <name>` loads any FAT12 ELF at its linked BASE when that slot is free; exited tasks free their slot/base. `TASK_MAX` still 4.
 8. **`TASK_MAX` 8** — done: eight task slots; exit (and DEAD-slot reuse) frees user code/stack pages and the kernel stack so sequential `run` loops do not drain free frames.
 
@@ -37,7 +37,7 @@ Shared user PTEs are why A/B/C/echo sit at different vaddrs and why `copy_from_u
 
 9. **Clone kernel tables** — done: each task gets its own PML4 via `vmm_clone_pml4`; kernel/HHDM half copied from boot, user half empty; `task->cr3` stores the phys addr. Boot CR3 still used for execution until item 10.
 10. **CR3 on switch** — done: `load_task` / first `iretq` write `task->cr3`; idle and syscall entry use `vmm_boot_cr3()`. Until item 11, `vmm_share_user` copies boot user PML4 slots into each clone so mappings stay visible.
-11. **Map into the current CR3** — `vmm_map_user` takes a PML4 (or uses the running task). Boot tasks and `run` map code/stack only there. Two ELFs may both live at `0x400000`.
+11. **Map into the current CR3** — done: `vmm_map_user` / `vmm_unmap_user` take a PML4 phys; boot tasks and `run` map code/stack only there. All ELFs link at `0x400000`.
 12. **User copy walks PTEs** — `copy_from_user` translates `rdi` through the current task’s tables, then copies. A range check against `USER_LIMIT` goes away. `write` of a kernel pointer from ring 3 fails.
 
 ## Week 4 — files from ring 3
