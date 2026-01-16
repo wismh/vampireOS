@@ -119,14 +119,14 @@ static void set_current(int idx)
     tss_set_rsp0(tasks[idx].kstack_top);
 }
 
-/* Unmap and free user code/stack frames for this task's BASE. */
+/* Unmap and free user code/stack frames in this task's CR3. */
 static void free_task_user(struct task *t)
 {
-    if (t == 0 || t->user_base == 0) {
+    if (t == 0 || t->user_base == 0 || t->cr3 == 0) {
         return;
     }
-    vmm_unmap_user(t->user_base);
-    vmm_unmap_user(t->user_base + PAGE_4K);
+    vmm_unmap_user(t->cr3, t->user_base);
+    vmm_unmap_user(t->cr3, t->user_base + PAGE_4K);
     t->user_base = 0;
 }
 
@@ -173,15 +173,16 @@ void sched_init(void)
     }
 }
 
-int sched_base_busy(uint64_t user_base)
+int sched_base_busy(uint64_t user_base, uint64_t cr3)
 {
     int i;
 
-    if (user_base == 0) {
+    if (user_base == 0 || cr3 == 0) {
         return 1;
     }
     for (i = 0; i < task_count; i++) {
-        if (tasks[i].state != TASK_DEAD && tasks[i].user_base == user_base) {
+        if (tasks[i].state != TASK_DEAD && tasks[i].cr3 == cr3 &&
+            tasks[i].user_base == user_base) {
             return 1;
         }
     }
@@ -189,20 +190,16 @@ int sched_base_busy(uint64_t user_base)
 }
 
 int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
-                   uint64_t user_base)
+                   uint64_t user_base, uint64_t cr3)
 {
     struct task *t;
     int i;
-    uint64_t cr3;
 
-    if (kstack_top == 0 || user_base == 0) {
+    if (kstack_top == 0 || user_base == 0 || cr3 == 0 ||
+        cr3 == vmm_boot_cr3()) {
         return -1;
     }
-    cr3 = vmm_clone_pml4();
-    if (cr3 == 0 || cr3 == vmm_boot_cr3()) {
-        if (cr3 != 0) {
-            pmm_free(cr3);
-        }
+    if (sched_base_busy(user_base, cr3)) {
         return -1;
     }
     t = 0;
@@ -217,7 +214,6 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     }
     if (t == 0) {
         if (task_count >= TASK_MAX) {
-            pmm_free(cr3);
             return -1;
         }
         t = &tasks[task_count];
@@ -249,7 +245,6 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->kstack_top = kstack_top;
     t->user_base = user_base;
     t->cr3 = cr3;
-    vmm_share_user(cr3);
     t->state = TASK_READY;
     t->row = row;
     t->writes = 0;
