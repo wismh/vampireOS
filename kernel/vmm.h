@@ -12,10 +12,9 @@ void vmm_hhdm_init(void);
 uint64_t vmm_clone_pml4(void);
 uint64_t vmm_boot_cr3(void);
 void vmm_set_cr3(uint64_t cr3);
-/* Copy boot user PML4 slots into a clone so shared lower tables are visible. */
-void vmm_share_user(uint64_t cr3);
-int vmm_map_user(uint64_t virt, uint64_t phys);
-int vmm_unmap_user(uint64_t virt);
+/* Map/unmap a user page in the given PML4 (task CR3 phys). */
+int vmm_map_user(uint64_t cr3, uint64_t virt, uint64_t phys);
+int vmm_unmap_user(uint64_t cr3, uint64_t virt);
 int vmm_drop_identity(int row);
 __attribute__((noreturn)) void vmm_switch_stack(void (*cont)(void));
 uint64_t phys_to_virt(uint64_t phys);
