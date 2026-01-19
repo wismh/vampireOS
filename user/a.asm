@@ -1,4 +1,4 @@
-; BASE 0x400000; stack page at BASE+0x1000
+; BASE 0x400000; stack page at BASE+0x1000 (same link addr as b/c/echo; private CR3)
 bits 64
 org 0x400000
 

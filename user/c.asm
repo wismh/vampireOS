@@ -1,6 +1,6 @@
-; BASE 0x404000; stack page at BASE+0x1000
+; BASE 0x400000; stack page at BASE+0x1000
 bits 64
-org 0x404000
+org 0x400000
 
 ehdr:
     db 0x7F, "ELF", 2, 1, 1, 0

@@ -216,7 +216,7 @@ void vmm_set_cr3(uint64_t cr3)
 }
 
 /* Fresh PML4 page: copy HHDM/kernel half from boot; low (user) half stays zero.
- * Call vmm_share_user after mapping so the clone sees boot user PTEs. */
+ * Map privately with vmm_map_user into this CR3. */
 uint64_t vmm_clone_pml4(void)
 {
     uint64_t new_phys;
@@ -243,21 +243,13 @@ uint64_t vmm_clone_pml4(void)
     return new_phys;
 }
 
-/* Point the clone's user PML4 slots at the same lower tables as boot.
- * Maps still go into boot; item 11 will give each task private user tables. */
-void vmm_share_user(uint64_t cr3)
+static void vmm_flush_if_current(uint64_t cr3)
 {
-    volatile uint64_t *src;
-    volatile uint64_t *dst;
-    uint64_t i;
+    uint64_t cur;
 
-    if (!hhdm_ready || cr3 == 0 || cr3 == PML4_PHYS) {
-        return;
-    }
-    src = kmap(PML4_PHYS);
-    dst = kmap(cr3);
-    for (i = 0; i < HHDM_PML4_INDEX; i++) {
-        dst[i] = src[i];
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cur));
+    if (cur == cr3) {
+        __asm__ volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
     }
 }
 
@@ -308,7 +300,7 @@ static int vmm_ensure_table(volatile uint64_t *table, uint64_t idx, uint64_t fla
     return 0;
 }
 
-int vmm_map_user(uint64_t virt, uint64_t phys)
+int vmm_map_user(uint64_t cr3, uint64_t virt, uint64_t phys)
 {
     volatile uint64_t *pml4;
     volatile uint64_t *pdpt;
@@ -318,8 +310,10 @@ int vmm_map_user(uint64_t virt, uint64_t phys)
     uint64_t pdpt_i = (virt >> 30) & (PD_ENTRIES - 1);
     uint64_t pd_i = (virt >> 21) & (PD_ENTRIES - 1);
     uint64_t pt_i = (virt >> 12) & (PT_ENTRIES - 1);
-    uint64_t cr3 = PML4_PHYS;
 
+    if (cr3 == 0) {
+        cr3 = PML4_PHYS;
+    }
     if ((virt & (PAGE_4K - 1)) != 0 || (phys & (PAGE_4K - 1)) != 0) {
         return -1;
     }
@@ -330,7 +324,7 @@ int vmm_map_user(uint64_t virt, uint64_t phys)
         return -1;
     }
 
-    pml4 = kmap(PML4_PHYS);
+    pml4 = kmap(cr3);
     if (vmm_ensure_table(pml4, pml4_i, PTE_USER_FLAGS, &pdpt) != 0) {
         return -1;
     }
@@ -341,11 +335,11 @@ int vmm_map_user(uint64_t virt, uint64_t phys)
         return -1;
     }
     pt[pt_i] = phys | PTE_USER_FLAGS;
-    __asm__ volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
+    vmm_flush_if_current(cr3);
     return 0;
 }
 
-int vmm_unmap_user(uint64_t virt)
+int vmm_unmap_user(uint64_t cr3, uint64_t virt)
 {
     volatile uint64_t *pml4;
     volatile uint64_t *pdpt;
@@ -357,8 +351,10 @@ int vmm_unmap_user(uint64_t virt)
     uint64_t pt_i = (virt >> 12) & (PT_ENTRIES - 1);
     uint64_t e;
     uint64_t phys;
-    uint64_t cr3 = PML4_PHYS;
 
+    if (cr3 == 0) {
+        cr3 = PML4_PHYS;
+    }
     if ((virt & (PAGE_4K - 1)) != 0) {
         return -1;
     }
@@ -369,7 +365,7 @@ int vmm_unmap_user(uint64_t virt)
         return -1;
     }
 
-    pml4 = kmap(PML4_PHYS);
+    pml4 = kmap(cr3);
     e = pml4[pml4_i];
     if ((e & PDE_PRESENT) == 0 || (e & PDE_LARGE) != 0) {
         return -1;
@@ -391,7 +387,7 @@ int vmm_unmap_user(uint64_t virt)
     }
     phys = e & ADDR_MASK;
     pt[pt_i] = 0;
-    __asm__ volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
+    vmm_flush_if_current(cr3);
     pmm_free(phys);
     return 0;
 }

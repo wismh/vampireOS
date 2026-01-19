@@ -16,14 +16,10 @@
 #define TSS_SEL 0x30
 #define PAGE_4K 0x1000ull
 /* Code at BASE, stack page at BASE+0x1000, stack top BASE+0x2000.
- * Distinct BASEs while user lower tables stay shared; same address is item 11. */
+ * Every ELF links at the same BASE; each task maps it in its own CR3. */
 #define USER_SLOT 0x2000ull
 #define USER_BASE 0x400000ull
-#define USER_BASE_A (USER_BASE + 0ull * USER_SLOT)
-#define USER_BASE_B (USER_BASE + 1ull * USER_SLOT)
-#define USER_BASE_C (USER_BASE + 2ull * USER_SLOT)
-#define USER_BASE_E (USER_BASE + 3ull * USER_SLOT)
-#define USER_LIMIT (USER_BASE + 4ull * USER_SLOT)
+#define USER_LIMIT (USER_BASE + USER_SLOT)
 #define KERNEL_STACK_MIN 0x200000ull
 #define SYS_WRITE 1ull
 #define SYS_EXIT 2ull
@@ -188,14 +184,17 @@ int user_ready(void)
     return enter_ready;
 }
 
-/* Map code+stack at BASE, load ELF into the code page. */
+/* Map code+stack at BASE into cr3, load ELF into the code page. */
 static int map_load_elf(const void *data, unsigned len, uint64_t base,
-                        uint64_t *entry, uint64_t *stack_top)
+                        uint64_t cr3, uint64_t *entry, uint64_t *stack_top)
 {
     uint64_t code;
     uint64_t stack;
     uint8_t *dest;
 
+    if (cr3 == 0) {
+        return -1;
+    }
     code = alloc_page();
     stack = alloc_page();
     if (code == 0 || stack == 0) {
@@ -205,16 +204,16 @@ static int map_load_elf(const void *data, unsigned len, uint64_t base,
     if (elf_load(data, len, dest, (unsigned)PAGE_4K, base, entry) != 0) {
         return -1;
     }
-    if (vmm_map_user(base, code) != 0 ||
-        vmm_map_user(base + PAGE_4K, stack) != 0) {
+    if (vmm_map_user(cr3, base, code) != 0 ||
+        vmm_map_user(cr3, base + PAGE_4K, stack) != 0) {
         return -1;
     }
     *stack_top = user_stack_top(base);
     return 0;
 }
 
-static int map_load_elf_name(const char *name, uint64_t base, uint64_t *entry,
-                             uint64_t *stack_top)
+static int map_load_elf_name(const char *name, uint64_t base, uint64_t cr3,
+                             uint64_t *entry, uint64_t *stack_top)
 {
     const void *data;
     unsigned len;
@@ -222,7 +221,7 @@ static int map_load_elf_name(const char *name, uint64_t base, uint64_t *entry,
     if (fs_lookup(name, &data, &len) != 0) {
         return -1;
     }
-    return map_load_elf(data, len, base, entry, stack_top);
+    return map_load_elf(data, len, base, cr3, entry, stack_top);
 }
 
 int user_init(int row)
@@ -239,10 +238,13 @@ int user_init(int row)
     uint64_t stack_a;
     uint64_t stack_b;
     uint64_t stack_c;
+    uint64_t cr3_a;
+    uint64_t cr3_b;
+    uint64_t cr3_c;
     uint16_t tr = TSS_SEL;
 
     enter_ready = 0;
-    enter_rip = USER_BASE_A;
+    enter_rip = USER_BASE;
     user_row = row;
     if (row >= VGA_HEIGHT - 6) {
         return row;
@@ -267,17 +269,25 @@ int user_init(int row)
     tss_set_rsp0(ktop_a);
     __asm__ volatile ("ltr %0" : : "r"(tr) : "memory");
 
-    if (map_load_elf_name("a", USER_BASE_A, &entry_a, &stack_a) != 0 ||
-        map_load_elf_name("b", USER_BASE_B, &entry_b, &stack_b) != 0 ||
-        map_load_elf_name("c", USER_BASE_C, &entry_c, &stack_c) != 0) {
+    cr3_a = vmm_clone_pml4();
+    cr3_b = vmm_clone_pml4();
+    cr3_c = vmm_clone_pml4();
+    if (cr3_a == 0 || cr3_b == 0 || cr3_c == 0) {
+        vga_write_at(row, 0, "user fail");
+        return row + 1;
+    }
+
+    if (map_load_elf_name("a", USER_BASE, cr3_a, &entry_a, &stack_a) != 0 ||
+        map_load_elf_name("b", USER_BASE, cr3_b, &entry_b, &stack_b) != 0 ||
+        map_load_elf_name("c", USER_BASE, cr3_c, &entry_c, &stack_c) != 0) {
         vga_write_at(row, 0, "user fail");
         return row + 1;
     }
 
     sched_init();
-    if (sched_add_user(entry_a, stack_a, ktop_a, row + 1, USER_BASE_A) != 0 ||
-        sched_add_user(entry_b, stack_b, ktop_b, row + 2, USER_BASE_B) != 0 ||
-        sched_add_user(entry_c, stack_c, ktop_c, row + 3, USER_BASE_C) != 0) {
+    if (sched_add_user(entry_a, stack_a, ktop_a, row + 1, USER_BASE, cr3_a) != 0 ||
+        sched_add_user(entry_b, stack_b, ktop_b, row + 2, USER_BASE, cr3_b) != 0 ||
+        sched_add_user(entry_c, stack_c, ktop_c, row + 3, USER_BASE, cr3_c) != 0) {
         vga_write_at(row, 0, "user fail");
         return row + 1;
     }
@@ -328,8 +338,8 @@ int user_run(const char *name)
     uint64_t kstack;
     uint64_t ktop;
     uint64_t stack_top;
+    uint64_t cr3;
     int row;
-    int slot;
 
     if (!enter_ready || name == 0 || *name == '\0') {
         return -1;
@@ -340,27 +350,28 @@ int user_run(const char *name)
     if (elf_image_base(data, len, &base) != 0) {
         return -1;
     }
-    if (base < USER_BASE || base >= USER_LIMIT ||
-        ((base - USER_BASE) % USER_SLOT) != 0) {
+    /* Same linked BASE is fine across tasks; each gets a private CR3. */
+    if (base != USER_BASE) {
         return -1;
     }
-    if (sched_base_busy(base)) {
-        return -1;
-    }
-    slot = (int)((base - USER_BASE) / USER_SLOT);
-    row = user_row + 1 + slot;
-    if (row < 0 || row >= VGA_HEIGHT) {
-        row = run_row;
-    }
+    row = run_row;
     kstack = alloc_page();
     if (kstack == 0) {
         return -1;
     }
-    if (map_load_elf(data, len, base, &entry, &stack_top) != 0) {
+    cr3 = vmm_clone_pml4();
+    if (cr3 == 0) {
+        return -1;
+    }
+    if (map_load_elf(data, len, base, cr3, &entry, &stack_top) != 0) {
+        pmm_free(cr3);
         return -1;
     }
     ktop = phys_to_virt(kstack) + PAGE_4K;
-    if (sched_add_user(entry, stack_top, ktop, row, base) != 0) {
+    if (sched_add_user(entry, stack_top, ktop, row, base, cr3) != 0) {
+        vmm_unmap_user(cr3, base);
+        vmm_unmap_user(cr3, base + PAGE_4K);
+        pmm_free(cr3);
         return -1;
     }
     return 0;
@@ -376,14 +387,13 @@ void user_on_syscall(struct interrupt_frame *frame)
         vga_write_at(user_row, 0, "user fail");
         return;
     }
-    /* Kernel/idle map for the syscall body; restore task CR3 before iretq. */
-    vmm_set_cr3(vmm_boot_cr3());
     if (frame->rax == SYS_WRITE) {
+        /* Still on the task CR3 so the user string is mapped. */
         if (copy_from_user(buf, frame->rdi, USER_STR_MAX) != 0) {
             vga_write_at(user_row, 0, "user fail");
-            vmm_set_cr3(sched_current_cr3());
             return;
         }
+        vmm_set_cr3(vmm_boot_cr3());
         row = sched_row();
         n = sched_note_write();
         if (n <= 8u || (n & 31u) == 0) {
@@ -394,6 +404,8 @@ void user_on_syscall(struct interrupt_frame *frame)
         vmm_set_cr3(sched_current_cr3());
         return;
     }
+    /* Kernel/idle map for the rest of the syscall body. */
+    vmm_set_cr3(vmm_boot_cr3());
     if (frame->rax == SYS_EXIT) {
         sched_exit(frame);
         return;
@@ -421,7 +433,7 @@ __attribute__((noreturn))
 void user_enter(void)
 {
     uint64_t rip = enter_rip;
-    uint64_t rsp = user_stack_top(USER_BASE_A);
+    uint64_t rsp = user_stack_top(USER_BASE);
     uint64_t rflags = 0x202;
 
     if (!enter_ready) {
