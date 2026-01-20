@@ -392,6 +392,56 @@ int vmm_unmap_user(uint64_t cr3, uint64_t virt)
     return 0;
 }
 
+int vmm_translate_user(uint64_t cr3, uint64_t virt, uint64_t *phys_out)
+{
+    volatile uint64_t *pml4;
+    volatile uint64_t *pdpt;
+    volatile uint64_t *pd;
+    volatile uint64_t *pt;
+    uint64_t pml4_i = (virt >> 39) & (PD_ENTRIES - 1);
+    uint64_t pdpt_i = (virt >> 30) & (PD_ENTRIES - 1);
+    uint64_t pd_i = (virt >> 21) & (PD_ENTRIES - 1);
+    uint64_t pt_i = (virt >> 12) & (PT_ENTRIES - 1);
+    uint64_t e;
+
+    if (phys_out == 0) {
+        return -1;
+    }
+    if (cr3 == 0) {
+        cr3 = PML4_PHYS;
+    }
+    /* Kernel/HHDM halves are never user-accessible. */
+    if (pml4_i == HHDM_PML4_INDEX || pml4_i == KERNEL_PML4_INDEX) {
+        return -1;
+    }
+    if (!hhdm_ready) {
+        return -1;
+    }
+
+    pml4 = kmap(cr3);
+    e = pml4[pml4_i];
+    if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0 || (e & PDE_LARGE) != 0) {
+        return -1;
+    }
+    pdpt = kmap(e & ADDR_MASK);
+    e = pdpt[pdpt_i];
+    if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0 || (e & PDE_LARGE) != 0) {
+        return -1;
+    }
+    pd = kmap(e & ADDR_MASK);
+    e = pd[pd_i];
+    if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0 || (e & PDE_LARGE) != 0) {
+        return -1;
+    }
+    pt = kmap(e & ADDR_MASK);
+    e = pt[pt_i];
+    if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0) {
+        return -1;
+    }
+    *phys_out = (e & ADDR_MASK) | (virt & (PAGE_4K - 1));
+    return 0;
+}
+
 int vmm_drop_identity(int row)
 {
     struct {
