@@ -15,6 +15,8 @@ void vmm_set_cr3(uint64_t cr3);
 /* Map/unmap a user page in the given PML4 (task CR3 phys). */
 int vmm_map_user(uint64_t cr3, uint64_t virt, uint64_t phys);
 int vmm_unmap_user(uint64_t cr3, uint64_t virt);
+/* Walk task PML4: present+user PTEs only; phys includes page offset. */
+int vmm_translate_user(uint64_t cr3, uint64_t virt, uint64_t *phys_out);
 int vmm_drop_identity(int row);
 __attribute__((noreturn)) void vmm_switch_stack(void (*cont)(void));
 uint64_t phys_to_virt(uint64_t phys);

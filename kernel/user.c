@@ -19,7 +19,6 @@
  * Every ELF links at the same BASE; each task maps it in its own CR3. */
 #define USER_SLOT 0x2000ull
 #define USER_BASE 0x400000ull
-#define USER_LIMIT (USER_BASE + USER_SLOT)
 #define KERNEL_STACK_MIN 0x200000ull
 #define SYS_WRITE 1ull
 #define SYS_EXIT 2ull
@@ -307,21 +306,35 @@ int user_init(int row)
     return row + 5;
 }
 
+/* Resolve each byte through the current task's PML4 (not %cr3).
+ * Kernel VAs and unmapped pages fail; only present user PTEs copy. */
 static int copy_from_user(char *dst, uint64_t src, uint64_t max)
 {
     uint64_t i;
-    const volatile uint8_t *p;
+    uint64_t cr3;
+    uint64_t phys;
+    uint64_t page_base;
+    const volatile uint8_t *page;
 
-    if (max == 0 || src < USER_BASE || src >= USER_LIMIT) {
+    if (max == 0 || dst == 0) {
         return -1;
     }
 
-    p = (const volatile uint8_t *)(uintptr_t)src;
+    cr3 = sched_current_cr3();
+    page_base = ~0ull;
+    page = 0;
     for (i = 0; i < max; i++) {
-        if (src + i >= USER_LIMIT) {
-            return -1;
+        uint64_t va = src + i;
+        uint64_t base = va & ~(PAGE_4K - 1);
+
+        if (base != page_base) {
+            if (vmm_translate_user(cr3, va, &phys) != 0) {
+                return -1;
+            }
+            page = (const volatile uint8_t *)(uintptr_t)phys_to_virt(phys & ~(PAGE_4K - 1));
+            page_base = base;
         }
-        dst[i] = (char)p[i];
+        dst[i] = (char)page[va & (PAGE_4K - 1)];
         if (dst[i] == '\0') {
             return 0;
         }
@@ -388,7 +401,7 @@ void user_on_syscall(struct interrupt_frame *frame)
         return;
     }
     if (frame->rax == SYS_WRITE) {
-        /* Still on the task CR3 so the user string is mapped. */
+        /* Walk task PTEs via HHDM; works even if %cr3 is already boot. */
         if (copy_from_user(buf, frame->rdi, USER_STR_MAX) != 0) {
             vga_write_at(user_row, 0, "user fail");
             return;

@@ -2,13 +2,13 @@
 
 Vampire OS after `vos-37`: BIOS MBR, 80-sector kernel, FAT12 on ATA PIO, `mkdir` / `cd` / paths, four ring-3 tasks on one user map, ELF `run echo`.
 
-One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 40 KiB; bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again.
+One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 48 KiB; bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again.
 
 ## Now
 
 - Volume: 128 data clusters, 16 root entries, files up to 4 KiB. Subdirs grow across FAT clusters; root stays one sector.
 - Shell: `help ls mem cat run put rm fill mkdir rmdir cd pwd`. Paths work.
-- Every user ELF links at `0x400000` with stack at `0x401000` (top `0x402000`). Each task maps those pages privately into its own cloned PML4; concurrent A/B/C/echo share the same vaddr safely. `copy_from_user` still range-checks `[0x400000, 0x402000)` (PTE walk is item 12). `TASK_MAX` is 8; exit frees that task’s user code/stack frames and its kernel stack so `run` loops do not drain the PMM.
+- Every user ELF links at `0x400000` with stack at `0x401000` (top `0x402000`). Each task maps those pages privately into its own cloned PML4; concurrent A/B/C/echo share the same vaddr safely. `copy_from_user` walks the current task’s PML4 (present+user PTEs) and copies through HHDM — a kernel VA or unmapped address from ring 3 fails (`user fail`). `TASK_MAX` is 8; exit frees that task’s user code/stack frames and its kernel stack so `run` loops do not drain the PMM.
 - `run <name>` loads any FAT12 ELF linked at `0x400000` into a fresh task CR3 (same address is not a global collision). After C exits, `run c` reuses a free slot.
 - Syscalls: write, exit, yield, sleep, wait. No open/read.
 - Context switch loads each task’s cloned PML4 (`task->cr3`); idle and syscall entry use the boot/kernel CR3. `vmm_map_user` / `vmm_unmap_user` take that PML4 phys and install private user PTEs (no boot→clone share).
@@ -33,12 +33,12 @@ Stop emitting machine code in `user.c`. The volume already knows how to store an
 
 ## Week 3 — private address spaces
 
-Shared user PTEs are why A/B/C/echo sit at different vaddrs and why `copy_from_user` is a range check.
+Shared user PTEs are why A/B/C/echo sat at different vaddrs and why `copy_from_user` was a range check.
 
 9. **Clone kernel tables** — done: each task gets its own PML4 via `vmm_clone_pml4`; kernel/HHDM half copied from boot, user half empty; `task->cr3` stores the phys addr. Boot CR3 still used for execution until item 10.
 10. **CR3 on switch** — done: `load_task` / first `iretq` write `task->cr3`; idle and syscall entry use `vmm_boot_cr3()`. Until item 11, `vmm_share_user` copies boot user PML4 slots into each clone so mappings stay visible.
 11. **Map into the current CR3** — done: `vmm_map_user` / `vmm_unmap_user` take a PML4 phys; boot tasks and `run` map code/stack only there. All ELFs link at `0x400000`.
-12. **User copy walks PTEs** — `copy_from_user` translates `rdi` through the current task’s tables, then copies. A range check against `USER_LIMIT` goes away. `write` of a kernel pointer from ring 3 fails.
+12. **User copy walks PTEs** — done: `copy_from_user` translates `rdi` through `sched_current_cr3()` (present+user PTEs) and copies via HHDM. No `[USER_CODE, USER_LIMIT)` gate; `write` of a kernel pointer from ring 3 fails.
 
 ## Week 4 — files from ring 3
 
