@@ -16,6 +16,11 @@
 #define USER_DS 0x23
 #define PAGE_4K 0x1000ull
 
+struct fd_entry {
+    int used;
+    char path[FD_PATH_MAX];
+};
+
 struct task {
     uint64_t rax;
     uint64_t rbx;
@@ -44,6 +49,7 @@ struct task {
     int row;
     unsigned writes;
     unsigned wake_tick;
+    struct fd_entry fds[FD_MAX];
 };
 
 static struct task tasks[TASK_MAX];
@@ -119,6 +125,35 @@ static void set_current(int idx)
     tss_set_rsp0(tasks[idx].kstack_top);
 }
 
+static void clear_fds(struct task *t)
+{
+    int i;
+    int j;
+
+    if (t == 0) {
+        return;
+    }
+    for (i = 0; i < FD_MAX; i++) {
+        t->fds[i].used = 0;
+        for (j = 0; j < FD_PATH_MAX; j++) {
+            t->fds[i].path[j] = 0;
+        }
+    }
+}
+
+static void copy_path(char *dst, const char *src)
+{
+    int i;
+
+    if (dst == 0) {
+        return;
+    }
+    for (i = 0; i < FD_PATH_MAX - 1 && src != 0 && src[i] != '\0'; i++) {
+        dst[i] = src[i];
+    }
+    dst[i] = '\0';
+}
+
 /* Unmap and free user code/stack frames in this task's CR3. */
 static void free_task_user(struct task *t)
 {
@@ -170,6 +205,7 @@ void sched_init(void)
         tasks[i].kstack_top = 0;
         tasks[i].user_base = 0;
         tasks[i].cr3 = 0;
+        clear_fds(&tasks[i]);
     }
 }
 
@@ -249,6 +285,45 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->row = row;
     t->writes = 0;
     t->wake_tick = 0;
+    clear_fds(t);
+    return 0;
+}
+
+int sched_fd_open(const char *path)
+{
+    struct task *t;
+    int i;
+
+    if (task_count == 0 || path == 0 || path[0] == '\0') {
+        return -1;
+    }
+    t = &tasks[current];
+    for (i = 0; i < FD_MAX; i++) {
+        if (t->fds[i].used == 0) {
+            t->fds[i].used = 1;
+            copy_path(t->fds[i].path, path);
+            return i;
+        }
+    }
+    return -1;
+}
+
+int sched_fd_close(int fd)
+{
+    struct task *t;
+    int j;
+
+    if (task_count == 0 || fd < 0 || fd >= FD_MAX) {
+        return -1;
+    }
+    t = &tasks[current];
+    if (t->fds[fd].used == 0) {
+        return -1;
+    }
+    t->fds[fd].used = 0;
+    for (j = 0; j < FD_PATH_MAX; j++) {
+        t->fds[fd].path[j] = 0;
+    }
     return 0;
 }
 
@@ -406,6 +481,7 @@ void sched_exit(struct interrupt_frame *frame)
         vga_write_at(row, 2, "done");
         /* Still on this task's kstack until iretq; free that on slot reuse. */
         free_task_user(&tasks[current]);
+        clear_fds(&tasks[current]);
         tasks[current].state = TASK_DEAD;
         wake_waiters();
     }
