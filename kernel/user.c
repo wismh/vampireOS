@@ -25,6 +25,8 @@
 #define SYS_YIELD 3ull
 #define SYS_SLEEP 4ull
 #define SYS_WAIT 5ull
+#define SYS_OPEN 6ull
+#define SYS_CLOSE 7ull
 #define USER_STR_MAX 80ull
 
 #define GDT_KERNEL_CODE32 0x00CF9A000000FFFFULL
@@ -395,6 +397,9 @@ void user_on_syscall(struct interrupt_frame *frame)
     char buf[USER_STR_MAX];
     int row;
     unsigned n;
+    int fd;
+    const void *data;
+    unsigned len;
 
     if (frame == 0 || (frame->cs & 3ull) != 3ull) {
         vga_write_at(user_row, 0, "user fail");
@@ -417,8 +422,30 @@ void user_on_syscall(struct interrupt_frame *frame)
         vmm_set_cr3(sched_current_cr3());
         return;
     }
+    if (frame->rax == SYS_OPEN) {
+        if (copy_from_user(buf, frame->rdi, USER_STR_MAX) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        vmm_set_cr3(vmm_boot_cr3());
+        if (fs_lookup(buf, &data, &len) != 0) {
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
+        fd = sched_fd_open(buf);
+        frame->rax = (fd < 0) ? (uint64_t)-1 : (uint64_t)(unsigned)fd;
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
     /* Kernel/idle map for the rest of the syscall body. */
     vmm_set_cr3(vmm_boot_cr3());
+    if (frame->rax == SYS_CLOSE) {
+        fd = (int)frame->rdi;
+        frame->rax = (sched_fd_close(fd) != 0) ? (uint64_t)-1 : 0;
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
     if (frame->rax == SYS_EXIT) {
         sched_exit(frame);
         return;
