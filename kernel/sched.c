@@ -327,6 +327,24 @@ int sched_fd_close(int fd)
     return 0;
 }
 
+int sched_fd_path(int fd, char *out)
+{
+    struct task *t;
+    int j;
+
+    if (task_count == 0 || fd < 0 || fd >= FD_MAX || out == 0) {
+        return -1;
+    }
+    t = &tasks[current];
+    if (t->fds[fd].used == 0) {
+        return -1;
+    }
+    for (j = 0; j < FD_PATH_MAX; j++) {
+        out[j] = t->fds[fd].path[j];
+    }
+    return 0;
+}
+
 uint64_t sched_current_cr3(void)
 {
     if (task_count == 0 || tasks[current].cr3 == 0) {
