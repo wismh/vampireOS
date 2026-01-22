@@ -18,6 +18,8 @@ unsigned sched_note_write(void);
 /* Lowest free fd in the current task; stores path leaf/path for later read. */
 int sched_fd_open(const char *path);
 int sched_fd_close(int fd);
+/* Copy stored path for an open fd into out (FD_PATH_MAX). */
+int sched_fd_path(int fd, char *out);
 void sched_on_tick(struct interrupt_frame *frame);
 void sched_yield(struct interrupt_frame *frame);
 void sched_sleep(struct interrupt_frame *frame, uint64_t ticks);
