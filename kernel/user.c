@@ -27,7 +27,10 @@
 #define SYS_WAIT 5ull
 #define SYS_OPEN 6ull
 #define SYS_CLOSE 7ull
+#define SYS_READ 8ull
 #define USER_STR_MAX 80ull
+#define FILE_MAX 0x1000ull
+#define FD_CONSOLE 1
 
 #define GDT_KERNEL_CODE32 0x00CF9A000000FFFFULL
 #define GDT_KERNEL_CODE64 0x00209A0000000000ULL
@@ -71,6 +74,7 @@ static int enter_ready;
 static int user_row;
 static int run_row;
 static uint64_t enter_rip;
+static uint8_t file_buf[FILE_MAX];
 
 _Static_assert(sizeof(struct tss) == 104, "long-mode TSS is 104 bytes");
 _Static_assert(sizeof(struct tss_desc) == 16, "TSS descriptor is 16 bytes");
@@ -344,6 +348,80 @@ static int copy_from_user(char *dst, uint64_t src, uint64_t max)
     return -1;
 }
 
+/* Copy n bytes from user VA into dst (no NUL stop). Returns 0 or -1. */
+static int copy_from_user_n(void *dst, uint64_t src, uint64_t n)
+{
+    uint64_t i;
+    uint64_t cr3;
+    uint64_t phys;
+    uint64_t page_base;
+    const volatile uint8_t *page;
+    uint8_t *out;
+
+    if (n == 0) {
+        return 0;
+    }
+    if (dst == 0) {
+        return -1;
+    }
+
+    cr3 = sched_current_cr3();
+    page_base = ~0ull;
+    page = 0;
+    out = (uint8_t *)dst;
+    for (i = 0; i < n; i++) {
+        uint64_t va = src + i;
+        uint64_t base = va & ~(PAGE_4K - 1);
+
+        if (base != page_base) {
+            if (vmm_translate_user(cr3, va, &phys) != 0) {
+                return -1;
+            }
+            page = (const volatile uint8_t *)(uintptr_t)phys_to_virt(phys & ~(PAGE_4K - 1));
+            page_base = base;
+        }
+        out[i] = page[va & (PAGE_4K - 1)];
+    }
+    return 0;
+}
+
+/* Write n bytes into user VA through present+user PTEs. */
+static int copy_to_user(uint64_t dst, const void *src, uint64_t n)
+{
+    uint64_t i;
+    uint64_t cr3;
+    uint64_t phys;
+    uint64_t page_base;
+    volatile uint8_t *page;
+    const uint8_t *in;
+
+    if (n == 0) {
+        return 0;
+    }
+    if (src == 0) {
+        return -1;
+    }
+
+    cr3 = sched_current_cr3();
+    page_base = ~0ull;
+    page = 0;
+    in = (const uint8_t *)src;
+    for (i = 0; i < n; i++) {
+        uint64_t va = dst + i;
+        uint64_t base = va & ~(PAGE_4K - 1);
+
+        if (base != page_base) {
+            if (vmm_translate_user(cr3, va, &phys) != 0) {
+                return -1;
+            }
+            page = (volatile uint8_t *)(uintptr_t)phys_to_virt(phys & ~(PAGE_4K - 1));
+            page_base = base;
+        }
+        page[va & (PAGE_4K - 1)] = in[i];
+    }
+    return 0;
+}
+
 int user_run(const char *name)
 {
     const void *data;
@@ -395,8 +473,11 @@ int user_run(const char *name)
 void user_on_syscall(struct interrupt_frame *frame)
 {
     char buf[USER_STR_MAX];
+    char path[FD_PATH_MAX];
     int row;
     unsigned n;
+    unsigned want;
+    unsigned got;
     int fd;
     const void *data;
     unsigned len;
@@ -406,6 +487,56 @@ void user_on_syscall(struct interrupt_frame *frame)
         return;
     }
     if (frame->rax == SYS_WRITE) {
+        /* rdi < FD_MAX: fd write (rsi=buf, rdx=len). Else legacy VGA string. */
+        if (frame->rdi < (uint64_t)FD_MAX) {
+            fd = (int)frame->rdi;
+            want = (unsigned)frame->rdx;
+            if (want > FILE_MAX) {
+                want = (unsigned)FILE_MAX;
+            }
+            if (fd == FD_CONSOLE) {
+                if (want >= USER_STR_MAX) {
+                    want = (unsigned)USER_STR_MAX - 1u;
+                }
+                if (copy_from_user_n(buf, frame->rsi, want) != 0) {
+                    frame->rax = (uint64_t)-1;
+                    return;
+                }
+                buf[want] = '\0';
+                vmm_set_cr3(vmm_boot_cr3());
+                row = sched_row();
+                n = sched_note_write();
+                if (n <= 8u || (n & 31u) == 0) {
+                    vga_write_at(row, 0, buf);
+                    vga_write_at(row, (int)want, "          ");
+                    vga_write_dec_at(row, (int)want + 1, n);
+                }
+                frame->rax = (uint64_t)want;
+                vmm_set_cr3(sched_current_cr3());
+                return;
+            }
+            if (sched_fd_path(fd, path) != 0) {
+                frame->rax = (uint64_t)-1;
+                return;
+            }
+            if (want == 0) {
+                frame->rax = 0;
+                return;
+            }
+            if (copy_from_user_n(file_buf, frame->rsi, want) != 0) {
+                frame->rax = (uint64_t)-1;
+                return;
+            }
+            vmm_set_cr3(vmm_boot_cr3());
+            if (fs_write(path, file_buf, want) != 0) {
+                frame->rax = (uint64_t)-1;
+                vmm_set_cr3(sched_current_cr3());
+                return;
+            }
+            frame->rax = (uint64_t)want;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
         /* Walk task PTEs via HHDM; works even if %cr3 is already boot. */
         if (copy_from_user(buf, frame->rdi, USER_STR_MAX) != 0) {
             vga_write_at(user_row, 0, "user fail");
@@ -415,11 +546,54 @@ void user_on_syscall(struct interrupt_frame *frame)
         row = sched_row();
         n = sched_note_write();
         if (n <= 8u || (n & 31u) == 0) {
+            unsigned slen;
+
+            for (slen = 0; slen < USER_STR_MAX && buf[slen] != '\0'; slen++) {
+            }
             vga_write_at(row, 0, buf);
-            vga_write_at(row, 2, "          ");
-            vga_write_dec_at(row, 2, n);
+            vga_write_at(row, (int)slen, "          ");
+            vga_write_dec_at(row, (int)slen + 1, n);
         }
         vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    if (frame->rax == SYS_READ) {
+        fd = (int)frame->rdi;
+        want = (unsigned)frame->rdx;
+        if (want > FILE_MAX) {
+            want = (unsigned)FILE_MAX;
+        }
+        if (sched_fd_path(fd, path) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        vmm_set_cr3(vmm_boot_cr3());
+        if (fs_lookup(path, &data, &len) != 0) {
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
+        if (len > FILE_MAX) {
+            len = (unsigned)FILE_MAX;
+        }
+        got = want;
+        if (got > len) {
+            got = len;
+        }
+        {
+            unsigned i;
+            const uint8_t *src = (const uint8_t *)data;
+
+            for (i = 0; i < got; i++) {
+                file_buf[i] = src[i];
+            }
+        }
+        vmm_set_cr3(sched_current_cr3());
+        if (copy_to_user(frame->rsi, file_buf, got) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        frame->rax = (uint64_t)got;
         return;
     }
     if (frame->rax == SYS_OPEN) {
