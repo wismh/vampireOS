@@ -8,7 +8,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x0F
+    db 0xFF, 0xFF, 0xFF
     times 512 - ($ - fat1) db 0
 
 fat2:
@@ -16,7 +16,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x0F
+    db 0xFF, 0xFF, 0xFF
     times 512 - ($ - fat2) db 0
 
 root:
@@ -62,6 +62,12 @@ root:
     dw 8
     dd opentest_len
 
+    db "READTEST", "   "
+    db 0x20
+    times 14 db 0
+    dw 9
+    dd readtest_len
+
     times 512 - ($ - root) db 0
 
 cluster2:
@@ -97,4 +103,9 @@ opentest_data:
 opentest_len equ $ - opentest_data
     times 512 - opentest_len db 0
 
-    times (FAT_DATA_CLUSTERS - 7) * 512 db 0
+readtest_data:
+    incbin "readtest.bin"
+readtest_len equ $ - readtest_data
+    times 512 - readtest_len db 0
+
+    times (FAT_DATA_CLUSTERS - 8) * 512 db 0
