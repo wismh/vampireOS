@@ -58,6 +58,8 @@ set(OPENTEST_ASM "${CMAKE_SOURCE_DIR}/user/opentest.asm")
 set(OPENTEST_BIN "${CMAKE_BINARY_DIR}/opentest.bin")
 set(READTEST_ASM "${CMAKE_SOURCE_DIR}/user/readtest.asm")
 set(READTEST_BIN "${CMAKE_BINARY_DIR}/readtest.bin")
+set(CAT_ASM "${CMAKE_SOURCE_DIR}/user/cat.asm")
+set(CAT_BIN "${CMAKE_BINARY_DIR}/cat.bin")
 set(FAT_ASM "${CMAKE_SOURCE_DIR}/user/fat.asm")
 set(FAT_BIN "${CMAKE_BINARY_DIR}/fat.bin")
 
@@ -110,6 +112,14 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${CAT_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${CAT_BIN}" "${CAT_ASM}"
+    DEPENDS "${CAT_ASM}"
+    COMMENT "Assembling user ELF cat"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${FAT_BIN}"
     COMMAND "${NASM_EXECUTABLE}"
         -f bin
@@ -117,7 +127,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )
