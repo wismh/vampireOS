@@ -19,6 +19,7 @@
  * Every ELF links at the same BASE; each task maps it in its own CR3. */
 #define USER_SLOT 0x2000ull
 #define USER_BASE 0x400000ull
+#define USER_ARG_PATH (USER_BASE + PAGE_4K)
 #define KERNEL_STACK_MIN 0x200000ull
 #define SYS_WRITE 1ull
 #define SYS_EXIT 2ull
@@ -385,11 +386,11 @@ static int copy_from_user_n(void *dst, uint64_t src, uint64_t n)
     return 0;
 }
 
-/* Write n bytes into user VA through present+user PTEs. */
-static int copy_to_user(uint64_t dst, const void *src, uint64_t n)
+/* Write n bytes into user VA in the given PML4. */
+static int copy_to_user_pml4(uint64_t cr3, uint64_t dst, const void *src,
+                             uint64_t n)
 {
     uint64_t i;
-    uint64_t cr3;
     uint64_t phys;
     uint64_t page_base;
     volatile uint8_t *page;
@@ -398,11 +399,10 @@ static int copy_to_user(uint64_t dst, const void *src, uint64_t n)
     if (n == 0) {
         return 0;
     }
-    if (src == 0) {
+    if (src == 0 || cr3 == 0) {
         return -1;
     }
 
-    cr3 = sched_current_cr3();
     page_base = ~0ull;
     page = 0;
     in = (const uint8_t *)src;
@@ -422,7 +422,13 @@ static int copy_to_user(uint64_t dst, const void *src, uint64_t n)
     return 0;
 }
 
-int user_run(const char *name)
+/* Write n bytes into user VA through present+user PTEs. */
+static int copy_to_user(uint64_t dst, const void *src, uint64_t n)
+{
+    return copy_to_user_pml4(sched_current_cr3(), dst, src, n);
+}
+
+int user_run_path(const char *name, const char *path)
 {
     const void *data;
     unsigned len;
@@ -433,6 +439,7 @@ int user_run(const char *name)
     uint64_t stack_top;
     uint64_t cr3;
     int row;
+    unsigned plen;
 
     if (!enter_ready || name == 0 || *name == '\0') {
         return -1;
@@ -443,7 +450,6 @@ int user_run(const char *name)
     if (elf_image_base(data, len, &base) != 0) {
         return -1;
     }
-    /* Same linked BASE is fine across tasks; each gets a private CR3. */
     if (base != USER_BASE) {
         return -1;
     }
@@ -460,6 +466,19 @@ int user_run(const char *name)
         pmm_free(cr3);
         return -1;
     }
+    if (path != 0 && path[0] != '\0') {
+        plen = 0;
+        while (path[plen] != '\0' && plen + 1u < FD_PATH_MAX) {
+            plen++;
+        }
+        if (path[plen] != '\0' || plen == 0 ||
+            copy_to_user_pml4(cr3, USER_ARG_PATH, path, plen + 1) != 0) {
+            vmm_unmap_user(cr3, base);
+            vmm_unmap_user(cr3, base + PAGE_4K);
+            pmm_free(cr3);
+            return -1;
+        }
+    }
     ktop = phys_to_virt(kstack) + PAGE_4K;
     if (sched_add_user(entry, stack_top, ktop, row, base, cr3) != 0) {
         vmm_unmap_user(cr3, base);
@@ -468,6 +487,11 @@ int user_run(const char *name)
         return -1;
     }
     return 0;
+}
+
+int user_run(const char *name)
+{
+    return user_run_path(name, 0);
 }
 
 void user_on_syscall(struct interrupt_frame *frame)

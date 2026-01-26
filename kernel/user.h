@@ -10,5 +10,6 @@ void tss_set_rsp0(uint64_t rsp0);
 int user_init(int row);
 int user_ready(void);
 int user_run(const char *name);
+int user_run_path(const char *name, const char *path);
 __attribute__((noreturn)) void user_enter(void);
 void user_on_syscall(struct interrupt_frame *frame);

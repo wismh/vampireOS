@@ -268,8 +268,28 @@ static void run_pwd(void)
 
 static void run_prog(const char *arg)
 {
+    char name[40];
+    unsigned n = 0;
+    const char *path;
+
     arg = skip_ws(arg);
-    if (user_run(arg) != 0) {
+    while (*arg != '\0' && *arg != ' ' && n < 39u) {
+        name[n++] = *arg;
+        arg++;
+    }
+    name[n] = '\0';
+    if (n == 0) {
+        vga_putc('?');
+        return;
+    }
+    path = skip_ws(arg);
+    if (streq(name, "cat")) {
+        if (*path == '\0' || user_run_path("cat", path) != 0) {
+            vga_putc('?');
+        }
+        return;
+    }
+    if (*path != '\0' || user_run(name) != 0) {
         vga_putc('?');
     }
 }

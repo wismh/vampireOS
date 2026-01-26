@@ -68,6 +68,12 @@ root:
     dw 9
     dd readtest_len
 
+    db "CAT     ", "   "
+    db 0x20
+    times 14 db 0
+    dw 10
+    dd cat_len
+
     times 512 - ($ - root) db 0
 
 cluster2:
@@ -108,4 +114,9 @@ readtest_data:
 readtest_len equ $ - readtest_data
     times 512 - readtest_len db 0
 
-    times (FAT_DATA_CLUSTERS - 8) * 512 db 0
+cat_data:
+    incbin "cat.bin"
+cat_len equ $ - cat_data
+    times 512 - cat_len db 0
+
+    times (FAT_DATA_CLUSTERS - 9) * 512 db 0

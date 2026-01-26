@@ -10,7 +10,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - Shell: `help ls mem cat run put rm fill mkdir rmdir cd pwd`. Paths work.
 - Every user ELF links at `0x400000` with stack at `0x401000` (top `0x402000`). Each task maps those pages privately into its own cloned PML4; concurrent A/B/C/echo share the same vaddr safely. `copy_from_user` / `copy_to_user` walk the current task’s PML4 (present+user PTEs) and copy through HHDM — a kernel VA or unmapped address from ring 3 fails (`user fail`). `TASK_MAX` is 8; exit frees that task’s user code/stack frames and its kernel stack so `run` loops do not drain the PMM.
 - `run <name>` loads any FAT12 ELF linked at `0x400000` into a fresh task CR3 (same address is not a global collision). After C exits, `run c` reuses a free slot.
-- Syscalls: write, exit, yield, sleep, wait, open, close, read. Per-task table of 4 fds; `open` copies the path via PTE walk and resolves with `fs_lookup`; `close` frees the slot. `read` copies file bytes into a user buffer (≤ `FILE_MAX`). `write` with `rdi` as a user string stays VGA; `rdi < 4` is fd-based (`rsi`/`rdx`, fd 1 = VGA, other open fds call `fs_write`). `run readtest` opens `hello`, reads, prints `blood`. Kernel pad 112 sectors.
+- Syscalls: write, exit, yield, sleep, wait, open, close, read. Per-task table of 4 fds; `open` copies the path via PTE walk and resolves with `fs_lookup`; `close` frees the slot. `read` copies file bytes into a user buffer (≤ `FILE_MAX`). `write` with `rdi` as a user string stays VGA; `rdi < 4` is fd-based (`rsi`/`rdx`, fd 1 = VGA, other open fds call `fs_write`). `run readtest` opens `hello`, reads, prints `blood`. `run cat hello` loads the user `cat` ELF; the shell copies the path to `0x401000` before start. Kernel pad 112 sectors.
 - Context switch loads each task’s cloned PML4 (`task->cr3`); idle and syscall entry use the boot/kernel CR3. `vmm_map_user` / `vmm_unmap_user` take that PML4 phys and install private user PTEs (no boot→clone share).
 
 ## Week 1 — finish the volume
@@ -46,7 +46,7 @@ The shell already reads the volume. User code still cannot.
 
 13. **FDs** — done: syscall `open` (path in user memory) / `close`. A small per-task table (4 fds). `open` uses the same path walk as `fs_lookup`. `run opentest` proves open/close on `hello`.
 14. **`read` / `write` on fds** — done: `SYS_READ` copies file bytes into a user buffer; `write` keeps legacy VGA strings and treats `rdi < 4` as fd write (`fs_write` or console). `run readtest` prints `blood` from `hello`.
-15. **User `cat`** — `user/cat.asm` `open` / `read` / `write` / `exit`. `run cat` with the path still passed from the shell for this month (argv is a follow-up if it does not fit).
+15. **User `cat`** — done: `user/cat.asm` `open` / `read` / `write` / `exit`; `run cat hello` copies the path to `0x401000` and prints file bytes from ring 3.
 16. **Unmap on exit** — drop the task’s user PTEs and free those frames; keep the kernel half of the cloned PML4 until the task slot is reused. After a few `run cat` loops, `mem` must not only fall.
 
 ## Leave for later
