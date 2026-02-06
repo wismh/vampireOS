@@ -154,14 +154,13 @@ static void copy_path(char *dst, const char *src)
     dst[i] = '\0';
 }
 
-/* Unmap and free user code/stack frames in this task's CR3. */
+/* Drop all user PTEs in this task's CR3; PML4 stays until slot reuse. */
 static void free_task_user(struct task *t)
 {
-    if (t == 0 || t->user_base == 0 || t->cr3 == 0) {
+    if (t == 0 || t->cr3 == 0) {
         return;
     }
-    vmm_unmap_user(t->cr3, t->user_base);
-    vmm_unmap_user(t->cr3, t->user_base + PAGE_4K);
+    vmm_teardown_user(t->cr3);
     t->user_base = 0;
 }
 
