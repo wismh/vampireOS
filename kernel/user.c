@@ -473,16 +473,14 @@ int user_run_path(const char *name, const char *path)
         }
         if (path[plen] != '\0' || plen == 0 ||
             copy_to_user_pml4(cr3, USER_ARG_PATH, path, plen + 1) != 0) {
-            vmm_unmap_user(cr3, base);
-            vmm_unmap_user(cr3, base + PAGE_4K);
+            vmm_teardown_user(cr3);
             pmm_free(cr3);
             return -1;
         }
     }
     ktop = phys_to_virt(kstack) + PAGE_4K;
     if (sched_add_user(entry, stack_top, ktop, row, base, cr3) != 0) {
-        vmm_unmap_user(cr3, base);
-        vmm_unmap_user(cr3, base + PAGE_4K);
+        vmm_teardown_user(cr3);
         pmm_free(cr3);
         return -1;
     }

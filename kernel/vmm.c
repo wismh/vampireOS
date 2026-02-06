@@ -392,6 +392,86 @@ int vmm_unmap_user(uint64_t cr3, uint64_t virt)
     return 0;
 }
 
+static int vmm_table_clear(volatile uint64_t *table, uint64_t n)
+{
+    uint64_t i;
+
+    for (i = 0; i < n; i++) {
+        if (table[i] != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void vmm_teardown_user(uint64_t cr3)
+{
+    volatile uint64_t *pml4;
+    volatile uint64_t *pdpt;
+    volatile uint64_t *pd;
+    volatile uint64_t *pt;
+    uint64_t pml4_i;
+    uint64_t pdpt_i;
+    uint64_t pd_i;
+    uint64_t pt_i;
+    uint64_t e;
+    uint64_t pdpt_phys;
+    uint64_t pd_phys;
+    uint64_t pt_phys;
+    uint64_t leaf;
+
+    if (cr3 == 0 || cr3 == PML4_PHYS || !hhdm_ready) {
+        return;
+    }
+
+    pml4 = kmap(cr3);
+    for (pml4_i = 0; pml4_i < HHDM_PML4_INDEX; pml4_i++) {
+        e = pml4[pml4_i];
+        if ((e & PDE_PRESENT) == 0 || (e & PDE_LARGE) != 0) {
+            continue;
+        }
+        pdpt_phys = e & ADDR_MASK;
+        pdpt = kmap(pdpt_phys);
+        for (pdpt_i = 0; pdpt_i < PD_ENTRIES; pdpt_i++) {
+            e = pdpt[pdpt_i];
+            if ((e & PDE_PRESENT) == 0 || (e & PDE_LARGE) != 0) {
+                continue;
+            }
+            pd_phys = e & ADDR_MASK;
+            pd = kmap(pd_phys);
+            for (pd_i = 0; pd_i < PD_ENTRIES; pd_i++) {
+                e = pd[pd_i];
+                if ((e & PDE_PRESENT) == 0 || (e & PDE_LARGE) != 0) {
+                    continue;
+                }
+                pt_phys = e & ADDR_MASK;
+                pt = kmap(pt_phys);
+                for (pt_i = 0; pt_i < PT_ENTRIES; pt_i++) {
+                    e = pt[pt_i];
+                    if ((e & PDE_PRESENT) != 0 && (e & PTE_USER) != 0) {
+                        leaf = e & ADDR_MASK;
+                        pt[pt_i] = 0;
+                        pmm_free(leaf);
+                    }
+                }
+                if (vmm_table_clear(pt, PT_ENTRIES)) {
+                    pd[pd_i] = 0;
+                    pmm_free(pt_phys);
+                }
+            }
+            if (vmm_table_clear(pd, PD_ENTRIES)) {
+                pdpt[pdpt_i] = 0;
+                pmm_free(pd_phys);
+            }
+        }
+        if (vmm_table_clear(pdpt, PD_ENTRIES)) {
+            pml4[pml4_i] = 0;
+            pmm_free(pdpt_phys);
+        }
+    }
+    vmm_flush_if_current(cr3);
+}
+
 int vmm_translate_user(uint64_t cr3, uint64_t virt, uint64_t *phys_out)
 {
     volatile uint64_t *pml4;
