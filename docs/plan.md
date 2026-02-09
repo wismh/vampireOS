@@ -1,57 +1,49 @@
-# January 2026
+# February 2026
 
-Vampire OS after `vos-37`: BIOS MBR, 80-sector kernel, FAT12 on ATA PIO, `mkdir` / `cd` / paths, four ring-3 tasks on one user map, ELF `run echo`.
+Vampire OS after `vos-55`: BIOS MBR, FAT12 on ATA PIO (128 data clusters), private CR3 per task, ring-3 `open`/`read`/`write`/`cat`, shell `run cat <path>`.
 
-One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 56 KiB; bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again.
+One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 56 KiB (`KERNEL_SECTORS` 112); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again.
 
 ## Now
 
-- Volume: 128 data clusters, 16 root entries, files up to 4 KiB. Subdirs grow across FAT clusters; root stays one sector.
-- Shell: `help ls mem cat run put rm fill mkdir rmdir cd pwd`. Paths work.
-- Every user ELF links at `0x400000` with stack at `0x401000` (top `0x402000`). Each task maps those pages privately into its own cloned PML4; concurrent A/B/C/echo share the same vaddr safely. `copy_from_user` / `copy_to_user` walk the current task’s PML4 (present+user PTEs) and copy through HHDM — a kernel VA or unmapped address from ring 3 fails (`user fail`). `TASK_MAX` is 8; exit tears down that task’s user PTEs and page-table pages (cloned PML4 kept until slot reuse); kernel stack freed on DEAD reuse so `run` loops do not drain the PMM.
-- `run <name>` loads any FAT12 ELF linked at `0x400000` into a fresh task CR3 (same address is not a global collision). After C exits, `run c` reuses a free slot.
-- Syscalls: write, exit, yield, sleep, wait, open, close, read. Per-task table of 4 fds; `open` copies the path via PTE walk and resolves with `fs_lookup`; `close` frees the slot. `read` copies file bytes into a user buffer (≤ `FILE_MAX`). `write` with `rdi` as a user string stays VGA; `rdi < 4` is fd-based (`rsi`/`rdx`, fd 1 = VGA, other open fds call `fs_write`). `run readtest` opens `hello`, reads, prints `blood`. `run cat hello` loads the user `cat` ELF; the shell copies the path to `0x401000` before start. Kernel pad 112 sectors.
-- Context switch loads each task’s cloned PML4 (`task->cr3`); idle and syscall entry use the boot/kernel CR3. `vmm_map_user` / `vmm_unmap_user` take that PML4 phys and install private user PTEs (no boot→clone share).
+- Volume: 128 data clusters, 16 root entries, files up to 4 KiB. Subdirs grow across FAT chains; **root is still one sector**.
+- Shell: `help ls mem cat run put rm fill mkdir rmdir cd pwd`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF.
+- Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8.
+- Syscalls: write (legacy string or fd), exit, yield, sleep, wait, open, close, read. Four fds per task. `run` loads any FAT12 ELF into a free slot.
+- **Argv hack:** `run cat hello` copies the path to `0x401000` before start — not real argv yet.
+- No `mv`, pipes, exec, readdir, brk, fork, long names, second FAT sector, UEFI, AHCI.
 
-## Week 1 — finish the volume
+## Week 1 — finish the root volume
 
-Directories exist and subdirs can span a FAT chain; root is still one sector. Next is remembering the path string.
+Subdirs already chain; root and rename are the gaps left from January.
 
-1. **`rmdir`** — refuse unless the cluster holds only `.` / `..` (and `0x00` / `0xE5`). Free the cluster, mark the parent entry deleted. `rmdir sub` after `mkdir sub` leaves `ls` without `sub/`. `rmdir` of a file or a non-empty dir prints `?`.
-2. **More data clusters** — raise `FAT_DATA_CLUSTERS` (and `FAT_TOTAL_SECS`) so nested dirs plus `fill` chains still fit. Keep FAT12 (clusters ≤ 4084) and one sector per FAT until a later slice needs two.
-3. **Directory chains** — `dir_load` / `dir_store` / `dir_slot` / `scan_dir` walk a FAT chain instead of one LBA. `mkdir` of a 17th entry in a subdir allocates the next cluster. Root can stay one sector until this works for subdirs.
-4. **`pwd`** — print the cwd as `/` or `/sub`. Needed once nested dirs are routine; store parent names while walking `..` or keep a small path buffer on `chdir`.
+1. **`mv`** — rename a file or empty directory on FAT12 (update the directory entry name in the parent; refuse cross-directory moves for this slice). `mv note dusk` after `put note x` shows `dusk` in `ls`. `mv` onto an existing name prints `?`.
+2. **Root directory chains** — like subdirs: when the 16 root slots fill, allocate the next cluster and extend the root FAT chain. `put` of a 17th root file still works. Subdir code paths stay unchanged.
 
-## Week 2 — programs from disk
+## Week 2 — real arguments
 
-Stop emitting machine code in `user.c`. The volume already knows how to store an ELF.
+Stop poking paths into a fixed user address before `run`.
 
-5. **ELF A, B, C** — `user/a.asm`, `b.asm`, `c.asm` packed next to `echo` on FAT12. `user_init` loads them with `elf_load` the same way `run echo` does. Drop `emit_*`. Boot screen still shows A / B / C counts.
-6. **Same load address** — done with item 11: every ELF at `0x400000` plus a stack page; concurrent tasks rely on private CR3.
-7. **`run` more than echo** — done: `run <name>` loads any FAT12 ELF at its linked BASE when that slot is free; exited tasks free their slot/base. `TASK_MAX` still 4.
-8. **`TASK_MAX` 8** — done: eight task slots; exit (and DEAD-slot reuse) frees user code/stack pages and the kernel stack so sequential `run` loops do not drain free frames.
+3. **`argv` for `run`** — before `iretq`, push `argc`/`argv[]` on the user stack (or a small boot block the ELF expects). `cat.asm` reads `argv[1]` instead of `0x401000`. Drop `user_run_path` / `USER_ARG_PATH`. `run cat hello` unchanged at the shell.
+4. **`readdir` + user `ls`** — syscall that fills a user buffer with names in the cwd (or open `.` semantics). Pack `user/ls.asm`; `run ls` lists the volume root or cwd from ring 3. Keep kernel `ls` working.
 
-## Week 3 — private address spaces
+## Week 3 — replace the running program
 
-Shared user PTEs are why A/B/C/echo sat at different vaddrs and why `copy_from_user` was a range check.
+`run` always spawns a new task today; the shell stays in the kernel.
 
-9. **Clone kernel tables** — done: each task gets its own PML4 via `vmm_clone_pml4`; kernel/HHDM half copied from boot, user half empty; `task->cr3` stores the phys addr. Boot CR3 still used for execution until item 10.
-10. **CR3 on switch** — done: `load_task` / first `iretq` write `task->cr3`; idle and syscall entry use `vmm_boot_cr3()`. Until item 11, `vmm_share_user` copies boot user PML4 slots into each clone so mappings stay visible.
-11. **Map into the current CR3** — done: `vmm_map_user` / `vmm_unmap_user` take a PML4 phys; boot tasks and `run` map code/stack only there. All ELFs link at `0x400000`.
-12. **User copy walks PTEs** — done: `copy_from_user` translates `rdi` through `sched_current_cr3()` (present+user PTEs) and copies via HHDM. No `[USER_CODE, USER_LIMIT)` gate; `write` of a kernel pointer from ring 3 fails.
+5. **`exec`** — load an ELF over the **current** task: unmap old user mappings in its CR3, map the new file at `0x400000`, jump to entry. One slot, no extra task count. Prove with a tiny `user/exit.asm` that `exec`s into `echo` (or rename `run` → `exec` for one program first).
+6. **Exit status** — `exit` takes an 8-bit code; `wait` returns it in `rax` (or a second syscall). Parent task row shows the code once. Needed before shell scripts and pipes.
 
-## Week 4 — files from ring 3
+## Week 4 — connect programs
 
-The shell already reads the volume. User code still cannot.
-
-13. **FDs** — done: syscall `open` (path in user memory) / `close`. A small per-task table (4 fds). `open` uses the same path walk as `fs_lookup`. `run opentest` proves open/close on `hello`.
-14. **`read` / `write` on fds** — done: `SYS_READ` copies file bytes into a user buffer; `write` keeps legacy VGA strings and treats `rdi < 4` as fd write (`fs_write` or console). `run readtest` prints `blood` from `hello`.
-15. **User `cat`** — done: `user/cat.asm` `open` / `read` / `write` / `exit`; `run cat hello` copies the path to `0x401000` and prints file bytes from ring 3.
-16. **Unmap on exit** — done: exit drops user PTEs and frees code/stack frames plus user page-table pages; cloned PML4 kept until slot reuse. Sequential `run cat` loops no longer drain free frames.
+7. **`pipe`** — syscall returns two fds (read end, write end); small kernel ring buffer (one page). `read`/`write` on those fds block or return partial data. No `fork` yet — prove with two tasks or a self-pipe in one ELF.
+8. **Shell `|`** — kernel line parser runs left and right of `|` with a pipe between them, e.g. `cat hello | cat` (second cat copies to VGA via fd 1) or `run cat hello | run wc` once `wc` exists. Start with one hard-coded pair if a full parser is too big.
 
 ## Leave for later
 
-UEFI, AHCI, FAT16, long names, pipes, fork/COW, a libc, a framebuffer, networking, SMP. `mv`, argv/`exec`, and a real `brk` come after fds and CR3, not before.
+UEFI, AHCI, FAT16, long names, **fork/COW**, a libc, a framebuffer, networking, SMP, **brk/mmap**, hard links, directories > cluster without chaining bugs, a second FAT sector when clusters exceed one sector’s map.
+
+`fork` and a real heap (`brk`) come after exec, exit status, and pipes — not before.
 
 ## Check
 
