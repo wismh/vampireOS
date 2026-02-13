@@ -237,6 +237,30 @@ static void run_rm(const char *arg)
     }
 }
 
+static void run_mv(const char *arg)
+{
+    char src[40];
+    char dst[40];
+    unsigned n = 0;
+    unsigned m = 0;
+
+    arg = skip_ws(arg);
+    while (*arg != '\0' && *arg != ' ' && n < 39u) {
+        src[n++] = *arg;
+        arg++;
+    }
+    src[n] = '\0';
+    arg = skip_ws(arg);
+    while (*arg != '\0' && *arg != ' ' && m < 39u) {
+        dst[m++] = *arg;
+        arg++;
+    }
+    dst[m] = '\0';
+    if (n == 0 || m == 0 || fs_rename(src, dst) != 0) {
+        vga_putc('?');
+    }
+}
+
 static void run_mkdir(const char *arg)
 {
     arg = skip_ws(arg);
@@ -314,7 +338,7 @@ static void run_line(void)
     cmd = line + i;
     vga_putc('\n');
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm fill mkdir rmdir cd pwd");
+        puts_cur("help ls mem cat run put rm mv fill mkdir rmdir cd pwd");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "pwd")) {
@@ -331,6 +355,8 @@ static void run_line(void)
         run_rmdir(cmd + 5);
     } else if (cmd_is(cmd, "rm")) {
         run_rm(cmd + 2);
+    } else if (cmd_is(cmd, "mv")) {
+        run_mv(cmd + 2);
     } else if (cmd_is(cmd, "fill")) {
         run_fill(cmd + 4);
     } else if (cmd_is(cmd, "mkdir")) {

@@ -1109,6 +1109,47 @@ int fs_remove(const char *name)
     return r;
 }
 
+int fs_rename(const char *src, const char *dst)
+{
+    char src_leaf[13];
+    char dst_leaf[13];
+    uint8_t n83[11];
+    unsigned src_parent;
+    int i;
+    int r = -1;
+
+    if (enter_parent(src, src_leaf) != 0) {
+        return -1;
+    }
+    src_parent = g_cwd;
+    i = find_file(src_leaf);
+    if (i < 0) {
+        (void)leave_parent();
+        return -1;
+    }
+    if (leave_parent() != 0) {
+        return -1;
+    }
+    if (enter_parent(dst, dst_leaf) != 0) {
+        return -1;
+    }
+    if (g_cwd != src_parent || find_file(dst_leaf) >= 0 || to_83(dst_leaf, n83) != 0) {
+        (void)leave_parent();
+        return -1;
+    }
+    i = find_file(src_leaf);
+    if (i >= 0 && g_dir != 0 && dir_load() == 0) {
+        copy_bytes(g_dir + files[i].dir_off, n83, 11u);
+        if (dir_store() == 0 && scan_dir() == 0) {
+            r = 0;
+        }
+    }
+    if (leave_parent() != 0) {
+        return -1;
+    }
+    return r;
+}
+
 int fs_isdir(int i)
 {
     if (i < 0 || i >= file_count) {
