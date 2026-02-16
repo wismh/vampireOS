@@ -6,7 +6,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 ## Now
 
-- Volume: 128 data clusters, 16 root entries, files up to 4 KiB. Subdirs grow across FAT chains; **root is still one sector**.
+- Volume: 128 data clusters, files up to 4 KiB. Subdirs and the root grow across FAT chains.
 - Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF.
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8.
 - Syscalls: write (legacy string or fd), exit, yield, sleep, wait, open, close, read. Four fds per task. `run` loads any FAT12 ELF into a free slot.
@@ -15,7 +15,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 ## Week 1 — finish the root volume
 
-Subdirs already chain; rename updates the parent entry. Root is still one sector.
+Subdirs already chain; rename updates the parent entry. Root grows across FAT clusters like subdirs.
 
 1. **`mv`** — rename a file or empty directory on FAT12 (update the directory entry name in the parent; refuse cross-directory moves for this slice). `mv note dusk` after `put note x` shows `dusk` in `ls`. `mv` onto an existing name prints `?`.
 2. **Root directory chains** — like subdirs: when the 16 root slots fill, allocate the next cluster and extend the root FAT chain. `put` of a 17th root file still works. Subdir code paths stay unchanged.

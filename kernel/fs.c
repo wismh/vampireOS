@@ -520,9 +520,6 @@ static unsigned dir_lba(void)
 
 static unsigned dir_ents(void)
 {
-    if (g_cwd < 2u) {
-        return g_root_ent;
-    }
     return g_dir_bytes / 32u;
 }
 
@@ -539,7 +536,18 @@ static int dir_load(void)
         if (ata_read(g_first_root, 1u, g_dir) != 0) {
             return -1;
         }
-        g_dir_bytes = SEC;
+        off = SEC;
+        hops = 1;
+        cl = g_fat != 0 ? fat12_ent(g_fat, 1u) : 0;
+        while (cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
+            if (ata_read(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
+                return -1;
+            }
+            off += SEC;
+            hops++;
+            cl = fat12_ent(g_fat, cl);
+        }
+        g_dir_bytes = off;
         return 0;
     }
     cl = g_cwd;
@@ -567,7 +575,21 @@ static int dir_store(void)
         return -1;
     }
     if (g_cwd < 2u) {
-        return ata_write(g_first_root, 1u, g_dir);
+        if (ata_write(g_first_root, 1u, g_dir) != 0) {
+            return -1;
+        }
+        off = SEC;
+        hops = 1;
+        cl = g_fat != 0 ? fat12_ent(g_fat, 1u) : 0;
+        while (off < g_dir_bytes && cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
+            if (ata_write(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
+                return -1;
+            }
+            off += SEC;
+            hops++;
+            cl = fat12_ent(g_fat, cl);
+        }
+        return off < g_dir_bytes ? -1 : 0;
     }
     cl = g_cwd;
     hops = 0;
@@ -604,16 +626,27 @@ static int dir_slot(void)
             return (int)(i * 32u);
         }
     }
-    if (g_cwd < 2u || g_fat == 0 || g_dir_bytes + SEC > CHAIN_MAX * SEC) {
+    if (g_fat == 0 || g_dir_bytes + SEC > CHAIN_MAX * SEC) {
         return -1;
     }
-    cl = g_cwd;
-    last = cl;
-    hops = 0;
-    while (cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
+    if (g_cwd < 2u) {
+        last = 1u;
+        cl = fat12_ent(g_fat, 1u);
+        hops = 1;
+        while (cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
+            last = cl;
+            cl = fat12_ent(g_fat, cl);
+            hops++;
+        }
+    } else {
+        cl = g_cwd;
         last = cl;
-        cl = fat12_ent(g_fat, cl);
-        hops++;
+        hops = 0;
+        while (cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
+            last = cl;
+            cl = fat12_ent(g_fat, cl);
+            hops++;
+        }
     }
     next = fat_alloc();
     if (next < 2u) {
