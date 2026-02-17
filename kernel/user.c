@@ -19,7 +19,7 @@
  * Every ELF links at the same BASE; each task maps it in its own CR3. */
 #define USER_SLOT 0x2000ull
 #define USER_BASE 0x400000ull
-#define USER_ARG_PATH (USER_BASE + PAGE_4K)
+#define USER_ARGV_MAX 4u
 #define KERNEL_STACK_MIN 0x200000ull
 #define SYS_WRITE 1ull
 #define SYS_EXIT 2ull
@@ -428,7 +428,75 @@ static int copy_to_user(uint64_t dst, const void *src, uint64_t n)
     return copy_to_user_pml4(sched_current_cr3(), dst, src, n);
 }
 
-int user_run_path(const char *name, const char *path)
+/* SysV-ish: argc, argv[0..argc-1], NULL, then string bytes toward stack top. */
+static int user_push_argv(uint64_t cr3, uint64_t stack_top, const char **argv,
+                          unsigned argc, uint64_t *rsp_out)
+{
+    uint64_t str_va[USER_ARGV_MAX];
+    uint64_t sp;
+    uint64_t stack_page;
+    uint64_t vec_bytes;
+    uint64_t argc64;
+    uint64_t zero;
+    unsigned i;
+    unsigned len;
+
+    if (cr3 == 0 || stack_top == 0 || rsp_out == 0 || argv == 0) {
+        return -1;
+    }
+    if (argc == 0 || argc > USER_ARGV_MAX) {
+        return -1;
+    }
+
+    stack_page = stack_top - PAGE_4K;
+    sp = stack_top;
+    for (i = 0; i < argc; i++) {
+        if (argv[i] == 0) {
+            return -1;
+        }
+        len = 0;
+        while (argv[i][len] != '\0' && len + 1u < FD_PATH_MAX) {
+            len++;
+        }
+        if (argv[i][len] != '\0' || len == 0) {
+            return -1;
+        }
+        if (sp < stack_page + (uint64_t)len + 1ull) {
+            return -1;
+        }
+        sp -= (uint64_t)len + 1ull;
+        if (copy_to_user_pml4(cr3, sp, argv[i], (uint64_t)len + 1ull) != 0) {
+            return -1;
+        }
+        str_va[i] = sp;
+    }
+
+    sp &= ~7ull;
+    vec_bytes = (uint64_t)(argc + 2u) * 8ull;
+    if (sp < stack_page + vec_bytes) {
+        return -1;
+    }
+    sp -= vec_bytes;
+
+    argc64 = (uint64_t)argc;
+    zero = 0;
+    if (copy_to_user_pml4(cr3, sp, &argc64, 8) != 0) {
+        return -1;
+    }
+    for (i = 0; i < argc; i++) {
+        if (copy_to_user_pml4(cr3, sp + 8ull * (i + 1u), &str_va[i], 8) != 0) {
+            return -1;
+        }
+    }
+    if (copy_to_user_pml4(cr3, sp + 8ull * (argc + 1u), &zero, 8) != 0) {
+        return -1;
+    }
+
+    *rsp_out = sp;
+    return 0;
+}
+
+int user_run(const char *name, const char *arg)
 {
     const void *data;
     unsigned len;
@@ -439,7 +507,8 @@ int user_run_path(const char *name, const char *path)
     uint64_t stack_top;
     uint64_t cr3;
     int row;
-    unsigned plen;
+    const char *argv[2];
+    unsigned argc;
 
     if (!enter_ready || name == 0 || *name == '\0') {
         return -1;
@@ -452,6 +521,12 @@ int user_run_path(const char *name, const char *path)
     }
     if (base != USER_BASE) {
         return -1;
+    }
+    argv[0] = name;
+    argc = 1;
+    if (arg != 0 && arg[0] != '\0') {
+        argv[1] = arg;
+        argc = 2;
     }
     row = run_row;
     kstack = alloc_page();
@@ -466,17 +541,10 @@ int user_run_path(const char *name, const char *path)
         pmm_free(cr3);
         return -1;
     }
-    if (path != 0 && path[0] != '\0') {
-        plen = 0;
-        while (path[plen] != '\0' && plen + 1u < FD_PATH_MAX) {
-            plen++;
-        }
-        if (path[plen] != '\0' || plen == 0 ||
-            copy_to_user_pml4(cr3, USER_ARG_PATH, path, plen + 1) != 0) {
-            vmm_teardown_user(cr3);
-            pmm_free(cr3);
-            return -1;
-        }
+    if (user_push_argv(cr3, stack_top, argv, argc, &stack_top) != 0) {
+        vmm_teardown_user(cr3);
+        pmm_free(cr3);
+        return -1;
     }
     ktop = phys_to_virt(kstack) + PAGE_4K;
     if (sched_add_user(entry, stack_top, ktop, row, base, cr3) != 0) {
@@ -485,11 +553,6 @@ int user_run_path(const char *name, const char *path)
         return -1;
     }
     return 0;
-}
-
-int user_run(const char *name)
-{
-    return user_run_path(name, 0);
 }
 
 void user_on_syscall(struct interrupt_frame *frame)
