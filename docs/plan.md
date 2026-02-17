@@ -2,7 +2,7 @@
 
 Vampire OS after `vos-55`: BIOS MBR, FAT12 on ATA PIO (128 data clusters), private CR3 per task, ring-3 `open`/`read`/`write`/`cat`, shell `run cat <path>`.
 
-One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 56 KiB (`KERNEL_SECTORS` 112); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again.
+One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 64 KiB (`KERNEL_SECTORS` 128); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again.
 
 ## Now
 
@@ -10,7 +10,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF.
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8.
 - Syscalls: write (legacy string or fd), exit, yield, sleep, wait, open, close, read. Four fds per task. `run` loads any FAT12 ELF into a free slot.
-- **Argv hack:** `run cat hello` copies the path to `0x401000` before start — not real argv yet.
+- **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` reads `argv[1]`.
 - No pipes, exec, readdir, brk, fork, long names, second FAT sector, UEFI, AHCI.
 
 ## Week 1 — finish the root volume
@@ -24,7 +24,7 @@ Subdirs already chain; rename updates the parent entry. Root grows across FAT cl
 
 Stop poking paths into a fixed user address before `run`.
 
-3. **`argv` for `run`** — before `iretq`, push `argc`/`argv[]` on the user stack (or a small boot block the ELF expects). `cat.asm` reads `argv[1]` instead of `0x401000`. Drop `user_run_path` / `USER_ARG_PATH`. `run cat hello` unchanged at the shell.
+3. **`argv` for `run`** — done: before start, push `argc` / `argv[]` / NULL on the user stack. `cat.asm` reads `argv[1]`. `user_run_path` / `USER_ARG_PATH` are gone. `run cat hello` unchanged at the shell.
 4. **`readdir` + user `ls`** — syscall that fills a user buffer with names in the cwd (or open `.` semantics). Pack `user/ls.asm`; `run ls` lists the volume root or cwd from ring 3. Keep kernel `ls` working.
 
 ## Week 3 — replace the running program

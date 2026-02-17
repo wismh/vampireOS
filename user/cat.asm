@@ -1,4 +1,4 @@
-; BASE 0x400000; path at 0x401000 from shell; open/read/write/exit
+; BASE 0x400000; argv on user stack (argc, argv[], NULL); open/read/write/exit
 bits 64
 org 0x400000
 
@@ -29,11 +29,13 @@ phdr:
     dq filesize
     dq 0x1000
 
-USER_ARG equ 0x401000
-
 _start:
+    cmp qword [rsp], 2
+    jb fail
+    mov rdi, [rsp+16]
+    test rdi, rdi
+    jz fail
     mov eax, 6
-    mov edi, USER_ARG
     int 0x30
     test rax, rax
     js fail
