@@ -1027,6 +1027,50 @@ const char *fs_name(int i)
     return files[i].name;
 }
 
+int fs_readdir(char *dst, unsigned max)
+{
+    int i;
+    unsigned off = 0;
+    unsigned k;
+    unsigned need;
+    const char *name;
+
+    if (dst == 0) {
+        return -1;
+    }
+    if (max == 0) {
+        return 0;
+    }
+    for (i = 0; i < file_count; i++) {
+        name = files[i].name;
+        k = 0;
+        while (name[k] != '\0') {
+            k++;
+        }
+        need = k;
+        if (files[i].is_dir) {
+            need++;
+        }
+        if (off != 0) {
+            need++;
+        }
+        if (need == 0 || off + need > max) {
+            break;
+        }
+        if (off != 0) {
+            dst[off++] = ' ';
+        }
+        k = 0;
+        while (name[k] != '\0') {
+            dst[off++] = name[k++];
+        }
+        if (files[i].is_dir) {
+            dst[off++] = '/';
+        }
+    }
+    return (int)off;
+}
+
 int fs_lookup(const char *name, const void **data, unsigned *len)
 {
     char leaf[13];

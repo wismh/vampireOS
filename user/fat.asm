@@ -9,10 +9,12 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0xFF, 0xFF
     times 512 - ($ - fat1) db 0
 
 fat2:
     db 0xF8, 0xFF, 0xFF
+    db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
@@ -74,6 +76,12 @@ root:
     dw 10
     dd cat_len
 
+    db "LS      ", "   "
+    db 0x20
+    times 14 db 0
+    dw 11
+    dd ls_len
+
     times 512 - ($ - root) db 0
 
 cluster2:
@@ -119,4 +127,9 @@ cat_data:
 cat_len equ $ - cat_data
     times 512 - cat_len db 0
 
-    times (FAT_DATA_CLUSTERS - 9) * 512 db 0
+ls_data:
+    incbin "ls.bin"
+ls_len equ $ - ls_data
+    times 512 - ls_len db 0
+
+    times (FAT_DATA_CLUSTERS - 10) * 512 db 0

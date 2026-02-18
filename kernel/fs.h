@@ -3,6 +3,8 @@
 int fs_init(int row);
 int fs_count(void);
 const char *fs_name(int i);
+/* Pack cwd names into dst (space-separated, dirs with '/'). Returns bytes. */
+int fs_readdir(char *dst, unsigned max);
 int fs_lookup(const char *name, const void **data, unsigned *len);
 int fs_write(const char *name, const void *data, unsigned len);
 int fs_remove(const char *name);

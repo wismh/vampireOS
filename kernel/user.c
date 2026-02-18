@@ -29,6 +29,7 @@
 #define SYS_OPEN 6ull
 #define SYS_CLOSE 7ull
 #define SYS_READ 8ull
+#define SYS_READDIR 9ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
 #define FD_CONSOLE 1
@@ -509,12 +510,30 @@ int user_run(const char *name, const char *arg)
     int row;
     const char *argv[2];
     unsigned argc;
+    char rooted[FD_PATH_MAX];
+    unsigned i;
 
     if (!enter_ready || name == 0 || *name == '\0') {
         return -1;
     }
+    /* Cwd may be a subdir; ELFs live at the volume root. */
     if (fs_lookup(name, &data, &len) != 0) {
-        return -1;
+        if (name[0] == '/') {
+            return -1;
+        }
+        rooted[0] = '/';
+        i = 0;
+        while (name[i] != '\0' && i + 2u < (unsigned)FD_PATH_MAX) {
+            rooted[i + 1u] = name[i];
+            i++;
+        }
+        if (name[i] != '\0') {
+            return -1;
+        }
+        rooted[i + 1u] = '\0';
+        if (fs_lookup(rooted, &data, &len) != 0) {
+            return -1;
+        }
     }
     if (elf_image_base(data, len, &base) != 0) {
         return -1;
@@ -560,6 +579,7 @@ void user_on_syscall(struct interrupt_frame *frame)
     char buf[USER_STR_MAX];
     char path[FD_PATH_MAX];
     int row;
+    int packed;
     unsigned n;
     unsigned want;
     unsigned got;
@@ -675,6 +695,27 @@ void user_on_syscall(struct interrupt_frame *frame)
         }
         vmm_set_cr3(sched_current_cr3());
         if (copy_to_user(frame->rsi, file_buf, got) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        frame->rax = (uint64_t)got;
+        return;
+    }
+    if (frame->rax == SYS_READDIR) {
+        want = (unsigned)frame->rsi;
+        if (want > FILE_MAX) {
+            want = (unsigned)FILE_MAX;
+        }
+        vmm_set_cr3(vmm_boot_cr3());
+        packed = fs_readdir((char *)file_buf, want);
+        if (packed < 0) {
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
+        got = (unsigned)packed;
+        vmm_set_cr3(sched_current_cr3());
+        if (got != 0 && copy_to_user(frame->rdi, file_buf, got) != 0) {
             frame->rax = (uint64_t)-1;
             return;
         }

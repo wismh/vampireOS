@@ -7,11 +7,12 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 ## Now
 
 - Volume: 128 data clusters, files up to 4 KiB. Subdirs and the root grow across FAT chains.
-- Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF.
+- Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3.
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8.
-- Syscalls: write (legacy string or fd), exit, yield, sleep, wait, open, close, read. Four fds per task. `run` loads any FAT12 ELF into a free slot.
+- Syscalls: write (legacy string or fd), exit, yield, sleep, wait, open, close, read, readdir. Four fds per task. `run` loads any FAT12 ELF into a free slot.
 - **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` reads `argv[1]`.
-- No pipes, exec, readdir, brk, fork, long names, second FAT sector, UEFI, AHCI.
+- **readdir:** syscall copies cwd names into a user buffer; `user/ls.asm` writes them. Kernel `ls` still works.
+- No pipes, exec, brk, fork, long names, second FAT sector, UEFI, AHCI.
 
 ## Week 1 — finish the root volume
 
@@ -25,7 +26,7 @@ Subdirs already chain; rename updates the parent entry. Root grows across FAT cl
 Stop poking paths into a fixed user address before `run`.
 
 3. **`argv` for `run`** — done: before start, push `argc` / `argv[]` / NULL on the user stack. `cat.asm` reads `argv[1]`. `user_run_path` / `USER_ARG_PATH` are gone. `run cat hello` unchanged at the shell.
-4. **`readdir` + user `ls`** — syscall that fills a user buffer with names in the cwd (or open `.` semantics). Pack `user/ls.asm`; `run ls` lists the volume root or cwd from ring 3. Keep kernel `ls` working.
+4. **`readdir` + user `ls`** — done: syscall fills a user buffer with cwd names; `user/ls.asm` writes them. `run ls` lists the volume root or cwd from ring 3. Kernel `ls` still works.
 
 ## Week 3 — replace the running program
 
