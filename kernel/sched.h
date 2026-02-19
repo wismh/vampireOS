@@ -25,3 +25,6 @@ void sched_yield(struct interrupt_frame *frame);
 void sched_sleep(struct interrupt_frame *frame, uint64_t ticks);
 void sched_wait(struct interrupt_frame *frame);
 void sched_exit(struct interrupt_frame *frame);
+/* Same slot: new rip/rsp/user_base, keep kstack and CR3, load into frame. */
+void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t rsp,
+                         uint64_t user_base);

@@ -30,6 +30,7 @@
 #define SYS_CLOSE 7ull
 #define SYS_READ 8ull
 #define SYS_READDIR 9ull
+#define SYS_EXEC 10ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
 #define FD_CONSOLE 1
@@ -229,6 +230,124 @@ static int map_load_elf_name(const char *name, uint64_t base, uint64_t cr3,
         return -1;
     }
     return map_load_elf(data, len, base, cr3, entry, stack_top);
+}
+
+static int user_push_argv(uint64_t cr3, uint64_t stack_top, const char **argv,
+                          unsigned argc, uint64_t *rsp_out);
+
+/* Cwd may be a subdir; ELFs live at the volume root. */
+static int lookup_root_elf(const char *name, const void **data, unsigned *len)
+{
+    char rooted[FD_PATH_MAX];
+    unsigned i;
+
+    if (name == 0 || *name == '\0' || data == 0 || len == 0) {
+        return -1;
+    }
+    if (fs_lookup(name, data, len) == 0) {
+        return 0;
+    }
+    if (name[0] == '/') {
+        return -1;
+    }
+    rooted[0] = '/';
+    i = 0;
+    while (name[i] != '\0' && i + 2u < (unsigned)FD_PATH_MAX) {
+        rooted[i + 1u] = name[i];
+        i++;
+    }
+    if (name[i] != '\0') {
+        return -1;
+    }
+    rooted[i + 1u] = '\0';
+    return fs_lookup(rooted, data, len);
+}
+
+/* Alloc new code+stack, then drop the old user map in this CR3. 0 ok, -1 keep
+ * old image, -2 old image gone. */
+static int replace_load_elf(const void *data, unsigned len, uint64_t base,
+                            uint64_t cr3, uint64_t *entry, uint64_t *stack_top)
+{
+    uint64_t code;
+    uint64_t stack;
+    uint8_t *dest;
+
+    if (cr3 == 0 || cr3 == vmm_boot_cr3() || entry == 0 || stack_top == 0) {
+        return -1;
+    }
+    code = alloc_page();
+    stack = alloc_page();
+    if (code == 0 || stack == 0) {
+        if (code != 0) {
+            pmm_free(code);
+        }
+        if (stack != 0) {
+            pmm_free(stack);
+        }
+        return -1;
+    }
+    dest = (uint8_t *)(uintptr_t)phys_to_virt(code);
+    if (elf_load(data, len, dest, (unsigned)PAGE_4K, base, entry) != 0) {
+        pmm_free(code);
+        pmm_free(stack);
+        return -1;
+    }
+    vmm_teardown_user(cr3);
+    if (vmm_map_user(cr3, base, code) != 0 ||
+        vmm_map_user(cr3, base + PAGE_4K, stack) != 0) {
+        return -2;
+    }
+    *stack_top = user_stack_top(base);
+    return 0;
+}
+
+/* Load name over the current slot. 0 = frame armed, -1 = old image kept, -2 = gone. */
+static int user_exec_current(struct interrupt_frame *frame, const char *name)
+{
+    const void *data;
+    unsigned len;
+    uint64_t base;
+    uint64_t entry;
+    uint64_t stack_top;
+    uint64_t cr3;
+    const char *argv[1];
+    unsigned i;
+    int rc;
+
+    if (frame == 0 || name == 0 || *name == '\0') {
+        return -1;
+    }
+    cr3 = sched_current_cr3();
+    if (cr3 == 0 || cr3 == vmm_boot_cr3()) {
+        return -1;
+    }
+    if (lookup_root_elf(name, &data, &len) != 0) {
+        return -1;
+    }
+    if (elf_image_base(data, len, &base) != 0 || base != USER_BASE) {
+        return -1;
+    }
+    if (len == 0 || len > FILE_MAX) {
+        return -1;
+    }
+    {
+        const uint8_t *src = (const uint8_t *)data;
+
+        for (i = 0; i < len; i++) {
+            file_buf[i] = src[i];
+        }
+    }
+    rc = replace_load_elf(file_buf, len, base, cr3, &entry, &stack_top);
+    if (rc != 0) {
+        return rc;
+    }
+    argv[0] = name;
+    if (user_push_argv(cr3, stack_top, argv, 1u, &stack_top) != 0) {
+        vmm_teardown_user(cr3);
+        return -2;
+    }
+    sched_reset_current(frame, entry, stack_top, base);
+    return 0;
 }
 
 int user_init(int row)
@@ -510,30 +629,12 @@ int user_run(const char *name, const char *arg)
     int row;
     const char *argv[2];
     unsigned argc;
-    char rooted[FD_PATH_MAX];
-    unsigned i;
 
     if (!enter_ready || name == 0 || *name == '\0') {
         return -1;
     }
-    /* Cwd may be a subdir; ELFs live at the volume root. */
-    if (fs_lookup(name, &data, &len) != 0) {
-        if (name[0] == '/') {
-            return -1;
-        }
-        rooted[0] = '/';
-        i = 0;
-        while (name[i] != '\0' && i + 2u < (unsigned)FD_PATH_MAX) {
-            rooted[i + 1u] = name[i];
-            i++;
-        }
-        if (name[i] != '\0') {
-            return -1;
-        }
-        rooted[i + 1u] = '\0';
-        if (fs_lookup(rooted, &data, &len) != 0) {
-            return -1;
-        }
+    if (lookup_root_elf(name, &data, &len) != 0) {
+        return -1;
     }
     if (elf_image_base(data, len, &base) != 0) {
         return -1;
@@ -736,6 +837,32 @@ void user_on_syscall(struct interrupt_frame *frame)
         fd = sched_fd_open(buf);
         frame->rax = (fd < 0) ? (uint64_t)-1 : (uint64_t)(unsigned)fd;
         vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    if (frame->rax == SYS_EXEC) {
+        if (copy_from_user(buf, frame->rdi, USER_STR_MAX) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        n = 0;
+        while (buf[n] != '\0') {
+            n++;
+        }
+        if (n == 0 || n >= (unsigned)FD_PATH_MAX) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        vmm_set_cr3(vmm_boot_cr3());
+        packed = user_exec_current(frame, buf);
+        if (packed == -2) {
+            sched_exit(frame);
+            return;
+        }
+        if (packed != 0) {
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
         return;
     }
     /* Kernel/idle map for the rest of the syscall body. */

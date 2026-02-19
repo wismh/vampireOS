@@ -10,6 +10,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times 512 - ($ - fat1) db 0
 
 fat2:
@@ -19,6 +20,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times 512 - ($ - fat2) db 0
 
 root:
@@ -82,6 +84,12 @@ root:
     dw 11
     dd ls_len
 
+    db "EXECTEST", "   "
+    db 0x20
+    times 14 db 0
+    dw 12
+    dd exectest_len
+
     times 512 - ($ - root) db 0
 
 cluster2:
@@ -132,4 +140,9 @@ ls_data:
 ls_len equ $ - ls_data
     times 512 - ls_len db 0
 
-    times (FAT_DATA_CLUSTERS - 10) * 512 db 0
+exectest_data:
+    incbin "exectest.bin"
+exectest_len equ $ - exectest_data
+    times 512 - exectest_len db 0
+
+    times (FAT_DATA_CLUSTERS - 11) * 512 db 0

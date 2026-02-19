@@ -488,6 +488,46 @@ void sched_wait(struct interrupt_frame *frame)
     load_task(frame, &tasks[current]);
 }
 
+void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t rsp,
+                         uint64_t user_base)
+{
+    struct task *t;
+
+    if (frame == 0 || task_count == 0 || rip == 0 || rsp == 0 || user_base == 0) {
+        return;
+    }
+    t = &tasks[current];
+    if (t->state == TASK_DEAD || t->cr3 == 0 || t->kstack_top == 0) {
+        return;
+    }
+    t->rax = 0;
+    t->rbx = 0;
+    t->rcx = 0;
+    t->rdx = 0;
+    t->rdi = 0;
+    t->rsi = 0;
+    t->rbp = 0;
+    t->r8 = 0;
+    t->r9 = 0;
+    t->r10 = 0;
+    t->r11 = 0;
+    t->r12 = 0;
+    t->r13 = 0;
+    t->r14 = 0;
+    t->r15 = 0;
+    t->rip = rip;
+    t->cs = USER_CS;
+    t->rflags = 0x202;
+    t->rsp = rsp;
+    t->ss = USER_DS;
+    t->user_base = user_base;
+    t->state = TASK_READY;
+    t->writes = 0;
+    t->wake_tick = 0;
+    clear_fds(t);
+    load_task(frame, t);
+}
+
 void sched_exit(struct interrupt_frame *frame)
 {
     int next;
