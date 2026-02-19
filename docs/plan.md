@@ -9,10 +9,11 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - Volume: 128 data clusters, files up to 4 KiB. Subdirs and the root grow across FAT chains.
 - Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3.
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8.
-- Syscalls: write (legacy string or fd), exit, yield, sleep, wait, open, close, read, readdir. Four fds per task. `run` loads any FAT12 ELF into a free slot.
-- **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` reads `argv[1]`.
+- Syscalls: write (legacy string or fd), exit, yield, sleep, wait, open, close, read, readdir, exec. Four fds per task. `run` loads any FAT12 ELF into a free slot.
+- **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` reads `argv[1]`. `exec` does the same for the new image.
 - **readdir:** syscall copies cwd names into a user buffer; `user/ls.asm` writes them. Kernel `ls` still works.
-- No pipes, exec, brk, fork, long names, second FAT sector, UEFI, AHCI.
+- **exec:** syscall loads an ELF over the current task (same slot, same CR3/kstack). `run exectest` becomes `echo` without growing the task count.
+- No pipes, brk, fork, long names, second FAT sector, UEFI, AHCI.
 
 ## Week 1 — finish the root volume
 
@@ -32,7 +33,7 @@ Stop poking paths into a fixed user address before `run`.
 
 `run` always spawns a new task today; the shell stays in the kernel.
 
-5. **`exec`** — load an ELF over the **current** task: unmap old user mappings in its CR3, map the new file at `0x400000`, jump to entry. One slot, no extra task count. Prove with a tiny `user/exit.asm` that `exec`s into `echo` (or rename `run` → `exec` for one program first).
+5. **`exec`** — done: load an ELF over the **current** task: unmap old user mappings in its CR3, map the new file at `0x400000`, jump to entry. One slot, no extra task count. `user/exectest.asm` execs into `echo`.
 6. **Exit status** — `exit` takes an 8-bit code; `wait` returns it in `rax` (or a second syscall). Parent task row shows the code once. Needed before shell scripts and pipes.
 
 ## Week 4 — connect programs
