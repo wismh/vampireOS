@@ -1,4 +1,4 @@
-; BASE 0x400000; stack page at BASE+0x1000
+; BASE 0x400000; exit with 8-bit code 42 (wait returns it)
 bits 64
 org 0x400000
 
@@ -30,23 +30,8 @@ phdr:
     dq 0x1000
 
 _start:
-    mov ecx, 8
-.loop:
-    mov eax, 1
-    mov edi, str
-    int 0x30
-    dec ecx
-    jz .done
-    mov eax, 4
-    mov edi, 5
-    int 0x30
-    jmp .loop
-.done:
     mov eax, 2
-    xor edi, edi
+    mov edi, 42
     int 0x30
-
-str:
-    db "C", 0
 
 filesize equ $ - $$

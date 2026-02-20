@@ -1,4 +1,4 @@
-; BASE 0x400000; stack page at BASE+0x1000
+; BASE 0x400000; wait until rax is 42, write it, exit
 bits 64
 org 0x400000
 
@@ -30,23 +30,27 @@ phdr:
     dq 0x1000
 
 _start:
-    mov ecx, 8
-.loop:
+    mov eax, 5
+    int 0x30
+    cmp eax, 42
+    jne _start
+    mov ecx, eax
+    xor edx, edx
+    mov ebx, 10
+    mov eax, ecx
+    div ebx
+    add al, '0'
+    add dl, '0'
+    mov [digits], al
+    mov [digits + 1], dl
     mov eax, 1
-    mov edi, str
+    mov edi, digits
     int 0x30
-    dec ecx
-    jz .done
-    mov eax, 4
-    mov edi, 5
-    int 0x30
-    jmp .loop
-.done:
     mov eax, 2
-    xor edi, edi
+    mov edi, 42
     int 0x30
 
-str:
-    db "C", 0
+digits:
+    db "00", 0
 
 filesize equ $ - $$
