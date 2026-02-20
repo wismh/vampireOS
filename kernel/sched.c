@@ -49,12 +49,17 @@ struct task {
     int row;
     unsigned writes;
     unsigned wake_tick;
+    uint8_t exit_code;
+    uint8_t seen_status;
+    uint8_t shown_status;
     struct fd_entry fds[FD_MAX];
 };
 
 static struct task tasks[TASK_MAX];
 static int task_count;
 static int current;
+static uint8_t last_exit;
+static int have_exit;
 
 static void save_task(struct task *t, const struct interrupt_frame *f)
 {
@@ -197,10 +202,15 @@ void sched_init(void)
 
     task_count = 0;
     current = 0;
+    last_exit = 0;
+    have_exit = 0;
     for (i = 0; i < TASK_MAX; i++) {
         tasks[i].state = TASK_DEAD;
         tasks[i].writes = 0;
         tasks[i].wake_tick = 0;
+        tasks[i].exit_code = 0;
+        tasks[i].seen_status = 0;
+        tasks[i].shown_status = 0;
         tasks[i].kstack_top = 0;
         tasks[i].user_base = 0;
         tasks[i].cr3 = 0;
@@ -284,6 +294,9 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->row = row;
     t->writes = 0;
     t->wake_tick = 0;
+    t->exit_code = 0;
+    t->seen_status = 0;
+    t->shown_status = 0;
     clear_fds(t);
     return 0;
 }
@@ -381,13 +394,32 @@ static void wake_sleepers(void)
     }
 }
 
-static void wake_waiters(void)
+/* Parent (waiter) row: "st N" once per distinct code. */
+static void show_wait_status(struct task *t, uint8_t code)
+{
+    if (t == 0) {
+        return;
+    }
+    if (t->seen_status != 0 && t->shown_status == code) {
+        return;
+    }
+    t->seen_status = 1;
+    t->shown_status = code;
+    vga_write_at(t->row, 12, "st    ");
+    vga_write_dec_at(t->row, 15, (unsigned)code);
+}
+
+static void wake_waiters(uint8_t code)
 {
     int i;
 
+    last_exit = code;
+    have_exit = 1;
     for (i = 0; i < task_count; i++) {
         if (tasks[i].state == TASK_WAIT) {
             tasks[i].state = TASK_READY;
+            tasks[i].rax = (uint64_t)code;
+            show_wait_status(&tasks[i], code);
         }
     }
 }
@@ -466,16 +498,16 @@ void sched_sleep(struct interrupt_frame *frame, uint64_t n)
 
 void sched_wait(struct interrupt_frame *frame)
 {
-    int i;
     int next;
 
     if (frame == 0) {
         return;
     }
-    for (i = 0; i < task_count; i++) {
-        if (i != current && tasks[i].state == TASK_DEAD) {
-            return;
-        }
+    /* last_exit survives DEAD-slot reuse so a later waiter still sees the code. */
+    if (have_exit != 0) {
+        frame->rax = (uint64_t)last_exit;
+        show_wait_status(&tasks[current], last_exit);
+        return;
     }
     save_task(&tasks[current], frame);
     tasks[current].state = TASK_WAIT;
@@ -532,15 +564,18 @@ void sched_exit(struct interrupt_frame *frame)
 {
     int next;
     int row;
+    uint8_t code;
 
     if (task_count != 0) {
+        code = (uint8_t)(frame != 0 ? (frame->rdi & 0xffull) : 0);
         row = tasks[current].row;
         vga_write_at(row, 2, "done");
         /* Still on this task's kstack until iretq; free that on slot reuse. */
         free_task_user(&tasks[current]);
         clear_fds(&tasks[current]);
+        tasks[current].exit_code = code;
         tasks[current].state = TASK_DEAD;
-        wake_waiters();
+        wake_waiters(code);
     }
     next = pick_next(current);
     if (next < 0 || frame == 0) {

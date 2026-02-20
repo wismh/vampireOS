@@ -10,6 +10,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0xFF, 0x0F
     db 0xFF, 0x0F, 0x00
     times 512 - ($ - fat1) db 0
 
@@ -20,6 +21,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0xFF, 0x0F
     db 0xFF, 0x0F, 0x00
     times 512 - ($ - fat2) db 0
 
@@ -90,6 +92,18 @@ root:
     dw 12
     dd exectest_len
 
+    db "STATUS  ", "   "
+    db 0x20
+    times 14 db 0
+    dw 13
+    dd status_len
+
+    db "WAITER  ", "   "
+    db 0x20
+    times 14 db 0
+    dw 14
+    dd waiter_len
+
     times 512 - ($ - root) db 0
 
 cluster2:
@@ -145,4 +159,14 @@ exectest_data:
 exectest_len equ $ - exectest_data
     times 512 - exectest_len db 0
 
-    times (FAT_DATA_CLUSTERS - 11) * 512 db 0
+status_data:
+    incbin "status.bin"
+status_len equ $ - status_data
+    times 512 - status_len db 0
+
+waiter_data:
+    incbin "waiter.bin"
+waiter_len equ $ - waiter_data
+    times 512 - waiter_len db 0
+
+    times (FAT_DATA_CLUSTERS - 13) * 512 db 0

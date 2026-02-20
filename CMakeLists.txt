@@ -64,6 +64,10 @@ set(LS_ASM "${CMAKE_SOURCE_DIR}/user/ls.asm")
 set(LS_BIN "${CMAKE_BINARY_DIR}/ls.bin")
 set(EXECTEST_ASM "${CMAKE_SOURCE_DIR}/user/exectest.asm")
 set(EXECTEST_BIN "${CMAKE_BINARY_DIR}/exectest.bin")
+set(STATUS_ASM "${CMAKE_SOURCE_DIR}/user/status.asm")
+set(STATUS_BIN "${CMAKE_BINARY_DIR}/status.bin")
+set(WAITER_ASM "${CMAKE_SOURCE_DIR}/user/waiter.asm")
+set(WAITER_BIN "${CMAKE_BINARY_DIR}/waiter.bin")
 set(FAT_ASM "${CMAKE_SOURCE_DIR}/user/fat.asm")
 set(FAT_BIN "${CMAKE_BINARY_DIR}/fat.bin")
 
@@ -140,6 +144,22 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${STATUS_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${STATUS_BIN}" "${STATUS_ASM}"
+    DEPENDS "${STATUS_ASM}"
+    COMMENT "Assembling user ELF status"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${WAITER_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${WAITER_BIN}" "${WAITER_ASM}"
+    DEPENDS "${WAITER_ASM}"
+    COMMENT "Assembling user ELF waiter"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${FAT_BIN}"
     COMMAND "${NASM_EXECUTABLE}"
         -f bin
@@ -147,7 +167,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )

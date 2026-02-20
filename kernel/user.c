@@ -855,6 +855,7 @@ void user_on_syscall(struct interrupt_frame *frame)
         vmm_set_cr3(vmm_boot_cr3());
         packed = user_exec_current(frame, buf);
         if (packed == -2) {
+            frame->rdi = 0;
             sched_exit(frame);
             return;
         }
