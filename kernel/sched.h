@@ -6,6 +6,9 @@
 
 #define FD_MAX 4
 #define FD_PATH_MAX 32
+#define FD_KIND_FILE 1
+#define FD_KIND_PIPE_R 2
+#define FD_KIND_PIPE_W 3
 
 void sched_init(void);
 int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
@@ -20,6 +23,15 @@ int sched_fd_open(const char *path);
 int sched_fd_close(int fd);
 /* Copy stored path for an open fd into out (FD_PATH_MAX). */
 int sched_fd_path(int fd, char *out);
+int sched_fd_kind(int fd);
+int sched_fd_pipe(int fd);
+/* pipe: fill out[0] read and out[1] write. One-page ring. 0 ok, -1 fail. */
+int sched_pipe(int out[2]);
+/* Copy from the ring. >=0 bytes, -1 error, -2 empty (block). */
+int sched_pipe_read(int fd, void *dst, unsigned n);
+/* Copy into the ring. >=0 bytes, -1 error, -2 full (block). */
+int sched_pipe_write(int fd, const void *src, unsigned n);
+void sched_block_pipe(struct interrupt_frame *frame, int pipe_id);
 void sched_on_tick(struct interrupt_frame *frame);
 void sched_yield(struct interrupt_frame *frame);
 void sched_sleep(struct interrupt_frame *frame, uint64_t ticks);
