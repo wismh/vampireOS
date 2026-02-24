@@ -11,7 +11,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0x0F
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times 512 - ($ - fat1) db 0
 
 fat2:
@@ -22,7 +22,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0x0F
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times 512 - ($ - fat2) db 0
 
 root:
@@ -104,6 +104,12 @@ root:
     dw 14
     dd waiter_len
 
+    db "PIPETEST", "   "
+    db 0x20
+    times 14 db 0
+    dw 15
+    dd pipetest_len
+
     times 512 - ($ - root) db 0
 
 cluster2:
@@ -169,4 +175,9 @@ waiter_data:
 waiter_len equ $ - waiter_data
     times 512 - waiter_len db 0
 
-    times (FAT_DATA_CLUSTERS - 13) * 512 db 0
+pipetest_data:
+    incbin "pipetest.bin"
+pipetest_len equ $ - pipetest_data
+    times 512 - pipetest_len db 0
+
+    times (FAT_DATA_CLUSTERS - 14) * 512 db 0

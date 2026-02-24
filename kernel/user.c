@@ -31,6 +31,7 @@
 #define SYS_READ 8ull
 #define SYS_READDIR 9ull
 #define SYS_EXEC 10ull
+#define SYS_PIPE 11ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
 #define FD_CONSOLE 1
@@ -685,6 +686,8 @@ void user_on_syscall(struct interrupt_frame *frame)
     unsigned want;
     unsigned got;
     int fd;
+    int kind;
+    int pipefd[2];
     const void *data;
     unsigned len;
 
@@ -693,12 +696,36 @@ void user_on_syscall(struct interrupt_frame *frame)
         return;
     }
     if (frame->rax == SYS_WRITE) {
-        /* rdi < FD_MAX: fd write (rsi=buf, rdx=len). Else legacy VGA string. */
+        /* rdi < FD_MAX: fd write (rsi=buf, rdx=len). Else legacy VGA string.
+         * Pipe ends are checked first so fd 1 can be a pipe write, not VGA. */
         if (frame->rdi < (uint64_t)FD_MAX) {
             fd = (int)frame->rdi;
             want = (unsigned)frame->rdx;
             if (want > FILE_MAX) {
                 want = (unsigned)FILE_MAX;
+            }
+            kind = sched_fd_kind(fd);
+            if (kind == FD_KIND_PIPE_W) {
+                if (want == 0) {
+                    frame->rax = 0;
+                    return;
+                }
+                if (copy_from_user_n(file_buf, frame->rsi, want) != 0) {
+                    frame->rax = (uint64_t)-1;
+                    return;
+                }
+                packed = sched_pipe_write(fd, file_buf, want);
+                if (packed == -2) {
+                    frame->rip -= 2ull;
+                    sched_block_pipe(frame, sched_fd_pipe(fd));
+                    return;
+                }
+                frame->rax = (packed < 0) ? (uint64_t)-1 : (uint64_t)(unsigned)packed;
+                return;
+            }
+            if (kind == FD_KIND_PIPE_R) {
+                frame->rax = (uint64_t)-1;
+                return;
             }
             if (fd == FD_CONSOLE) {
                 if (want >= USER_STR_MAX) {
@@ -769,6 +796,34 @@ void user_on_syscall(struct interrupt_frame *frame)
         if (want > FILE_MAX) {
             want = (unsigned)FILE_MAX;
         }
+        kind = sched_fd_kind(fd);
+        if (kind == FD_KIND_PIPE_R) {
+            if (want == 0) {
+                frame->rax = 0;
+                return;
+            }
+            packed = sched_pipe_read(fd, file_buf, want);
+            if (packed == -2) {
+                frame->rip -= 2ull;
+                sched_block_pipe(frame, sched_fd_pipe(fd));
+                return;
+            }
+            if (packed < 0) {
+                frame->rax = (uint64_t)-1;
+                return;
+            }
+            got = (unsigned)packed;
+            if (got != 0 && copy_to_user(frame->rsi, file_buf, got) != 0) {
+                frame->rax = (uint64_t)-1;
+                return;
+            }
+            frame->rax = (uint64_t)got;
+            return;
+        }
+        if (kind == FD_KIND_PIPE_W) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
         if (sched_fd_path(fd, path) != 0) {
             frame->rax = (uint64_t)-1;
             return;
@@ -837,6 +892,21 @@ void user_on_syscall(struct interrupt_frame *frame)
         fd = sched_fd_open(buf);
         frame->rax = (fd < 0) ? (uint64_t)-1 : (uint64_t)(unsigned)fd;
         vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* pipe(fd[2]): rdi = user int[2]; fd[0] read, fd[1] write; rax 0 or -1. */
+    if (frame->rax == SYS_PIPE) {
+        if (sched_pipe(pipefd) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        if (copy_to_user(frame->rdi, pipefd, sizeof(pipefd)) != 0) {
+            sched_fd_close(pipefd[0]);
+            sched_fd_close(pipefd[1]);
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        frame->rax = 0;
         return;
     }
     if (frame->rax == SYS_EXEC) {
