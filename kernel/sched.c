@@ -77,6 +77,7 @@ static struct task tasks[TASK_MAX];
 static struct pipe pipes[PIPE_MAX];
 static int task_count;
 static int current;
+static int last_added;
 static uint8_t last_exit;
 static int have_exit;
 
@@ -180,6 +181,44 @@ static void free_pipe(int p)
     pipes[p].data = 0;
 }
 
+static int alloc_pipe(void)
+{
+    int p;
+    unsigned i;
+    uint64_t phys;
+    uint8_t *data;
+
+    p = -1;
+    for (i = 0; i < PIPE_MAX; i++) {
+        if (pipes[i].used == 0) {
+            p = (int)i;
+            break;
+        }
+    }
+    if (p < 0) {
+        return -1;
+    }
+    phys = pmm_alloc_above(PIPE_MIN_PHYS);
+    if (phys == 0) {
+        phys = pmm_alloc();
+    }
+    if (phys == 0) {
+        return -1;
+    }
+    data = (uint8_t *)(uintptr_t)phys_to_virt(phys);
+    for (i = 0; i < PIPE_CAP; i++) {
+        data[i] = 0;
+    }
+    pipes[p].used = 1;
+    pipes[p].head = 0;
+    pipes[p].len = 0;
+    pipes[p].rrefs = 0;
+    pipes[p].wrefs = 0;
+    pipes[p].phys = phys;
+    pipes[p].data = data;
+    return p;
+}
+
 static void drop_fd(struct fd_entry *e)
 {
     int p;
@@ -279,6 +318,7 @@ void sched_init(void)
 
     task_count = 0;
     current = 0;
+    last_added = -1;
     last_exit = 0;
     have_exit = 0;
     for (i = 0; i < PIPE_MAX; i++) {
@@ -386,6 +426,7 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->shown_status = 0;
     t->pipe_wait = -1;
     clear_fds(t);
+    last_added = (int)(t - tasks);
     return 0;
 }
 
@@ -481,8 +522,6 @@ int sched_pipe(int out[2])
     int r;
     int w;
     unsigned i;
-    uint64_t phys;
-    uint8_t *data;
 
     if (task_count == 0 || out == 0) {
         return -1;
@@ -503,34 +542,12 @@ int sched_pipe(int out[2])
     if (r < 0 || w < 0) {
         return -1;
     }
-    p = -1;
-    for (i = 0; i < PIPE_MAX; i++) {
-        if (pipes[i].used == 0) {
-            p = (int)i;
-            break;
-        }
-    }
+    p = alloc_pipe();
     if (p < 0) {
         return -1;
     }
-    phys = pmm_alloc_above(PIPE_MIN_PHYS);
-    if (phys == 0) {
-        phys = pmm_alloc();
-    }
-    if (phys == 0) {
-        return -1;
-    }
-    data = (uint8_t *)(uintptr_t)phys_to_virt(phys);
-    for (i = 0; i < PIPE_CAP; i++) {
-        data[i] = 0;
-    }
-    pipes[p].used = 1;
-    pipes[p].head = 0;
-    pipes[p].len = 0;
     pipes[p].rrefs = 1;
     pipes[p].wrefs = 1;
-    pipes[p].phys = phys;
-    pipes[p].data = data;
     t->fds[r].used = 1;
     t->fds[r].kind = FD_KIND_PIPE_R;
     t->fds[r].pipe = p;
@@ -539,6 +556,61 @@ int sched_pipe(int out[2])
     t->fds[w].pipe = p;
     out[0] = r;
     out[1] = w;
+    return 0;
+}
+
+int sched_pipe_new(void)
+{
+    return alloc_pipe();
+}
+
+void sched_pipe_unused(int pipe_id)
+{
+    if (pipe_id < 0 || pipe_id >= PIPE_MAX) {
+        return;
+    }
+    if (pipes[pipe_id].used == 0) {
+        return;
+    }
+    if (pipes[pipe_id].rrefs == 0 && pipes[pipe_id].wrefs == 0) {
+        free_pipe(pipe_id);
+    }
+}
+
+int sched_fd_bind_pipe(int fd, int kind, int pipe_id)
+{
+    struct task *t;
+    struct fd_entry *e;
+
+    if (last_added < 0 || last_added >= task_count) {
+        return -1;
+    }
+    if (fd < 0 || fd >= FD_MAX) {
+        return -1;
+    }
+    if (kind != FD_KIND_PIPE_R && kind != FD_KIND_PIPE_W) {
+        return -1;
+    }
+    if (pipe_id < 0 || pipe_id >= PIPE_MAX || pipes[pipe_id].used == 0) {
+        return -1;
+    }
+    t = &tasks[last_added];
+    if (t->state == TASK_DEAD) {
+        return -1;
+    }
+    e = &t->fds[fd];
+    if (e->used != 0) {
+        return -1;
+    }
+    e->used = 1;
+    e->kind = kind;
+    e->pipe = pipe_id;
+    e->path[0] = '\0';
+    if (kind == FD_KIND_PIPE_R) {
+        pipes[pipe_id].rrefs++;
+    } else {
+        pipes[pipe_id].wrefs++;
+    }
     return 0;
 }
 

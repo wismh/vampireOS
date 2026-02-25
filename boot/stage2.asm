@@ -19,6 +19,12 @@ start:
     int 0x13
     jc disk_error
 
+    mov si, kernel_dap2
+    mov ah, 0x42
+    mov dl, [boot_drive]
+    int 0x13
+    jc disk_error
+
     call detect_memory
 
     cli
@@ -164,10 +170,18 @@ boot_drive:
 kernel_dap:
     db 0x10
     db 0
-    dw KERNEL_SECTORS
+    dw KERNEL_READ1
     dw KERNEL_OFFSET
     dw KERNEL_SEGMENT
     dq KERNEL_LBA
+
+kernel_dap2:
+    db 0x10
+    db 0
+    dw KERNEL_READ2
+    dw KERNEL_OFFSET
+    dw KERNEL_SEGMENT2
+    dq KERNEL_LBA2
 
 align 8
 gdt:

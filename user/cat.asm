@@ -1,4 +1,5 @@
 ; BASE 0x400000; argv on user stack (argc, argv[], NULL); open/read/write/exit
+; argc < 2: copy stdin (fd 0) to stdout (fd 1) until read returns 0
 bits 64
 org 0x400000
 
@@ -31,7 +32,7 @@ phdr:
 
 _start:
     cmp qword [rsp], 2
-    jb fail
+    jb stdin
     mov rdi, [rsp+16]
     test rdi, rdi
     jz fail
@@ -56,6 +57,24 @@ _start:
     mov eax, 7
     mov edi, ebx
     int 0x30
+    jmp done
+stdin:
+    mov eax, 8
+    xor edi, edi
+    mov esi, buf
+    mov edx, 64
+    int 0x30
+    test rax, rax
+    js fail
+    jz done
+    mov ecx, eax
+    mov eax, 1
+    mov edi, 1
+    mov esi, buf
+    mov edx, ecx
+    int 0x30
+    jmp stdin
+done:
     mov eax, 2
     xor edi, edi
     int 0x30
