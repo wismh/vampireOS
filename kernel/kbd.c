@@ -318,11 +318,92 @@ static void run_prog(const char *arg)
     }
 }
 
+static void take_word(const char **s, char *out, unsigned max)
+{
+    unsigned n = 0;
+
+    *s = skip_ws(*s);
+    while (**s != '\0' && **s != ' ' && n + 1u < max) {
+        out[n++] = **s;
+        (*s)++;
+    }
+    out[n] = '\0';
+}
+
+/* Optional `run ` then ELF name and the rest as argv[1]. */
+static int parse_side(const char *s, char *name, unsigned nmax, const char **arg)
+{
+    s = skip_ws(s);
+    if (*s == '\0') {
+        return -1;
+    }
+    take_word(&s, name, nmax);
+    if (name[0] == '\0') {
+        return -1;
+    }
+    if (streq(name, "run")) {
+        take_word(&s, name, nmax);
+        if (name[0] == '\0') {
+            return -1;
+        }
+    }
+    s = skip_ws(s);
+    *arg = s;
+    return 0;
+}
+
+static void run_pipe_line(char *cmd)
+{
+    char *bar;
+    char *p;
+    int bars;
+    char left_name[40];
+    char right_name[40];
+    const char *left_arg;
+    const char *right_arg;
+
+    bars = 0;
+    bar = 0;
+    p = cmd;
+    while (*p != '\0') {
+        if (*p == '|') {
+            bars++;
+            bar = p;
+        }
+        p++;
+    }
+    if (bars != 1 || bar == 0) {
+        vga_putc('?');
+        return;
+    }
+    *bar = '\0';
+    p = bar;
+    while (p > cmd && p[-1] == ' ') {
+        p--;
+        *p = '\0';
+    }
+    if (parse_side(cmd, left_name, 40u, &left_arg) != 0 ||
+        parse_side(bar + 1, right_name, 40u, &right_arg) != 0) {
+        vga_putc('?');
+        return;
+    }
+    if (*left_arg == '\0') {
+        left_arg = 0;
+    }
+    if (*right_arg == '\0') {
+        right_arg = 0;
+    }
+    if (user_run_pipeline(left_name, left_arg, right_name, right_arg) != 0) {
+        vga_putc('?');
+    }
+}
+
 static void run_line(void)
 {
     unsigned i = 0;
     unsigned j = line_len;
     const char *cmd;
+    const char *scan;
 
     while (i < j && line[i] == ' ') {
         i++;
@@ -337,8 +418,16 @@ static void run_line(void)
 
     cmd = line + i;
     vga_putc('\n');
+    scan = cmd;
+    while (*scan != '\0' && *scan != '|') {
+        scan++;
+    }
+    if (*scan == '|') {
+        run_pipe_line((char *)cmd);
+        return;
+    }
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm mv fill mkdir rmdir cd pwd");
+        puts_cur("help ls mem cat run put rm mv fill mkdir rmdir cd pwd |");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "pwd")) {

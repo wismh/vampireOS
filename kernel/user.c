@@ -617,7 +617,16 @@ static int user_push_argv(uint64_t cr3, uint64_t stack_top, const char **argv,
     return 0;
 }
 
+static int user_run_fds(const char *name, const char *arg, int in_pipe,
+                        int out_pipe);
+
 int user_run(const char *name, const char *arg)
+{
+    return user_run_fds(name, arg, -1, -1);
+}
+
+static int user_run_fds(const char *name, const char *arg, int in_pipe,
+                        int out_pipe)
 {
     const void *data;
     unsigned len;
@@ -671,6 +680,34 @@ int user_run(const char *name, const char *arg)
     if (sched_add_user(entry, stack_top, ktop, row, base, cr3) != 0) {
         vmm_teardown_user(cr3);
         pmm_free(cr3);
+        return -1;
+    }
+    if (in_pipe >= 0 &&
+        sched_fd_bind_pipe(0, FD_KIND_PIPE_R, in_pipe) != 0) {
+        return -1;
+    }
+    if (out_pipe >= 0 &&
+        sched_fd_bind_pipe(1, FD_KIND_PIPE_W, out_pipe) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+int user_run_pipeline(const char *left_name, const char *left_arg,
+                      const char *right_name, const char *right_arg)
+{
+    int p;
+
+    p = sched_pipe_new();
+    if (p < 0) {
+        return -1;
+    }
+    if (user_run_fds(left_name, left_arg, -1, p) != 0) {
+        sched_pipe_unused(p);
+        return -1;
+    }
+    if (user_run_fds(right_name, right_arg, p, -1) != 0) {
+        sched_pipe_unused(p);
         return -1;
     }
     return 0;

@@ -2,12 +2,12 @@
 
 Vampire OS after `vos-55`: BIOS MBR, FAT12 on ATA PIO (128 data clusters), private CR3 per task, ring-3 `open`/`read`/`write`/`cat`, shell `run cat <path>`.
 
-One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 64 KiB (`KERNEL_SECTORS` 128); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again.
+One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 80 KiB (`KERNEL_SECTORS` 160); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again.
 
 ## Now
 
 - Volume: 128 data clusters, files up to 4 KiB. Subdirs and the root grow across FAT chains.
-- Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3.
+- Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them.
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8.
 - Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (that code in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1). Four fds per task. `run` loads any FAT12 ELF into a free slot.
 - **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` reads `argv[1]`. `exec` does the same for the new image.
@@ -15,7 +15,8 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **exec:** syscall loads an ELF over the current task (same slot, same CR3/kstack). `run exectest` becomes `echo` without growing the task count.
 - **Exit status:** `exit` takes an 8-bit code; `wait` returns it in `rax`. The waiter’s VGA row shows `st N` once per distinct code.
 - **pipe:** syscall 11 writes two fds into user `int fd[2]` via `rdi`. One-page kernel ring. `read`/`write` block when empty/full or return partial. `run pipetest` self-pipes `pipe` onto VGA.
-- No brk, fork, long names, second FAT sector, UEFI, AHCI. No shell `|` yet.
+- **Shell `|`:** one `|` splits the line; left runs with fd 1 on the write end, right with fd 0 on the read end. `cat hello | cat` and `run cat hello | run cat` copy `hello` through the ring onto VGA. Nested pipes not supported.
+- No brk, fork, long names, second FAT sector, UEFI, AHCI.
 
 ## Week 1 — finish the root volume
 
@@ -41,7 +42,7 @@ Stop poking paths into a fixed user address before `run`.
 ## Week 4 — connect programs
 
 7. **`pipe`** — done: syscall 11 writes read/write fds into user `int fd[2]` via `rdi` (`rax` 0/-1). One-page kernel ring. `read`/`write` block when empty/full or return partial. `run pipetest` self-pipes `pipe` to VGA.
-8. **Shell `|`** — kernel line parser runs left and right of `|` with a pipe between them, e.g. `cat hello | cat` (second cat copies to VGA via fd 1) or `run cat hello | run wc` once `wc` exists. Start with one hard-coded pair if a full parser is too big.
+8. **Shell `|`** — done: the line parser splits on one `|` and runs left/right with a kernel pipe between them. `cat hello | cat` (or `run cat hello | run cat`) writes `hello` into the ring and the right `cat` copies it to VGA via fd 1. Nested pipes not supported.
 
 ## Leave for later
 

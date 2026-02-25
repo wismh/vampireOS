@@ -27,6 +27,12 @@ int sched_fd_kind(int fd);
 int sched_fd_pipe(int fd);
 /* pipe: fill out[0] read and out[1] write. One-page ring. 0 ok, -1 fail. */
 int sched_pipe(int out[2]);
+/* Kernel-created pipe, not attached to a task. Returns id or -1. */
+int sched_pipe_new(void);
+/* Free an unused kernel pipe (no remaining refs). */
+void sched_pipe_unused(int pipe_id);
+/* Bind fd on the last sched_add_user task to a pipe end. Bumps that ref. */
+int sched_fd_bind_pipe(int fd, int kind, int pipe_id);
 /* Copy from the ring. >=0 bytes, -1 error, -2 empty (block). */
 int sched_pipe_read(int fd, void *dst, unsigned n);
 /* Copy into the ring. >=0 bytes, -1 error, -2 full (block). */
