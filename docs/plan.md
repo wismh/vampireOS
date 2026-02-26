@@ -1,8 +1,8 @@
-# February 2026
+# February–April 2026
 
-Vampire OS after `vos-55`: BIOS MBR, FAT12 on ATA PIO (128 data clusters), private CR3 per task, ring-3 `open`/`read`/`write`/`cat`, shell `run cat <path>`.
+Vampire OS after `vos-64`: BIOS MBR, FAT12 on ATA PIO (128 data clusters, root chains), private CR3 per task, `mv` / argv / `run ls` / exec / 8-bit exit / pipe / shell `|`.
 
-One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 80 KiB (`KERNEL_SECTORS` 160); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again.
+One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 80 KiB (`KERNEL_SECTORS` 160); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again. Stage 2 already loads 160 sectors in two BIOS reads (128+32).
 
 ## Now
 
@@ -13,42 +13,111 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` reads `argv[1]`. `exec` does the same for the new image.
 - **readdir:** syscall copies cwd names into a user buffer; `user/ls.asm` writes them. Kernel `ls` still works.
 - **exec:** syscall loads an ELF over the current task (same slot, same CR3/kstack). `run exectest` becomes `echo` without growing the task count.
-- **Exit status:** `exit` takes an 8-bit code; `wait` returns it in `rax`. The waiter’s VGA row shows `st N` once per distinct code.
+- **Exit status:** `exit` takes an 8-bit code; `wait` returns it in `rax`. The waiter’s VGA row shows `st N` once per distinct code. `wait` is the last exit, not a chosen child.
 - **pipe:** syscall 11 writes two fds into user `int fd[2]` via `rdi`. One-page kernel ring. `read`/`write` block when empty/full or return partial. `run pipetest` self-pipes `pipe` onto VGA.
 - **Shell `|`:** one `|` splits the line; left runs with fd 1 on the write end, right with fd 0 on the read end. `cat hello | cat` and `run cat hello | run cat` copy `hello` through the ring onto VGA. Nested pipes not supported.
+- **cwd:** one global cluster (`fs_cwd`); `cd` is not per-task.
 - No brk, fork, long names, second FAT sector, UEFI, AHCI.
 
-## Week 1 — finish the root volume
+## Sprint 1 — process and heap
 
-Subdirs already chain; rename updates the parent entry. Root grows across FAT clusters like subdirs.
+`fork` and a real heap (`brk`) come after exec, exit status, and pipes — not before. Those shipped in February; this month starts there.
 
-1. **`mv`** — rename a file or empty directory on FAT12 (update the directory entry name in the parent; refuse cross-directory moves for this slice). `mv note dusk` after `put note x` shows `dusk` in `ls`. `mv` onto an existing name prints `?`.
-2. **Root directory chains** — like subdirs: when the 16 root slots fill, allocate the next cluster and extend the root FAT chain. `put` of a 17th root file still works. Subdir code paths stay unchanged.
+### Week 1 — a heap and a child
 
-## Week 2 — real arguments
+User memory stops at the stack page. `run` always starts a fresh ELF; there is no child of a running one.
 
-Stop poking paths into a fixed user address before `run`.
+1. **`brk`** — `SYS_BRK` grows or shrinks the user heap past the stack page (map new pages above it, or unmap on a lower break). A tiny ELF bump-pointer calls it, stores a byte above `0x401000`, and writes that byte. `run brktest` prints a line that a store past the stack page succeeded.
+2. **`fork`** — eager copy of the current task into a free slot (cloned PML4, copied user pages, copied fds). Child returns 0 in `rax`; parent returns the child id. `user/forktest.asm` prints from both; `run forktest` leaves two VGA lines that a single ELF could not print yesterday.
 
-3. **`argv` for `run`** — done: before start, push `argc` / `argv[]` / NULL on the user stack. `cat.asm` reads `argv[1]`. `user_run_path` / `USER_ARG_PATH` are gone. `run cat hello` unchanged at the shell.
-4. **`readdir` + user `ls`** — done: syscall fills a user buffer with cwd names; `user/ls.asm` writes them. `run ls` lists the volume root or cwd from ring 3. Kernel `ls` still works.
+### Week 2 — rewire fds and cwd
 
-## Week 3 — replace the running program
+A child still cannot put a pipe end on 0 or 1, and `cd` is one global cluster.
 
-`run` always spawns a new task today; the shell stays in the kernel.
+3. **`dup2`** — remap an fd onto another slot (`SYS_DUP2`; the source stays, the target is replaced). Needed so a child can wire pipe ends. `run dup2test` writes through the remapped fd and those bytes show on VGA (or in a file `cat` can read).
+4. **Per-task cwd** — each task stores its own cwd; `fork` inherits it. `cd` is no longer a single global. Two tasks in different dirs: after `mkdir a` / `mkdir b`, `run ls` from one lists `a`’s names and from the other lists `b`’s.
 
-5. **`exec`** — done: load an ELF over the **current** task: unmap old user mappings in its CR3, map the new file at `0x400000`, jump to entry. One slot, no extra task count. `user/exectest.asm` execs into `echo`.
-6. **Exit status** — done: `exit` takes an 8-bit code from `rdi`; `wait` returns it in `rax`. The waiter’s row shows `st N` once. `user/status.asm` exits 42; `user/waiter.asm` writes that code.
+### Week 3 — reap children and more fds
 
-## Week 4 — connect programs
+`wait` returns the last 8-bit exit, not a chosen child’s. Four fds fill once a pipe and two files are open.
 
-7. **`pipe`** — done: syscall 11 writes read/write fds into user `int fd[2]` via `rdi` (`rax` 0/-1). One-page kernel ring. `read`/`write` block when empty/full or return partial. `run pipetest` self-pipes `pipe` to VGA.
-8. **Shell `|`** — done: the line parser splits on one `|` and runs left/right with a kernel pipe between them. `cat hello | cat` (or `run cat hello | run cat`) writes `hello` into the ring and the right `cat` copies it to VGA via fd 1. Nested pipes not supported.
+5. **`wait` / waitpid** — after fork, more than one child can be DEAD. `wait` with no id still reaps any child; `wait` with `rdi` set (or a `waitpid`) returns only that child’s 8-bit code in `rax`. `run waitpid` forks two ELFs that exit 1 and 2; the parent prints both codes (or `st 1` then `st 2`).
+6. **Eight fds** — raise `FD_MAX` from 4 to 8 so stdin/stdout, a pipe pair, and open files can coexist. `run fdtest` opens enough files (or a pipe plus files) that the fifth `open` no longer returns -1; a line on VGA shows the extra fds.
+
+### Week 4 — a pipe without the kernel `|`, and `ps`
+
+The kernel line parser is not how user code should connect a child. Fork is invisible except as extra VGA rows.
+
+7. **Userspace pipe via fork** — `user/pipefork.asm`: `pipe`, `fork`, child writes, parent reads. No kernel `|`. `run pipefork` prints the child’s string on VGA through the ring.
+8. **`ps`** — kernel shell lists live slots / pids (id, state, maybe name). After `run forktest`, `ps` shows the extra slot so fork is visible without VGA row archaeology.
+
+## Sprint 2 — memory and files
+
+Eager fork copies every user page. File fds always read from offset 0. The FAT still fits in one sector.
+
+### Week 1 — copy on write
+
+Parent and child already diverge only because the copy was full. Stop paying that until a write.
+
+9. **COW fork** — mark copied user pages read-only and share the frames; do not duplicate writable pages until a write fault. `mem` (free frames) after `run forktest` must not drop by a full extra code+stack+heap the way eager copy did.
+10. **Write-fault copy** — the `#PF` path allocates a private frame, maps it writable, resumes. Parent and child store different bytes on the heap; `run cowtest` prints two different values.
+
+### Week 2 — seek and more clusters
+
+`read` always starts at byte 0. One FAT sector maps ~170 clusters; 128 data clusters waste none of that yet, and cannot grow past it.
+
+11. **`lseek`** — file fds keep an offset; `SYS_LSEEK` sets it. `run readtest` (or a new ELF) seeks into `hello` and prints from the middle (`ood` from `blood`, or similar).
+12. **Second FAT sector** — `FAT_SEC_PER_FAT` 2 (both copies); grow `FAT_DATA_CLUSTERS` past one sector’s map so more than ~170 clusters can exist. `fill` (or many `put`s) uses a cluster that would not fit in 512 bytes of FAT12 entries; `ls` still lists the file.
+
+### Week 3 — copy and `stat`
+
+Copying a file is still `cat` plus `put` by hand. User code cannot ask size or whether a name is a directory.
+
+13. **`cp`** — shell `cp src dst` copies a file on the volume (new clusters + dirent). `cp hello dusk` then `cat dusk` prints `blood`. `cp` of a missing src prints `?`.
+14. **`stat`** — syscall fills a small user struct (size, first cluster / is-dir). Pack `user/stat.asm`; `run stat hello` prints the size.
+
+### Week 4 — kill a slot
+
+The only way a slot dies is `exit` from inside it.
+
+15. **`kill`** — syscall marks another slot DEAD with a status; `ps` drops it. `run` a sleeper, `kill` that pid from the shell (or `run kill <id>`); `ps` no longer lists it and the prompt still accepts `help`.
+16. **Ctrl+C** — PS/2 Ctrl+C kills the current `run` foreground task (or the last spawned ELF) as if `kill`; the kernel line buffer stays. `run` a sleeper, send Ctrl+C; `ps` no longer lists it and a new line still takes `ls`.
+
+## Sprint 3 — userland
+
+Every user program is still NASM. The only shell is the kernel line buffer. Do not jump to UEFI, AHCI, or SMP.
+
+### Week 1 — C from the volume
+
+Ring 3 cannot call `int 0x30` from C yet.
+
+17. **CRT stubs** — `user/crt.asm` (or similar) with C-callable `write` / `read` / `exit` / `fork` / `brk` / `wait` wrapping `int 0x30`. A tiny program linked against it prints a line; `run crt` (or the next slice’s `hi`) shows that text on VGA.
+18. **First C program** — `user/hi.c` compiled freestanding with the existing clang/ld.lld pipeline, packed on FAT12. `run hi` prints a line.
+
+### Week 2 — a user shell
+
+`run` still starts programs from the kernel prompt.
+
+19. **User shell ELF** — a small `user/sh.asm` or `user/sh.c` that reads a line (or takes argv) and `exec`s a program from the volume. `run sh` then `hi` (or `echo`) prints that program’s line.
+20. **Boot to `sh`** — after kernel init, `exec` / `run` the user shell instead of only the kernel line buffer. Keep kernel `help` / `ls` as fallback if needed. Prove `run sh` or that the first prompt is the user shell (a `$` or similar the kernel buffer did not print yesterday).
+
+### Week 3 — another map and string helpers
+
+User space is still code + stack + `brk` heap. `hi` / `sh` should not open-code `strlen`.
+
+21. **Anonymous mmap** — map one more page at a chosen user address (`SYS_MMAP`; `brk` of a full page is not enough — a distinct mapping, not the heap). `run mmaptest` writes a byte there and prints it.
+22. **Tiny libc string/mem** — `memcpy` / `strlen` / `strcmp` used by `hi` or `sh`. `run hi` (or `run sh` with an argv compare) prints a line those helpers produced.
+
+### Week 4 — time and `init`
+
+The PIT already ticks; nothing prints the time. Killing `sh` would idle the kernel.
+
+23. **PIT clock** — shell `date` or `uptime` prints tick-derived seconds. After boot, `uptime` shows a small integer that grows if you `sleep` and ask again.
+24. **`init`** — a reaper task that `wait`s forever and restarts `sh` when it exits, so killing the shell does not idle the kernel. `kill` the shell pid (or `exit` from `sh`); a new `sh` prompt appears and `ps` still lists `init`.
 
 ## Leave for later
 
-UEFI, AHCI, FAT16, long names, **fork/COW**, a libc, a framebuffer, networking, SMP, **brk/mmap**, hard links, directories > cluster without chaining bugs, a second FAT sector when clusters exceed one sector’s map.
-
-`fork` and a real heap (`brk`) come after exec, exit status, and pipes — not before.
+UEFI, AHCI, SMP, networking, a real libc stdio, FAT16, long names, hard links, a framebuffer.
 
 ## Check
 
