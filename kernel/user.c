@@ -16,7 +16,7 @@
 #define TSS_SEL 0x30
 #define PAGE_4K 0x1000ull
 /* Code at BASE, stack page at BASE+0x1000, stack top BASE+0x2000.
- * Every ELF links at the same BASE; each task maps it in its own CR3. */
+ * Heap starts at BASE+0x2000 (brk). Every ELF links at the same BASE. */
 #define USER_SLOT 0x2000ull
 #define USER_BASE 0x400000ull
 #define USER_ARGV_MAX 4u
@@ -32,6 +32,8 @@
 #define SYS_READDIR 9ull
 #define SYS_EXEC 10ull
 #define SYS_PIPE 11ull
+#define SYS_BRK 12ull
+#define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
 #define FD_CONSOLE 1
@@ -713,6 +715,68 @@ int user_run_pipeline(const char *left_name, const char *left_arg,
     return 0;
 }
 
+static uint64_t page_up(uint64_t addr)
+{
+    return (addr + PAGE_4K - 1ull) & ~(PAGE_4K - 1ull);
+}
+
+/* Heap starts just after the stack page (BASE+0x2000). rdi=0 queries. */
+static uint64_t user_brk(uint64_t want)
+{
+    uint64_t cr3;
+    uint64_t base;
+    uint64_t start;
+    uint64_t max;
+    uint64_t old;
+    uint64_t old_end;
+    uint64_t new_end;
+    uint64_t va;
+    uint64_t phys;
+
+    cr3 = sched_current_cr3();
+    base = sched_current_base();
+    if (cr3 == 0 || cr3 == vmm_boot_cr3() || base == 0) {
+        return (uint64_t)-1;
+    }
+    start = base + 2ull * PAGE_4K;
+    max = start + USER_HEAP_PAGES * PAGE_4K;
+    old = sched_current_brk();
+    if (old < start || old > max) {
+        old = start;
+    }
+    if (want == 0) {
+        return old;
+    }
+    if (want < start || want > max) {
+        return (uint64_t)-1;
+    }
+    old_end = page_up(old);
+    new_end = page_up(want);
+    if (new_end > old_end) {
+        for (va = old_end; va < new_end; va += PAGE_4K) {
+            phys = alloc_page();
+            if (phys == 0 || vmm_map_user(cr3, va, phys) != 0) {
+                if (phys != 0) {
+                    pmm_free(phys);
+                }
+                while (va > old_end) {
+                    va -= PAGE_4K;
+                    (void)vmm_unmap_user(cr3, va);
+                }
+                return (uint64_t)-1;
+            }
+        }
+    } else if (new_end < old_end) {
+        for (va = new_end; va < old_end; va += PAGE_4K) {
+            if (vmm_unmap_user(cr3, va) != 0) {
+                return (uint64_t)-1;
+            }
+        }
+    }
+    sched_set_brk(want);
+    return want;
+}
+
 void user_on_syscall(struct interrupt_frame *frame)
 {
     char buf[USER_STR_MAX];
@@ -997,6 +1061,11 @@ void user_on_syscall(struct interrupt_frame *frame)
     }
     if (frame->rax == SYS_WAIT) {
         sched_wait(frame);
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    if (frame->rax == SYS_BRK) {
+        frame->rax = user_brk(frame->rdi);
         vmm_set_cr3(sched_current_cr3());
         return;
     }

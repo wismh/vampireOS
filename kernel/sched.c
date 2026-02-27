@@ -61,6 +61,7 @@ struct task {
     uint64_t ss;
     uint64_t kstack_top;
     uint64_t user_base;
+    uint64_t brk; /* first byte past the user heap */
     uint64_t cr3; /* cloned PML4 phys; loaded on switch */
     int state;
     int row;
@@ -283,6 +284,7 @@ static void free_task_user(struct task *t)
     }
     vmm_teardown_user(t->cr3);
     t->user_base = 0;
+    t->brk = 0;
 }
 
 /* Free a dead task's kernel stack (never while still running on it). */
@@ -340,6 +342,7 @@ void sched_init(void)
         tasks[i].pipe_wait = -1;
         tasks[i].kstack_top = 0;
         tasks[i].user_base = 0;
+        tasks[i].brk = 0;
         tasks[i].cr3 = 0;
         clear_fds(&tasks[i]);
     }
@@ -416,6 +419,7 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->ss = USER_DS;
     t->kstack_top = kstack_top;
     t->user_base = user_base;
+    t->brk = user_base + 2ull * PAGE_4K;
     t->cr3 = cr3;
     t->state = TASK_READY;
     t->row = row;
@@ -724,6 +728,30 @@ uint64_t sched_current_cr3(void)
     return tasks[current].cr3;
 }
 
+uint64_t sched_current_base(void)
+{
+    if (task_count == 0) {
+        return 0;
+    }
+    return tasks[current].user_base;
+}
+
+uint64_t sched_current_brk(void)
+{
+    if (task_count == 0) {
+        return 0;
+    }
+    return tasks[current].brk;
+}
+
+void sched_set_brk(uint64_t brk)
+{
+    if (task_count == 0) {
+        return;
+    }
+    tasks[current].brk = brk;
+}
+
 int sched_row(void)
 {
     if (task_count == 0) {
@@ -912,6 +940,7 @@ void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t r
     t->rsp = rsp;
     t->ss = USER_DS;
     t->user_base = user_base;
+    t->brk = user_base + 2ull * PAGE_4K;
     t->state = TASK_READY;
     t->writes = 0;
     t->wake_tick = 0;

@@ -16,6 +16,9 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
 /* True if this CR3 already has a live mapping at user_base. */
 int sched_base_busy(uint64_t user_base, uint64_t cr3);
 uint64_t sched_current_cr3(void);
+uint64_t sched_current_base(void);
+uint64_t sched_current_brk(void);
+void sched_set_brk(uint64_t brk);
 int sched_row(void);
 unsigned sched_note_write(void);
 /* Lowest free fd in the current task; stores path leaf/path for later read. */
