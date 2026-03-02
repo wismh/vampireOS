@@ -472,6 +472,87 @@ void vmm_teardown_user(uint64_t cr3)
     vmm_flush_if_current(cr3);
 }
 
+static void copy_page(uint64_t dst_phys, uint64_t src_phys)
+{
+    volatile uint8_t *dst;
+    const volatile uint8_t *src;
+    uint64_t i;
+
+    dst = (volatile uint8_t *)(uintptr_t)phys_to_virt(dst_phys);
+    src = (const volatile uint8_t *)(uintptr_t)phys_to_virt(src_phys);
+    for (i = 0; i < PAGE_4K; i++) {
+        dst[i] = src[i];
+    }
+}
+
+int vmm_copy_user(uint64_t dst_cr3, uint64_t src_cr3)
+{
+    volatile uint64_t *pml4;
+    volatile uint64_t *pdpt;
+    volatile uint64_t *pd;
+    volatile uint64_t *pt;
+    uint64_t pml4_i;
+    uint64_t pdpt_i;
+    uint64_t pd_i;
+    uint64_t pt_i;
+    uint64_t e;
+    uint64_t leaf;
+    uint64_t neu;
+    uint64_t va;
+
+    if (dst_cr3 == 0 || src_cr3 == 0 || dst_cr3 == src_cr3 ||
+        dst_cr3 == PML4_PHYS || src_cr3 == PML4_PHYS || !hhdm_ready) {
+        return -1;
+    }
+
+    pml4 = kmap(src_cr3);
+    for (pml4_i = 0; pml4_i < HHDM_PML4_INDEX; pml4_i++) {
+        e = pml4[pml4_i];
+        if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0 || (e & PDE_LARGE) != 0) {
+            continue;
+        }
+        pdpt = kmap(e & ADDR_MASK);
+        for (pdpt_i = 0; pdpt_i < PD_ENTRIES; pdpt_i++) {
+            e = pdpt[pdpt_i];
+            if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0 ||
+                (e & PDE_LARGE) != 0) {
+                continue;
+            }
+            pd = kmap(e & ADDR_MASK);
+            for (pd_i = 0; pd_i < PD_ENTRIES; pd_i++) {
+                e = pd[pd_i];
+                if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0 ||
+                    (e & PDE_LARGE) != 0) {
+                    continue;
+                }
+                pt = kmap(e & ADDR_MASK);
+                for (pt_i = 0; pt_i < PT_ENTRIES; pt_i++) {
+                    e = pt[pt_i];
+                    if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0) {
+                        continue;
+                    }
+                    leaf = e & ADDR_MASK;
+                    va = (pml4_i << 39) | (pdpt_i << 30) | (pd_i << 21) |
+                         (pt_i << 12);
+                    neu = pmm_alloc_above(PAGE_2M);
+                    if (neu == 0) {
+                        neu = pmm_alloc();
+                    }
+                    if (neu == 0) {
+                        return -1;
+                    }
+                    copy_page(neu, leaf);
+                    if (vmm_map_user(dst_cr3, va, neu) != 0) {
+                        pmm_free(neu);
+                        return -1;
+                    }
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 int vmm_translate_user(uint64_t cr3, uint64_t virt, uint64_t *phys_out)
 {
     volatile uint64_t *pml4;
