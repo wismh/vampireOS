@@ -33,6 +33,7 @@
 #define SYS_EXEC 10ull
 #define SYS_PIPE 11ull
 #define SYS_BRK 12ull
+#define SYS_FORK 13ull
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
@@ -777,6 +778,48 @@ static uint64_t user_brk(uint64_t want)
     return want;
 }
 
+/* Eager copy: cloned PML4, copied user pages (heap included), new kstack. */
+static uint64_t user_fork(struct interrupt_frame *frame)
+{
+    uint64_t src_cr3;
+    uint64_t cr3;
+    uint64_t kstack;
+    uint64_t ktop;
+    int id;
+
+    if (frame == 0) {
+        return (uint64_t)-1;
+    }
+    src_cr3 = sched_current_cr3();
+    if (src_cr3 == 0 || src_cr3 == vmm_boot_cr3()) {
+        return (uint64_t)-1;
+    }
+    kstack = alloc_page();
+    if (kstack == 0) {
+        return (uint64_t)-1;
+    }
+    cr3 = vmm_clone_pml4();
+    if (cr3 == 0) {
+        pmm_free(kstack);
+        return (uint64_t)-1;
+    }
+    if (vmm_copy_user(cr3, src_cr3) != 0) {
+        vmm_teardown_user(cr3);
+        pmm_free(cr3);
+        pmm_free(kstack);
+        return (uint64_t)-1;
+    }
+    ktop = phys_to_virt(kstack) + PAGE_4K;
+    id = sched_fork(frame, ktop, cr3);
+    if (id < 0) {
+        vmm_teardown_user(cr3);
+        pmm_free(cr3);
+        pmm_free(kstack);
+        return (uint64_t)-1;
+    }
+    return (uint64_t)(unsigned)id;
+}
+
 void user_on_syscall(struct interrupt_frame *frame)
 {
     char buf[USER_STR_MAX];
@@ -1066,6 +1109,11 @@ void user_on_syscall(struct interrupt_frame *frame)
     }
     if (frame->rax == SYS_BRK) {
         frame->rax = user_brk(frame->rdi);
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    if (frame->rax == SYS_FORK) {
+        frame->rax = user_fork(frame);
         vmm_set_cr3(sched_current_cr3());
         return;
     }
