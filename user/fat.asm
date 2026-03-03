@@ -12,7 +12,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0x0F
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times 512 - ($ - fat1) db 0
 
 fat2:
@@ -24,7 +24,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0x0F
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times 512 - ($ - fat2) db 0
 
 root:
@@ -118,6 +118,12 @@ root:
     dw 16
     dd brktest_len
 
+    db "FORKTEST", "   "
+    db 0x20
+    times 14 db 0
+    dw 17
+    dd forktest_len
+
     times 512 - ($ - root) db 0
 
 cluster2:
@@ -193,4 +199,9 @@ brktest_data:
 brktest_len equ $ - brktest_data
     times 512 - brktest_len db 0
 
-    times (FAT_DATA_CLUSTERS - 15) * 512 db 0
+forktest_data:
+    incbin "forktest.bin"
+forktest_len equ $ - forktest_data
+    times 512 - forktest_len db 0
+
+    times (FAT_DATA_CLUSTERS - 16) * 512 db 0

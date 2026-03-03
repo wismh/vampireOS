@@ -434,6 +434,104 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     return 0;
 }
 
+static void copy_fd(struct fd_entry *dst, const struct fd_entry *src)
+{
+    int j;
+
+    dst->used = src->used;
+    dst->kind = src->kind;
+    dst->pipe = src->pipe;
+    for (j = 0; j < FD_PATH_MAX; j++) {
+        dst->path[j] = src->path[j];
+    }
+}
+
+static void inherit_fds(struct task *dst, const struct task *src)
+{
+    int i;
+    int p;
+
+    for (i = 0; i < FD_MAX; i++) {
+        copy_fd(&dst->fds[i], &src->fds[i]);
+        if (dst->fds[i].used == 0) {
+            continue;
+        }
+        if (dst->fds[i].kind != FD_KIND_PIPE_R &&
+            dst->fds[i].kind != FD_KIND_PIPE_W) {
+            continue;
+        }
+        p = dst->fds[i].pipe;
+        if (p < 0 || p >= PIPE_MAX || pipes[p].used == 0) {
+            dst->fds[i].used = 0;
+            dst->fds[i].kind = 0;
+            dst->fds[i].pipe = -1;
+            continue;
+        }
+        if (dst->fds[i].kind == FD_KIND_PIPE_R) {
+            pipes[p].rrefs++;
+        } else {
+            pipes[p].wrefs++;
+        }
+    }
+}
+
+int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3)
+{
+    struct task *parent;
+    struct task *t;
+    int i;
+    int row;
+
+    if (frame == 0 || task_count == 0 || kstack_top == 0 || cr3 == 0 ||
+        cr3 == vmm_boot_cr3()) {
+        return -1;
+    }
+    parent = &tasks[current];
+    if (parent->state == TASK_DEAD || parent->cr3 == 0 || parent->cr3 == cr3) {
+        return -1;
+    }
+    t = 0;
+    for (i = 0; i < task_count; i++) {
+        if (tasks[i].state == TASK_DEAD) {
+            t = &tasks[i];
+            break;
+        }
+    }
+    if (t == 0) {
+        if (task_count >= TASK_MAX) {
+            return -1;
+        }
+        t = &tasks[task_count];
+        task_count++;
+    } else {
+        free_task_user(t);
+        free_task_kstack(t);
+        free_task_pml4(t);
+    }
+    save_task(t, frame);
+    t->rax = 0;
+    t->kstack_top = kstack_top;
+    t->user_base = parent->user_base;
+    t->brk = parent->brk;
+    t->cr3 = cr3;
+    t->state = TASK_READY;
+    row = parent->row + 1;
+    if (row < 0 || row >= VGA_HEIGHT) {
+        row = parent->row;
+    }
+    t->row = row;
+    t->writes = 0;
+    t->wake_tick = 0;
+    t->exit_code = 0;
+    t->seen_status = 0;
+    t->shown_status = 0;
+    t->pipe_wait = -1;
+    clear_fds(t);
+    inherit_fds(t, parent);
+    last_added = (int)(t - tasks);
+    return last_added;
+}
+
 int sched_fd_open(const char *path)
 {
     struct task *t;

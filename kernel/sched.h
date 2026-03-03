@@ -49,3 +49,6 @@ void sched_exit(struct interrupt_frame *frame);
 /* Same slot: new rip/rsp/user_base, keep kstack and CR3, load into frame. */
 void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t rsp,
                          uint64_t user_base);
+/* Copy current task into a free slot (own kstack/CR3/fds). Child rax=0.
+ * Returns child slot id, or -1. */
+int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3);
