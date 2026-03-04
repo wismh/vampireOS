@@ -24,6 +24,8 @@ unsigned sched_note_write(void);
 /* Lowest free fd in the current task; stores path leaf/path for later read. */
 int sched_fd_open(const char *path);
 int sched_fd_close(int fd);
+/* Remap oldfd onto newfd. Source stays; target is replaced. Returns newfd or -1. */
+int sched_fd_dup2(int oldfd, int newfd);
 /* Copy stored path for an open fd into out (FD_PATH_MAX). */
 int sched_fd_path(int fd, char *out);
 int sched_fd_kind(int fd);

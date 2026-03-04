@@ -568,6 +568,45 @@ int sched_fd_close(int fd)
     return 0;
 }
 
+int sched_fd_dup2(int oldfd, int newfd)
+{
+    struct task *t;
+    int p;
+
+    if (task_count == 0 || oldfd < 0 || oldfd >= FD_MAX ||
+        newfd < 0 || newfd >= FD_MAX) {
+        return -1;
+    }
+    t = &tasks[current];
+    if (t->fds[oldfd].used == 0) {
+        return -1;
+    }
+    if (oldfd == newfd) {
+        return newfd;
+    }
+    if (t->fds[newfd].used != 0) {
+        drop_fd(&t->fds[newfd]);
+    }
+    copy_fd(&t->fds[newfd], &t->fds[oldfd]);
+    if (t->fds[newfd].kind != FD_KIND_PIPE_R &&
+        t->fds[newfd].kind != FD_KIND_PIPE_W) {
+        return newfd;
+    }
+    p = t->fds[newfd].pipe;
+    if (p < 0 || p >= PIPE_MAX || pipes[p].used == 0) {
+        t->fds[newfd].used = 0;
+        t->fds[newfd].kind = 0;
+        t->fds[newfd].pipe = -1;
+        return -1;
+    }
+    if (t->fds[newfd].kind == FD_KIND_PIPE_R) {
+        pipes[p].rrefs++;
+    } else {
+        pipes[p].wrefs++;
+    }
+    return newfd;
+}
+
 int sched_fd_path(int fd, char *out)
 {
     struct task *t;

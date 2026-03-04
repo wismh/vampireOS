@@ -9,7 +9,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - Volume: 128 data clusters, files up to 4 KiB. Subdirs and the root grow across FAT chains.
 - Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them.
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8. `fork` copies the current task into a free slot.
-- Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (that code in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`). Four fds per task. `run` loads any FAT12 ELF into a free slot.
+- Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (that code in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1). Four fds per task. `run` loads any FAT12 ELF into a free slot.
 - **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` reads `argv[1]`. `exec` does the same for the new image.
 - **readdir:** syscall copies cwd names into a user buffer; `user/ls.asm` writes them. Kernel `ls` still works.
 - **exec:** syscall loads an ELF over the current task (same slot, same CR3/kstack). `run exectest` becomes `echo` without growing the task count.
@@ -19,7 +19,8 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **cwd:** one global cluster (`fs_cwd`); `cd` is not per-task.
 - **brk:** syscall 12 grows or shrinks the heap past the stack page (map from `0x402000`, or unmap on a lower break). `run brktest` stores a byte above `0x401000` and writes it.
 - **fork:** syscall 13 eager-copies the current task into a free slot (cloned PML4, copied user pages including heap, copied fds, own kernel stack). Child returns 0 in `rax`; parent returns the child slot id. `run forktest` prints from both.
-- No dup2, long names, second FAT sector, UEFI, AHCI.
+- **dup2:** syscall 14 remaps an fd onto another slot. The source stays open; the target is replaced. Pipe ends bump `rrefs` / `wrefs`. `run dup2test` writes through the remapped fd and those bytes show on VGA.
+- No per-task cwd, long names, second FAT sector, UEFI, AHCI.
 
 ## Sprint 1 — process and heap
 
@@ -34,9 +35,9 @@ User memory has a heap past the stack page. `run` can still start a fresh ELF; `
 
 ### Week 2 — rewire fds and cwd
 
-A child still cannot put a pipe end on 0 or 1, and `cd` is one global cluster.
+A child can remap a pipe end with `dup2`; `cd` is still one global cluster.
 
-3. **`dup2`** — remap an fd onto another slot (`SYS_DUP2`; the source stays, the target is replaced). Needed so a child can wire pipe ends. `run dup2test` writes through the remapped fd and those bytes show on VGA (or in a file `cat` can read).
+3. **`dup2`** — done: `SYS_DUP2` (syscall 14) remaps an fd onto another slot. `rdi` is oldfd, `rsi` is newfd; `rax` returns newfd or -1. The source stays open; the target is replaced. `run dup2test` writes through the remapped fd and those bytes show on VGA.
 4. **Per-task cwd** — each task stores its own cwd; `fork` inherits it. `cd` is no longer a single global. Two tasks in different dirs: after `mkdir a` / `mkdir b`, `run ls` from one lists `a`’s names and from the other lists `b`’s.
 
 ### Week 3 — reap children and more fds
