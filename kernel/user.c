@@ -34,6 +34,7 @@
 #define SYS_PIPE 11ull
 #define SYS_BRK 12ull
 #define SYS_FORK 13ull
+#define SYS_DUP2 14ull
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
@@ -1114,6 +1115,13 @@ void user_on_syscall(struct interrupt_frame *frame)
     }
     if (frame->rax == SYS_FORK) {
         frame->rax = user_fork(frame);
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* rdi=oldfd, rsi=newfd; rax=newfd or -1. Source stays; target replaced. */
+    if (frame->rax == SYS_DUP2) {
+        packed = sched_fd_dup2((int)frame->rdi, (int)frame->rsi);
+        frame->rax = (packed < 0) ? (uint64_t)-1 : (uint64_t)(unsigned)packed;
         vmm_set_cr3(sched_current_cr3());
         return;
     }
