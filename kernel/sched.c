@@ -1,4 +1,5 @@
 #include "sched.h"
+#include "fs.h"
 #include "idt.h"
 #include "pmm.h"
 #include "user.h"
@@ -63,6 +64,7 @@ struct task {
     uint64_t user_base;
     uint64_t brk; /* first byte past the user heap */
     uint64_t cr3; /* cloned PML4 phys; loaded on switch */
+    unsigned cwd; /* FAT cluster; 0 = volume root. Fork copies this. */
     int state;
     int row;
     unsigned writes;
@@ -344,6 +346,7 @@ void sched_init(void)
         tasks[i].user_base = 0;
         tasks[i].brk = 0;
         tasks[i].cr3 = 0;
+        tasks[i].cwd = 0;
         clear_fds(&tasks[i]);
     }
 }
@@ -421,6 +424,8 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->user_base = user_base;
     t->brk = user_base + 2ull * PAGE_4K;
     t->cr3 = cr3;
+    /* Snapshot the kernel/shell cwd so `cd` then `run` inherits it. */
+    t->cwd = fs_cwd();
     t->state = TASK_READY;
     t->row = row;
     t->writes = 0;
@@ -514,6 +519,7 @@ int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3)
     t->user_base = parent->user_base;
     t->brk = parent->brk;
     t->cr3 = cr3;
+    t->cwd = parent->cwd;
     t->state = TASK_READY;
     row = parent->row + 1;
     if (row < 0 || row >= VGA_HEIGHT) {
@@ -879,6 +885,14 @@ uint64_t sched_current_brk(void)
         return 0;
     }
     return tasks[current].brk;
+}
+
+unsigned sched_current_cwd(void)
+{
+    if (task_count == 0) {
+        return 0;
+    }
+    return tasks[current].cwd;
 }
 
 void sched_set_brk(uint64_t brk)

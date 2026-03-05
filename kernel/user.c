@@ -39,6 +39,7 @@
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
 #define FD_CONSOLE 1
+#define CWD_PATH_MAX 80u
 
 #define GDT_KERNEL_CODE32 0x00CF9A000000FFFFULL
 #define GDT_KERNEL_CODE64 0x00209A0000000000ULL
@@ -83,6 +84,9 @@ static int user_row;
 static int run_row;
 static uint64_t enter_rip;
 static uint8_t file_buf[FILE_MAX];
+static unsigned cwd_saved_cl;
+static char cwd_saved_path[CWD_PATH_MAX];
+static int cwd_switched;
 
 _Static_assert(sizeof(struct tss) == 104, "long-mode TSS is 104 bytes");
 _Static_assert(sizeof(struct tss_desc) == 16, "TSS descriptor is 16 bytes");
@@ -240,6 +244,62 @@ static int map_load_elf_name(const char *name, uint64_t base, uint64_t cr3,
 static int user_push_argv(uint64_t cr3, uint64_t stack_top, const char **argv,
                           unsigned argc, uint64_t *rsp_out);
 
+static void copy_cwd_path(char *dst, unsigned max, const char *src)
+{
+    unsigned i;
+
+    if (dst == 0 || max == 0) {
+        return;
+    }
+    if (src == 0 || src[0] == '\0') {
+        dst[0] = '/';
+        if (max > 1u) {
+            dst[1] = '\0';
+        }
+        return;
+    }
+    i = 0;
+    while (src[i] != '\0' && i + 1u < max) {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = '\0';
+}
+
+/* Switch the FAT view to this task's cwd. Kernel/shell cwd is restored by
+ * leave_task_cwd. No-op when they already match (boot tasks at root). */
+static int enter_task_cwd(void)
+{
+    unsigned cl;
+    const char *pwd;
+
+    cwd_switched = 0;
+    cl = sched_current_cwd();
+    cwd_saved_cl = fs_cwd();
+    pwd = fs_pwd();
+    copy_cwd_path(cwd_saved_path, CWD_PATH_MAX, pwd);
+    if (cl == cwd_saved_cl) {
+        return 0;
+    }
+    if (fs_setcwd(cl) != 0) {
+        (void)fs_setcwd(cwd_saved_cl);
+        (void)fs_setpwd(cwd_saved_path);
+        return -1;
+    }
+    cwd_switched = 1;
+    return 0;
+}
+
+static void leave_task_cwd(void)
+{
+    if (cwd_switched == 0) {
+        return;
+    }
+    cwd_switched = 0;
+    (void)fs_setcwd(cwd_saved_cl);
+    (void)fs_setpwd(cwd_saved_path);
+}
+
 /* Cwd may be a subdir; ELFs live at the volume root. */
 static int lookup_root_elf(const char *name, const void **data, unsigned *len)
 {
@@ -326,13 +386,19 @@ static int user_exec_current(struct interrupt_frame *frame, const char *name)
     if (cr3 == 0 || cr3 == vmm_boot_cr3()) {
         return -1;
     }
+    if (enter_task_cwd() != 0) {
+        return -1;
+    }
     if (lookup_root_elf(name, &data, &len) != 0) {
+        leave_task_cwd();
         return -1;
     }
     if (elf_image_base(data, len, &base) != 0 || base != USER_BASE) {
+        leave_task_cwd();
         return -1;
     }
     if (len == 0 || len > FILE_MAX) {
+        leave_task_cwd();
         return -1;
     }
     {
@@ -342,6 +408,7 @@ static int user_exec_current(struct interrupt_frame *frame, const char *name)
             file_buf[i] = src[i];
         }
     }
+    leave_task_cwd();
     rc = replace_load_elf(file_buf, len, base, cr3, &entry, &stack_top);
     if (rc != 0) {
         return rc;
@@ -906,11 +973,13 @@ void user_on_syscall(struct interrupt_frame *frame)
                 return;
             }
             vmm_set_cr3(vmm_boot_cr3());
-            if (fs_write(path, file_buf, want) != 0) {
+            if (enter_task_cwd() != 0 || fs_write(path, file_buf, want) != 0) {
+                leave_task_cwd();
                 frame->rax = (uint64_t)-1;
                 vmm_set_cr3(sched_current_cr3());
                 return;
             }
+            leave_task_cwd();
             frame->rax = (uint64_t)want;
             vmm_set_cr3(sched_current_cr3());
             return;
@@ -974,7 +1043,8 @@ void user_on_syscall(struct interrupt_frame *frame)
             return;
         }
         vmm_set_cr3(vmm_boot_cr3());
-        if (fs_lookup(path, &data, &len) != 0) {
+        if (enter_task_cwd() != 0 || fs_lookup(path, &data, &len) != 0) {
+            leave_task_cwd();
             frame->rax = (uint64_t)-1;
             vmm_set_cr3(sched_current_cr3());
             return;
@@ -994,6 +1064,7 @@ void user_on_syscall(struct interrupt_frame *frame)
                 file_buf[i] = src[i];
             }
         }
+        leave_task_cwd();
         vmm_set_cr3(sched_current_cr3());
         if (copy_to_user(frame->rsi, file_buf, got) != 0) {
             frame->rax = (uint64_t)-1;
@@ -1008,7 +1079,13 @@ void user_on_syscall(struct interrupt_frame *frame)
             want = (unsigned)FILE_MAX;
         }
         vmm_set_cr3(vmm_boot_cr3());
+        if (enter_task_cwd() != 0) {
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
         packed = fs_readdir((char *)file_buf, want);
+        leave_task_cwd();
         if (packed < 0) {
             frame->rax = (uint64_t)-1;
             vmm_set_cr3(sched_current_cr3());
@@ -1029,11 +1106,13 @@ void user_on_syscall(struct interrupt_frame *frame)
             return;
         }
         vmm_set_cr3(vmm_boot_cr3());
-        if (fs_lookup(buf, &data, &len) != 0) {
+        if (enter_task_cwd() != 0 || fs_lookup(buf, &data, &len) != 0) {
+            leave_task_cwd();
             frame->rax = (uint64_t)-1;
             vmm_set_cr3(sched_current_cr3());
             return;
         }
+        leave_task_cwd();
         fd = sched_fd_open(buf);
         frame->rax = (fd < 0) ? (uint64_t)-1 : (uint64_t)(unsigned)fd;
         vmm_set_cr3(sched_current_cr3());

@@ -16,11 +16,11 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **Exit status:** `exit` takes an 8-bit code; `wait` returns it in `rax`. The waiter’s VGA row shows `st N` once per distinct code. `wait` is the last exit, not a chosen child.
 - **pipe:** syscall 11 writes two fds into user `int fd[2]` via `rdi`. One-page kernel ring. `read`/`write` block when empty/full or return partial. `run pipetest` self-pipes `pipe` onto VGA.
 - **Shell `|`:** one `|` splits the line; left runs with fd 1 on the write end, right with fd 0 on the read end. `cat hello | cat` and `run cat hello | run cat` copy `hello` through the ring onto VGA. Nested pipes not supported.
-- **cwd:** one global cluster (`fs_cwd`); `cd` is not per-task.
+- **cwd:** each task stores its own cluster; `fork` copies it. The kernel shell has a separate cwd; `cd` changes that, and `run` snapshots it into the new ELF. Two tasks in different dirs list different names via `readdir`.
 - **brk:** syscall 12 grows or shrinks the heap past the stack page (map from `0x402000`, or unmap on a lower break). `run brktest` stores a byte above `0x401000` and writes it.
 - **fork:** syscall 13 eager-copies the current task into a free slot (cloned PML4, copied user pages including heap, copied fds, own kernel stack). Child returns 0 in `rax`; parent returns the child slot id. `run forktest` prints from both.
 - **dup2:** syscall 14 remaps an fd onto another slot. The source stays open; the target is replaced. Pipe ends bump `rrefs` / `wrefs`. `run dup2test` writes through the remapped fd and those bytes show on VGA.
-- No per-task cwd, long names, second FAT sector, UEFI, AHCI.
+- No waitpid, eight fds, long names, second FAT sector, UEFI, AHCI.
 
 ## Sprint 1 — process and heap
 
@@ -35,10 +35,10 @@ User memory has a heap past the stack page. `run` can still start a fresh ELF; `
 
 ### Week 2 — rewire fds and cwd
 
-A child can remap a pipe end with `dup2`; `cd` is still one global cluster.
+A child can remap a pipe end with `dup2`; each task has its own cwd.
 
 3. **`dup2`** — done: `SYS_DUP2` (syscall 14) remaps an fd onto another slot. `rdi` is oldfd, `rsi` is newfd; `rax` returns newfd or -1. The source stays open; the target is replaced. `run dup2test` writes through the remapped fd and those bytes show on VGA.
-4. **Per-task cwd** — each task stores its own cwd; `fork` inherits it. `cd` is no longer a single global. Two tasks in different dirs: after `mkdir a` / `mkdir b`, `run ls` from one lists `a`’s names and from the other lists `b`’s.
+4. **Per-task cwd** — done: each task stores its own cwd cluster; `fork` copies the parent’s. The kernel shell keeps a separate cwd; `cd` changes that, and `run` snapshots it into the new ELF. After `mkdir a` / `mkdir b`, `cd a` then `run ls` lists `a`’s names and `cd b` then `run ls` lists `b`’s.
 
 ### Week 3 — reap children and more fds
 
