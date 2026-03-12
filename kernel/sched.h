@@ -48,6 +48,7 @@ void sched_block_pipe(struct interrupt_frame *frame, int pipe_id);
 void sched_on_tick(struct interrupt_frame *frame);
 void sched_yield(struct interrupt_frame *frame);
 void sched_sleep(struct interrupt_frame *frame, uint64_t ticks);
+/* rdi=0 reaps any child; rdi=pid reaps that child. rax=8-bit code or -1. */
 void sched_wait(struct interrupt_frame *frame);
 void sched_exit(struct interrupt_frame *frame);
 /* Same slot: new rip/rsp/user_base, keep kstack and CR3, load into frame. */

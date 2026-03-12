@@ -14,6 +14,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times 512 - ($ - fat1) db 0
 
 fat2:
@@ -27,6 +28,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times 512 - ($ - fat2) db 0
 
 root:
@@ -212,6 +214,11 @@ root_extra:
     times 14 db 0
     dw 19
     dd dup2test_len
+    db "WAITPID ", "   "
+    db 0x20
+    times 14 db 0
+    dw 20
+    dd waitpid_len
     times 512 - ($ - root_extra) db 0
 
 dup2test_data:
@@ -219,4 +226,9 @@ dup2test_data:
 dup2test_len equ $ - dup2test_data
     times 512 - dup2test_len db 0
 
-    times (FAT_DATA_CLUSTERS - 18) * 512 db 0
+waitpid_data:
+    incbin "waitpid.bin"
+waitpid_len equ $ - waitpid_data
+    times 512 - waitpid_len db 0
+
+    times (FAT_DATA_CLUSTERS - 19) * 512 db 0

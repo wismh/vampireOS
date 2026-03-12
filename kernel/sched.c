@@ -65,11 +65,14 @@ struct task {
     uint64_t brk; /* first byte past the user heap */
     uint64_t cr3; /* cloned PML4 phys; loaded on switch */
     unsigned cwd; /* FAT cluster; 0 = volume root. Fork copies this. */
+    int parent; /* slot that forked us; -1 if none (run/boot). */
+    int wait_pid; /* 0 = any child; else that slot. Used while TASK_WAIT. */
     int state;
     int row;
     unsigned writes;
     unsigned wake_tick;
     uint8_t exit_code;
+    uint8_t reaped; /* 1 after wait collected this DEAD child. */
     uint8_t seen_status;
     uint8_t shown_status;
     int pipe_wait;
@@ -81,8 +84,6 @@ static struct pipe pipes[PIPE_MAX];
 static int task_count;
 static int current;
 static int last_added;
-static uint8_t last_exit;
-static int have_exit;
 
 static void idle_until_ready(struct interrupt_frame *frame);
 
@@ -323,8 +324,6 @@ void sched_init(void)
     task_count = 0;
     current = 0;
     last_added = -1;
-    last_exit = 0;
-    have_exit = 0;
     for (i = 0; i < PIPE_MAX; i++) {
         pipes[i].used = 0;
         pipes[i].head = 0;
@@ -339,6 +338,7 @@ void sched_init(void)
         tasks[i].writes = 0;
         tasks[i].wake_tick = 0;
         tasks[i].exit_code = 0;
+        tasks[i].reaped = 0;
         tasks[i].seen_status = 0;
         tasks[i].shown_status = 0;
         tasks[i].pipe_wait = -1;
@@ -347,8 +347,75 @@ void sched_init(void)
         tasks[i].brk = 0;
         tasks[i].cr3 = 0;
         tasks[i].cwd = 0;
+        tasks[i].parent = -1;
+        tasks[i].wait_pid = 0;
         clear_fds(&tasks[i]);
     }
+}
+
+/* Unreaped DEAD children stay until wait so their 8-bit code is not lost. */
+static int slot_reusable(const struct task *t)
+{
+    if (t == 0 || t->state != TASK_DEAD) {
+        return 0;
+    }
+    if (t->parent >= 0 && t->reaped == 0) {
+        return 0;
+    }
+    return 1;
+}
+
+static int child_of(int parent, int idx)
+{
+    if (parent < 0 || idx < 0 || idx >= task_count) {
+        return 0;
+    }
+    if (tasks[idx].parent != parent || tasks[idx].reaped != 0) {
+        return 0;
+    }
+    return 1;
+}
+
+static int find_zombie(int parent, int want)
+{
+    int i;
+
+    if (want != 0) {
+        if (child_of(parent, want) == 0) {
+            return -1;
+        }
+        if (tasks[want].state == TASK_DEAD) {
+            return want;
+        }
+        return -1;
+    }
+    for (i = 0; i < task_count; i++) {
+        if (child_of(parent, i) != 0 && tasks[i].state == TASK_DEAD) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int has_child(int parent, int want)
+{
+    int i;
+
+    if (want != 0) {
+        return child_of(parent, want);
+    }
+    for (i = 0; i < task_count; i++) {
+        if (child_of(parent, i) != 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static uint8_t reap_child(int child)
+{
+    tasks[child].reaped = 1;
+    return tasks[child].exit_code;
 }
 
 int sched_base_busy(uint64_t user_base, uint64_t cr3)
@@ -382,7 +449,7 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     }
     t = 0;
     for (i = 0; i < task_count; i++) {
-        if (tasks[i].state == TASK_DEAD) {
+        if (slot_reusable(&tasks[i]) != 0) {
             t = &tasks[i];
             free_task_user(t);
             free_task_kstack(t);
@@ -426,11 +493,14 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->cr3 = cr3;
     /* Snapshot the kernel/shell cwd so `cd` then `run` inherits it. */
     t->cwd = fs_cwd();
+    t->parent = -1;
+    t->wait_pid = 0;
     t->state = TASK_READY;
     t->row = row;
     t->writes = 0;
     t->wake_tick = 0;
     t->exit_code = 0;
+    t->reaped = 0;
     t->seen_status = 0;
     t->shown_status = 0;
     t->pipe_wait = -1;
@@ -497,7 +567,7 @@ int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3)
     }
     t = 0;
     for (i = 0; i < task_count; i++) {
-        if (tasks[i].state == TASK_DEAD) {
+        if (slot_reusable(&tasks[i]) != 0) {
             t = &tasks[i];
             break;
         }
@@ -520,6 +590,8 @@ int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3)
     t->brk = parent->brk;
     t->cr3 = cr3;
     t->cwd = parent->cwd;
+    t->parent = current;
+    t->wait_pid = 0;
     t->state = TASK_READY;
     row = parent->row + 1;
     if (row < 0 || row >= VGA_HEIGHT) {
@@ -529,6 +601,7 @@ int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3)
     t->writes = 0;
     t->wake_tick = 0;
     t->exit_code = 0;
+    t->reaped = 0;
     t->seen_status = 0;
     t->shown_status = 0;
     t->pipe_wait = -1;
@@ -947,19 +1020,30 @@ static void show_wait_status(struct task *t, uint8_t code)
     vga_write_dec_at(t->row, 15, (unsigned)code);
 }
 
-static void wake_waiters(uint8_t code)
+static void wake_parent_waiter(int child, uint8_t code)
 {
-    int i;
+    int p;
+    struct task *w;
 
-    last_exit = code;
-    have_exit = 1;
-    for (i = 0; i < task_count; i++) {
-        if (tasks[i].state == TASK_WAIT) {
-            tasks[i].state = TASK_READY;
-            tasks[i].rax = (uint64_t)code;
-            show_wait_status(&tasks[i], code);
-        }
+    if (child < 0 || child >= task_count) {
+        return;
     }
+    p = tasks[child].parent;
+    if (p < 0 || p >= task_count) {
+        return;
+    }
+    w = &tasks[p];
+    if (w->state != TASK_WAIT) {
+        return;
+    }
+    if (w->wait_pid != 0 && w->wait_pid != child) {
+        return;
+    }
+    (void)reap_child(child);
+    w->state = TASK_READY;
+    w->rax = (uint64_t)code;
+    w->wait_pid = 0;
+    show_wait_status(w, code);
 }
 
 static void idle_until_ready(struct interrupt_frame *frame)
@@ -1036,19 +1120,33 @@ void sched_sleep(struct interrupt_frame *frame, uint64_t n)
 
 void sched_wait(struct interrupt_frame *frame)
 {
+    int want;
+    int child;
     int next;
+    uint8_t code;
 
     if (frame == 0) {
         return;
     }
-    /* last_exit survives DEAD-slot reuse so a later waiter still sees the code. */
-    if (have_exit != 0) {
-        frame->rax = (uint64_t)last_exit;
-        show_wait_status(&tasks[current], last_exit);
+    want = (int)frame->rdi;
+    if (want < 0) {
+        frame->rax = (uint64_t)-1;
+        return;
+    }
+    child = find_zombie(current, want);
+    if (child >= 0) {
+        code = reap_child(child);
+        frame->rax = (uint64_t)code;
+        show_wait_status(&tasks[current], code);
+        return;
+    }
+    if (has_child(current, want) == 0) {
+        frame->rax = (uint64_t)-1;
         return;
     }
     save_task(&tasks[current], frame);
     tasks[current].state = TASK_WAIT;
+    tasks[current].wait_pid = want;
     next = pick_next(current);
     if (next < 0) {
         idle_until_ready(frame);
@@ -1114,8 +1212,9 @@ void sched_exit(struct interrupt_frame *frame)
         free_task_user(&tasks[current]);
         clear_fds(&tasks[current]);
         tasks[current].exit_code = code;
+        tasks[current].reaped = 0;
         tasks[current].state = TASK_DEAD;
-        wake_waiters(code);
+        wake_parent_waiter(current, code);
     }
     next = pick_next(current);
     if (next < 0 || frame == 0) {
