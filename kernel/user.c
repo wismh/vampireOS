@@ -1183,6 +1183,7 @@ void user_on_syscall(struct interrupt_frame *frame)
         return;
     }
     if (frame->rax == SYS_WAIT) {
+        /* rdi=0 any child of this task; rdi=pid that child. rax=code or -1. */
         sched_wait(frame);
         vmm_set_cr3(sched_current_cr3());
         return;
