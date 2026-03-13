@@ -9,7 +9,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - Volume: 128 data clusters, files up to 4 KiB. Subdirs and the root grow across FAT chains.
 - Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them.
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8. `fork` copies the current task into a free slot.
-- Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (`rdi` 0 any child / `rdi` = pid that child; 8-bit code or -1 in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1). Four fds per task. `run` loads any FAT12 ELF into a free slot.
+- Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (`rdi` 0 any child / `rdi` = pid that child; 8-bit code or -1 in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1). Eight fds per task. `run` loads any FAT12 ELF into a free slot.
 - **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` reads `argv[1]`. `exec` does the same for the new image.
 - **readdir:** syscall copies cwd names into a user buffer; `user/ls.asm` writes them. Kernel `ls` still works.
 - **exec:** syscall loads an ELF over the current task (same slot, same CR3/kstack). `run exectest` becomes `echo` without growing the task count.
@@ -21,7 +21,8 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **fork:** syscall 13 eager-copies the current task into a free slot (cloned PML4, copied user pages including heap, copied fds, own kernel stack). Child returns 0 in `rax`; parent returns the child slot id. `run forktest` prints from both.
 - **dup2:** syscall 14 remaps an fd onto another slot. The source stays open; the target is replaced. Pipe ends bump `rrefs` / `wrefs`. `run dup2test` writes through the remapped fd and those bytes show on VGA.
 - **wait / waitpid:** syscall 5 takes `rdi` 0 (any child) or a child slot id. `fork` records the parent so wait only reaps that task’s children. `run waitpid` prints both exit codes.
-- No eight fds, long names, second FAT sector, UEFI, AHCI.
+- **Eight fds:** `FD_MAX` is 8. `run fdtest` opens `hello` five times; the fifth `open` returns fd 4 (not -1) and that digit shows on VGA.
+- No pipefork, ps, long names, second FAT sector, UEFI, AHCI.
 
 ## Sprint 1 — process and heap
 
@@ -43,10 +44,10 @@ A child can remap a pipe end with `dup2`; each task has its own cwd.
 
 ### Week 3 — reap children and more fds
 
-`wait` can reap a chosen child. Four fds fill once a pipe and two files are open.
+`wait` can reap a chosen child. Eight fds so stdin/stdout, a pipe pair, and open files can coexist.
 
 5. **`wait` / waitpid** — done: after fork, more than one child can be DEAD. `wait` with `rdi` 0 reaps any child; `wait` with `rdi` set returns only that child’s 8-bit code in `rax`. `run waitpid` forks two children that exit 1 and 2; the parent prints both codes.
-6. **Eight fds** — raise `FD_MAX` from 4 to 8 so stdin/stdout, a pipe pair, and open files can coexist. `run fdtest` opens enough files (or a pipe plus files) that the fifth `open` no longer returns -1; a line on VGA shows the extra fds.
+6. **Eight fds** — done: `FD_MAX` is 8 so stdin/stdout, a pipe pair, and open files can coexist. `run fdtest` opens `hello` five times; the fifth `open` returns fd 4 (not -1) and that digit shows on VGA.
 
 ### Week 4 — a pipe without the kernel `|`, and `ps`
 

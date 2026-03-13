@@ -78,6 +78,8 @@ set(DUP2TEST_ASM "${CMAKE_SOURCE_DIR}/user/dup2test.asm")
 set(DUP2TEST_BIN "${CMAKE_BINARY_DIR}/dup2test.bin")
 set(WAITPID_ASM "${CMAKE_SOURCE_DIR}/user/waitpid.asm")
 set(WAITPID_BIN "${CMAKE_BINARY_DIR}/waitpid.bin")
+set(FDTEST_ASM "${CMAKE_SOURCE_DIR}/user/fdtest.asm")
+set(FDTEST_BIN "${CMAKE_BINARY_DIR}/fdtest.bin")
 set(FAT_ASM "${CMAKE_SOURCE_DIR}/user/fat.asm")
 set(FAT_BIN "${CMAKE_BINARY_DIR}/fat.bin")
 
@@ -210,6 +212,14 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${FDTEST_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${FDTEST_BIN}" "${FDTEST_ASM}"
+    DEPENDS "${FDTEST_ASM}"
+    COMMENT "Assembling user ELF fdtest"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${FAT_BIN}"
     COMMAND "${NASM_EXECUTABLE}"
         -f bin
@@ -217,7 +227,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )
