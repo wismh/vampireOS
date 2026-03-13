@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 
-#define FD_MAX 4
+#define FD_MAX 8
 #define FD_PATH_MAX 32
 #define FD_KIND_FILE 1
 #define FD_KIND_PIPE_R 2
