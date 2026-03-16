@@ -22,7 +22,8 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **dup2:** syscall 14 remaps an fd onto another slot. The source stays open; the target is replaced. Pipe ends bump `rrefs` / `wrefs`. `run dup2test` writes through the remapped fd and those bytes show on VGA.
 - **wait / waitpid:** syscall 5 takes `rdi` 0 (any child) or a child slot id. `fork` records the parent so wait only reaps that task’s children. `run waitpid` prints both exit codes.
 - **Eight fds:** `FD_MAX` is 8. `run fdtest` opens `hello` five times; the fifth `open` returns fd 4 (not -1) and that digit shows on VGA.
-- No pipefork, ps, long names, second FAT sector, UEFI, AHCI.
+- **pipefork:** `user/pipefork.asm` calls `pipe` then `fork`; the child writes a string, the parent reads it and writes VGA fd 1. `run pipefork` prints that string through the ring. No kernel `|`.
+- No ps, long names, second FAT sector, UEFI, AHCI.
 
 ## Sprint 1 — process and heap
 
@@ -53,7 +54,7 @@ A child can remap a pipe end with `dup2`; each task has its own cwd.
 
 The kernel line parser is not how user code should connect a child. Fork is invisible except as extra VGA rows.
 
-7. **Userspace pipe via fork** — `user/pipefork.asm`: `pipe`, `fork`, child writes, parent reads. No kernel `|`. `run pipefork` prints the child’s string on VGA through the ring.
+7. **Userspace pipe via fork** — done: `user/pipefork.asm` calls `pipe` then `fork`; the child writes, the parent reads. No kernel `|`. `run pipefork` prints the child’s string on VGA through the ring.
 8. **`ps`** — kernel shell lists live slots / pids (id, state, maybe name). After `run forktest`, `ps` shows the extra slot so fork is visible without VGA row archaeology.
 
 ## Sprint 2 — memory and files

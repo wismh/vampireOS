@@ -15,6 +15,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times 512 - ($ - fat1) db 0
 
 fat2:
@@ -29,6 +30,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times 512 - ($ - fat2) db 0
 
 root:
@@ -224,6 +226,11 @@ root_extra:
     times 14 db 0
     dw 21
     dd fdtest_len
+    db "PIPEFORK", "   "
+    db 0x20
+    times 14 db 0
+    dw 22
+    dd pipefork_len
     times 512 - ($ - root_extra) db 0
 
 dup2test_data:
@@ -241,4 +248,9 @@ fdtest_data:
 fdtest_len equ $ - fdtest_data
     times 512 - fdtest_len db 0
 
-    times (FAT_DATA_CLUSTERS - 20) * 512 db 0
+pipefork_data:
+    incbin "pipefork.bin"
+pipefork_len equ $ - pipefork_data
+    times 512 - pipefork_len db 0
+
+    times (FAT_DATA_CLUSTERS - 21) * 512 db 0
