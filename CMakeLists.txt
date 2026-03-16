@@ -80,6 +80,8 @@ set(WAITPID_ASM "${CMAKE_SOURCE_DIR}/user/waitpid.asm")
 set(WAITPID_BIN "${CMAKE_BINARY_DIR}/waitpid.bin")
 set(FDTEST_ASM "${CMAKE_SOURCE_DIR}/user/fdtest.asm")
 set(FDTEST_BIN "${CMAKE_BINARY_DIR}/fdtest.bin")
+set(PIPEFORK_ASM "${CMAKE_SOURCE_DIR}/user/pipefork.asm")
+set(PIPEFORK_BIN "${CMAKE_BINARY_DIR}/pipefork.bin")
 set(FAT_ASM "${CMAKE_SOURCE_DIR}/user/fat.asm")
 set(FAT_BIN "${CMAKE_BINARY_DIR}/fat.bin")
 
@@ -220,6 +222,14 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${PIPEFORK_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${PIPEFORK_BIN}" "${PIPEFORK_ASM}"
+    DEPENDS "${PIPEFORK_ASM}"
+    COMMENT "Assembling user ELF pipefork"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${FAT_BIN}"
     COMMAND "${NASM_EXECUTABLE}"
         -f bin
@@ -227,7 +237,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )
