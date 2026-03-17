@@ -984,6 +984,31 @@ int sched_row(void)
     return tasks[current].row;
 }
 
+int sched_slots(void)
+{
+    return task_count;
+}
+
+const char *sched_slot_state_name(int id)
+{
+    int st;
+
+    if (id < 0 || id >= task_count) {
+        return 0;
+    }
+    st = tasks[id].state;
+    if (st == TASK_DEAD) {
+        return 0;
+    }
+    if (st == TASK_SLEEP) {
+        return "SLEEP";
+    }
+    if (st == TASK_WAIT || st == TASK_PIPE) {
+        return "WAIT";
+    }
+    return "RUN";
+}
+
 unsigned sched_note_write(void)
 {
     if (task_count == 0) {

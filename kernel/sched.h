@@ -57,3 +57,7 @@ void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t r
 /* Copy current task into a free slot (own kstack/CR3/fds/cwd). Child rax=0.
  * Returns child slot id, or -1. */
 int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3);
+/* High-water of used slots (live and unreaped DEAD). */
+int sched_slots(void);
+/* RUN / SLEEP / WAIT for a live slot; 0 if DEAD or unused. */
+const char *sched_slot_state_name(int id);
