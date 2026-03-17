@@ -3,6 +3,7 @@
 #include "heap.h"
 #include "io.h"
 #include "pmm.h"
+#include "sched.h"
 #include "user.h"
 #include "vga.h"
 
@@ -290,6 +291,30 @@ static void run_pwd(void)
     puts_cur(fs_pwd());
 }
 
+static void run_ps(void)
+{
+    int i;
+    int n;
+    int first;
+    const char *st;
+
+    n = sched_slots();
+    first = 1;
+    for (i = 0; i < n; i++) {
+        st = sched_slot_state_name(i);
+        if (st == 0) {
+            continue;
+        }
+        if (first == 0) {
+            vga_putc(' ');
+        }
+        first = 0;
+        put_uint((unsigned)i);
+        vga_putc(' ');
+        puts_cur(st);
+    }
+}
+
 static void run_prog(const char *arg)
 {
     char name[40];
@@ -427,11 +452,13 @@ static void run_line(void)
         return;
     }
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm mv fill mkdir rmdir cd pwd |");
+        puts_cur("help ls mem cat run put rm mv fill mkdir rmdir cd pwd ps |");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "pwd")) {
         run_pwd();
+    } else if (streq(cmd, "ps")) {
+        run_ps();
     } else if (cmd_is(cmd, "ls")) {
         run_ls(cmd + 2);
     } else if (cmd_is(cmd, "cat")) {
