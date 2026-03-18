@@ -603,6 +603,9 @@ static int copy_to_user_pml4(uint64_t cr3, uint64_t dst, const void *src,
         uint64_t base = va & ~(PAGE_4K - 1);
 
         if (base != page_base) {
+            if (vmm_cow_break(cr3, va) != 0) {
+                return -1;
+            }
             if (vmm_translate_user(cr3, va, &phys) != 0) {
                 return -1;
             }
@@ -846,7 +849,7 @@ static uint64_t user_brk(uint64_t want)
     return want;
 }
 
-/* Eager copy: cloned PML4, copied user pages (heap included), new kstack. */
+/* Share user frames read-only; a write fault copies privately. New kstack. */
 static uint64_t user_fork(struct interrupt_frame *frame)
 {
     uint64_t src_cr3;

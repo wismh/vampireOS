@@ -100,10 +100,9 @@ isr_common:
     mov rdi, rsp
     cld
     call exception_handler
-.hang:
-    cli
-    hlt
-    jmp .hang
+    POP_REGS
+    add rsp, 16
+    iretq
 
 irq_common:
     PUSH_REGS
