@@ -8,7 +8,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 - Volume: 128 data clusters, files up to 4 KiB. Subdirs and the root grow across FAT chains.
 - Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd ps |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them. `ps` lists live slots (id and RUN/SLEEP/WAIT).
-- Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8. `fork` copies the current task into a free slot.
+- Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8. `fork` shares the current task’s user frames as read-only until a write.
 - Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (`rdi` 0 any child / `rdi` = pid that child; 8-bit code or -1 in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1). Eight fds per task. `run` loads any FAT12 ELF into a free slot.
 - **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` reads `argv[1]`. `exec` does the same for the new image.
 - **readdir:** syscall copies cwd names into a user buffer; `user/ls.asm` writes them. Kernel `ls` still works.
@@ -18,7 +18,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **Shell `|`:** one `|` splits the line; left runs with fd 1 on the write end, right with fd 0 on the read end. `cat hello | cat` and `run cat hello | run cat` copy `hello` through the ring onto VGA. Nested pipes not supported.
 - **cwd:** each task stores its own cluster; `fork` copies it. The kernel shell has a separate cwd; `cd` changes that, and `run` snapshots it into the new ELF. Two tasks in different dirs list different names via `readdir`.
 - **brk:** syscall 12 grows or shrinks the heap past the stack page (map from `0x402000`, or unmap on a lower break). `run brktest` stores a byte above `0x401000` and writes it.
-- **fork:** syscall 13 eager-copies the current task into a free slot (cloned PML4, copied user pages including heap, copied fds, own kernel stack). Child returns 0 in `rax`; parent returns the child slot id. `run forktest` prints from both.
+- **fork:** syscall 13 shares the current task’s user frames as read-only into a free slot (cloned PML4, shared pages, copied fds, own kernel stack). A write `#PF` copies that frame privately. Child returns 0 in `rax`; parent returns the child slot id. `run forktest` prints from both; `mem` does not drop a full extra code+stack+heap.
 - **dup2:** syscall 14 remaps an fd onto another slot. The source stays open; the target is replaced. Pipe ends bump `rrefs` / `wrefs`. `run dup2test` writes through the remapped fd and those bytes show on VGA.
 - **wait / waitpid:** syscall 5 takes `rdi` 0 (any child) or a child slot id. `fork` records the parent so wait only reaps that task’s children. `run waitpid` prints both exit codes.
 - **Eight fds:** `FD_MAX` is 8. `run fdtest` opens `hello` five times; the fifth `open` returns fd 4 (not -1) and that digit shows on VGA.
@@ -60,14 +60,14 @@ The kernel line parser is not how user code should connect a child. Fork is invi
 
 ## Sprint 2 — memory and files
 
-Eager fork copies every user page. File fds always read from offset 0. The FAT still fits in one sector.
+Eager fork copied every user page. File fds always read from offset 0. The FAT still fits in one sector.
 
 ### Week 1 — copy on write
 
 Parent and child already diverge only because the copy was full. Stop paying that until a write.
 
-9. **COW fork** — mark copied user pages read-only and share the frames; do not duplicate writable pages until a write fault. `mem` (free frames) after `run forktest` must not drop by a full extra code+stack+heap the way eager copy did.
-10. **Write-fault copy** — the `#PF` path allocates a private frame, maps it writable, resumes. Parent and child store different bytes on the heap; `run cowtest` prints two different values.
+9. **COW fork** — done: fork marks user pages read-only and shares the frames. A write `#PF` copies the frame privately and resumes. `mem` after `run forktest` does not drop a full extra code+stack+heap.
+10. **Write-fault copy** — parent and child store different bytes on the heap; `run cowtest` prints two different values. (The `#PF` copy path shipped with COW fork.)
 
 ### Week 2 — seek and more clusters
 

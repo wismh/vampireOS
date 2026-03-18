@@ -19,10 +19,20 @@
 #define PTE_FLAGS (PDE_PRESENT | PDE_WRITE)
 #define PTE_USER 4ull
 #define PTE_USER_FLAGS (PTE_FLAGS | PTE_USER)
+#define PTE_USER_RO (PDE_PRESENT | PTE_USER)
 #define ADDR_MASK ~0xFFFull
 #define PROBE_MARK 0x56414D50u
 #define HHDM_PML4_INDEX 256ull
 #define KERNEL_PML4_INDEX 511ull
+#define PF_PRESENT 1ull
+#define PF_WRITE 2ull
+#define PF_USER 4ull
+#define COW_MAX 256
+
+static struct {
+    uint64_t phys;
+    uint32_t refs;
+} cow_tab[COW_MAX];
 
 static uint64_t first_4k_mapped;
 static int hhdm_ready;
@@ -253,6 +263,97 @@ static void vmm_flush_if_current(uint64_t cr3)
     }
 }
 
+static unsigned cow_refs(uint64_t phys)
+{
+    uint64_t i;
+
+    for (i = 0; i < COW_MAX; i++) {
+        if (cow_tab[i].refs != 0 && cow_tab[i].phys == phys) {
+            return cow_tab[i].refs;
+        }
+    }
+    return 1;
+}
+
+static void cow_clear(uint64_t phys)
+{
+    uint64_t i;
+
+    for (i = 0; i < COW_MAX; i++) {
+        if (cow_tab[i].refs != 0 && cow_tab[i].phys == phys) {
+            cow_tab[i].phys = 0;
+            cow_tab[i].refs = 0;
+            return;
+        }
+    }
+}
+
+/* One more mapping of phys (fork). Unique pages start at refs 2. 0 ok, -1 full. */
+static int cow_share_frame(uint64_t phys)
+{
+    uint64_t i;
+    int empty = -1;
+
+    for (i = 0; i < COW_MAX; i++) {
+        if (cow_tab[i].refs != 0 && cow_tab[i].phys == phys) {
+            cow_tab[i].refs++;
+            return 0;
+        }
+        if (empty < 0 && cow_tab[i].refs == 0) {
+            empty = (int)i;
+        }
+    }
+    if (empty < 0) {
+        return -1;
+    }
+    cow_tab[empty].phys = phys;
+    cow_tab[empty].refs = 2;
+    return 0;
+}
+
+/* Drop one mapping. 1 = last ref (caller pmm_free), 0 = still shared. */
+static int cow_put(uint64_t phys)
+{
+    uint64_t i;
+
+    for (i = 0; i < COW_MAX; i++) {
+        if (cow_tab[i].refs != 0 && cow_tab[i].phys == phys) {
+            cow_tab[i].refs--;
+            if (cow_tab[i].refs != 0) {
+                return 0;
+            }
+            cow_tab[i].phys = 0;
+            return 1;
+        }
+    }
+    return 1;
+}
+
+static void cow_free_leaf(uint64_t phys)
+{
+    if (cow_put(phys) != 0) {
+        pmm_free(phys);
+    }
+}
+
+/* Undo cow_share_frame when the child map fails. */
+static void cow_unshare(uint64_t phys)
+{
+    uint64_t i;
+
+    for (i = 0; i < COW_MAX; i++) {
+        if (cow_tab[i].refs != 0 && cow_tab[i].phys == phys) {
+            if (cow_tab[i].refs <= 2) {
+                cow_tab[i].phys = 0;
+                cow_tab[i].refs = 0;
+            } else {
+                cow_tab[i].refs--;
+            }
+            return;
+        }
+    }
+}
+
 uint64_t phys_to_virt(uint64_t phys)
 {
     if (!hhdm_ready) {
@@ -300,7 +401,8 @@ static int vmm_ensure_table(volatile uint64_t *table, uint64_t idx, uint64_t fla
     return 0;
 }
 
-int vmm_map_user(uint64_t cr3, uint64_t virt, uint64_t phys)
+static int vmm_map_user_flags(uint64_t cr3, uint64_t virt, uint64_t phys,
+                             uint64_t flags)
 {
     volatile uint64_t *pml4;
     volatile uint64_t *pdpt;
@@ -334,9 +436,14 @@ int vmm_map_user(uint64_t cr3, uint64_t virt, uint64_t phys)
     if (vmm_ensure_table(pd, pd_i, PTE_USER_FLAGS, &pt) != 0) {
         return -1;
     }
-    pt[pt_i] = phys | PTE_USER_FLAGS;
+    pt[pt_i] = phys | flags;
     vmm_flush_if_current(cr3);
     return 0;
+}
+
+int vmm_map_user(uint64_t cr3, uint64_t virt, uint64_t phys)
+{
+    return vmm_map_user_flags(cr3, virt, phys, PTE_USER_FLAGS);
 }
 
 int vmm_unmap_user(uint64_t cr3, uint64_t virt)
@@ -388,7 +495,7 @@ int vmm_unmap_user(uint64_t cr3, uint64_t virt)
     phys = e & ADDR_MASK;
     pt[pt_i] = 0;
     vmm_flush_if_current(cr3);
-    pmm_free(phys);
+    cow_free_leaf(phys);
     return 0;
 }
 
@@ -451,7 +558,7 @@ void vmm_teardown_user(uint64_t cr3)
                     if ((e & PDE_PRESENT) != 0 && (e & PTE_USER) != 0) {
                         leaf = e & ADDR_MASK;
                         pt[pt_i] = 0;
-                        pmm_free(leaf);
+                        cow_free_leaf(leaf);
                     }
                 }
                 if (vmm_table_clear(pt, PT_ENTRIES)) {
@@ -497,7 +604,6 @@ int vmm_copy_user(uint64_t dst_cr3, uint64_t src_cr3)
     uint64_t pt_i;
     uint64_t e;
     uint64_t leaf;
-    uint64_t neu;
     uint64_t va;
 
     if (dst_cr3 == 0 || src_cr3 == 0 || dst_cr3 == src_cr3 ||
@@ -534,23 +640,114 @@ int vmm_copy_user(uint64_t dst_cr3, uint64_t src_cr3)
                     leaf = e & ADDR_MASK;
                     va = (pml4_i << 39) | (pdpt_i << 30) | (pd_i << 21) |
                          (pt_i << 12);
-                    neu = pmm_alloc_above(PAGE_2M);
-                    if (neu == 0) {
-                        neu = pmm_alloc();
-                    }
-                    if (neu == 0) {
+                    if (cow_share_frame(leaf) != 0) {
                         return -1;
                     }
-                    copy_page(neu, leaf);
-                    if (vmm_map_user(dst_cr3, va, neu) != 0) {
-                        pmm_free(neu);
+                    if (vmm_map_user_flags(dst_cr3, va, leaf, PTE_USER_RO) != 0) {
+                        cow_unshare(leaf);
                         return -1;
                     }
+                    pt[pt_i] = leaf | PTE_USER_RO;
                 }
             }
         }
     }
+    vmm_flush_if_current(src_cr3);
     return 0;
+}
+
+static int vmm_leaf_pte(uint64_t cr3, uint64_t virt, volatile uint64_t **pte_out)
+{
+    volatile uint64_t *pml4;
+    volatile uint64_t *pdpt;
+    volatile uint64_t *pd;
+    volatile uint64_t *pt;
+    uint64_t pml4_i = (virt >> 39) & (PD_ENTRIES - 1);
+    uint64_t pdpt_i = (virt >> 30) & (PD_ENTRIES - 1);
+    uint64_t pd_i = (virt >> 21) & (PD_ENTRIES - 1);
+    uint64_t pt_i = (virt >> 12) & (PT_ENTRIES - 1);
+    uint64_t e;
+
+    if (pte_out == 0) {
+        return -1;
+    }
+    if (cr3 == 0) {
+        cr3 = PML4_PHYS;
+    }
+    if (pml4_i == HHDM_PML4_INDEX || pml4_i == KERNEL_PML4_INDEX) {
+        return -1;
+    }
+    if (!hhdm_ready) {
+        return -1;
+    }
+
+    pml4 = kmap(cr3);
+    e = pml4[pml4_i];
+    if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0 || (e & PDE_LARGE) != 0) {
+        return -1;
+    }
+    pdpt = kmap(e & ADDR_MASK);
+    e = pdpt[pdpt_i];
+    if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0 || (e & PDE_LARGE) != 0) {
+        return -1;
+    }
+    pd = kmap(e & ADDR_MASK);
+    e = pd[pd_i];
+    if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0 || (e & PDE_LARGE) != 0) {
+        return -1;
+    }
+    pt = kmap(e & ADDR_MASK);
+    e = pt[pt_i];
+    if ((e & PDE_PRESENT) == 0 || (e & PTE_USER) == 0) {
+        return -1;
+    }
+    *pte_out = &pt[pt_i];
+    return 0;
+}
+
+int vmm_cow_break(uint64_t cr3, uint64_t virt)
+{
+    volatile uint64_t *pte;
+    uint64_t e;
+    uint64_t leaf;
+    uint64_t neu;
+
+    virt &= ADDR_MASK;
+    if (vmm_leaf_pte(cr3, virt, &pte) != 0) {
+        return -1;
+    }
+    e = *pte;
+    leaf = e & ADDR_MASK;
+    if (cow_refs(leaf) <= 1) {
+        *pte = leaf | PTE_USER_FLAGS;
+        cow_clear(leaf);
+        vmm_flush_if_current(cr3);
+        return 0;
+    }
+    neu = pmm_alloc_above(PAGE_2M);
+    if (neu == 0) {
+        neu = pmm_alloc();
+    }
+    if (neu == 0) {
+        return -1;
+    }
+    copy_page(neu, leaf);
+    *pte = neu | PTE_USER_FLAGS;
+    (void)cow_put(leaf);
+    vmm_flush_if_current(cr3);
+    return 0;
+}
+
+int vmm_handle_page_fault(uint64_t error, uint64_t cr2)
+{
+    uint64_t cr3;
+
+    if ((error & (PF_PRESENT | PF_WRITE | PF_USER)) !=
+        (PF_PRESENT | PF_WRITE | PF_USER)) {
+        return -1;
+    }
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+    return vmm_cow_break(cr3, cr2);
 }
 
 int vmm_translate_user(uint64_t cr3, uint64_t virt, uint64_t *phys_out)

@@ -5,6 +5,7 @@
 #include "sched.h"
 #include "user.h"
 #include "vga.h"
+#include "vmm.h"
 
 #include <stdint.h>
 
@@ -43,6 +44,14 @@ static void idt_set_gate(int vec, uint64_t isr, uint8_t flags)
 
 void exception_handler(struct interrupt_frame *frame)
 {
+    uint64_t cr2;
+
+    if (frame != 0 && frame->vector == 14) {
+        __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+        if (vmm_handle_page_fault(frame->error, cr2) == 0) {
+            return;
+        }
+    }
     vga_write_at(1, 0, "exception ");
     vga_write_dec_at(1, 10, (unsigned)frame->vector);
     for (;;) {

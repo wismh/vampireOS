@@ -17,8 +17,12 @@ int vmm_map_user(uint64_t cr3, uint64_t virt, uint64_t phys);
 int vmm_unmap_user(uint64_t cr3, uint64_t virt);
 /* Unmap every user PTE in cr3 and free leaf frames plus user page tables. */
 void vmm_teardown_user(uint64_t cr3);
-/* Eager-copy every user page from src into dst (new frames). 0 ok, -1 fail. */
+/* Share src user pages into dst as read-only (same frames). 0 ok, -1 fail. */
 int vmm_copy_user(uint64_t dst_cr3, uint64_t src_cr3);
+/* Make virt privately writable in cr3 (copy if still shared). 0 ok, -1 fail. */
+int vmm_cow_break(uint64_t cr3, uint64_t virt);
+/* Write #PF on a shared user page: copy, map writable, resume. 0 handled. */
+int vmm_handle_page_fault(uint64_t error, uint64_t cr2);
 /* Walk task PML4: present+user PTEs only; phys includes page offset. */
 int vmm_translate_user(uint64_t cr3, uint64_t virt, uint64_t *phys_out);
 int vmm_drop_identity(int row);
