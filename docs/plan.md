@@ -24,6 +24,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **Eight fds:** `FD_MAX` is 8. `run fdtest` opens `hello` five times; the fifth `open` returns fd 4 (not -1) and that digit shows on VGA.
 - **pipefork:** `user/pipefork.asm` calls `pipe` then `fork`; the child writes a string, the parent reads it and writes VGA fd 1. `run pipefork` prints that string through the ring. No kernel `|`.
 - **ps:** kernel shell lists live slots (id and RUN/SLEEP/WAIT; DEAD skipped). After `run forktest`, the extra child slot is visible without reading VGA rows.
+- **cowtest:** `user/cowtest.asm` `brk`s a heap page, `fork`s, then parent and child store different bytes at that address. A write `#PF` copies the frame privately. `run cowtest` prints two different values.
 - No long names, second FAT sector, UEFI, AHCI.
 
 ## Sprint 1 — process and heap
@@ -67,7 +68,7 @@ Eager fork copied every user page. File fds always read from offset 0. The FAT s
 Parent and child already diverge only because the copy was full. Stop paying that until a write.
 
 9. **COW fork** — done: fork marks user pages read-only and shares the frames. A write `#PF` copies the frame privately and resumes. `mem` after `run forktest` does not drop a full extra code+stack+heap.
-10. **Write-fault copy** — parent and child store different bytes on the heap; `run cowtest` prints two different values. (The `#PF` copy path shipped with COW fork.)
+10. **Write-fault copy** — done: parent and child store different bytes on the heap; `run cowtest` prints two different values. (The `#PF` copy path shipped with COW fork.)
 
 ### Week 2 — seek and more clusters
 
