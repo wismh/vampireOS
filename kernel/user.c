@@ -35,6 +35,7 @@
 #define SYS_BRK 12ull
 #define SYS_FORK 13ull
 #define SYS_DUP2 14ull
+#define SYS_LSEEK 15ull
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
@@ -900,6 +901,7 @@ void user_on_syscall(struct interrupt_frame *frame)
     unsigned n;
     unsigned want;
     unsigned got;
+    unsigned off;
     int fd;
     int kind;
     int pipefd[2];
@@ -1055,23 +1057,31 @@ void user_on_syscall(struct interrupt_frame *frame)
         if (len > FILE_MAX) {
             len = (unsigned)FILE_MAX;
         }
-        got = want;
-        if (got > len) {
-            got = len;
+        off = sched_fd_offset(fd);
+        if (off >= len) {
+            got = 0;
+        } else {
+            got = want;
+            if (got > len - off) {
+                got = len - off;
+            }
         }
         {
             unsigned i;
             const uint8_t *src = (const uint8_t *)data;
 
             for (i = 0; i < got; i++) {
-                file_buf[i] = src[i];
+                file_buf[i] = src[off + i];
             }
         }
         leave_task_cwd();
         vmm_set_cr3(sched_current_cr3());
-        if (copy_to_user(frame->rsi, file_buf, got) != 0) {
+        if (got != 0 && copy_to_user(frame->rsi, file_buf, got) != 0) {
             frame->rax = (uint64_t)-1;
             return;
+        }
+        if (got != 0) {
+            (void)sched_fd_lseek(fd, off + got);
         }
         frame->rax = (uint64_t)got;
         return;
@@ -1204,6 +1214,18 @@ void user_on_syscall(struct interrupt_frame *frame)
     /* rdi=oldfd, rsi=newfd; rax=newfd or -1. Source stays; target replaced. */
     if (frame->rax == SYS_DUP2) {
         packed = sched_fd_dup2((int)frame->rdi, (int)frame->rsi);
+        frame->rax = (packed < 0) ? (uint64_t)-1 : (uint64_t)(unsigned)packed;
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* rdi=fd, rsi=offset; SEEK_SET. rax=new offset or -1. File fds only. */
+    if (frame->rax == SYS_LSEEK) {
+        if (frame->rsi > 0x7fffffffull) {
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
+        packed = sched_fd_lseek((int)frame->rdi, (unsigned)frame->rsi);
         frame->rax = (packed < 0) ? (uint64_t)-1 : (uint64_t)(unsigned)packed;
         vmm_set_cr3(sched_current_cr3());
         return;

@@ -26,6 +26,7 @@ struct fd_entry {
     int used;
     int kind;
     int pipe;
+    unsigned offset; /* file fds; read starts here and advances */
     char path[FD_PATH_MAX];
 };
 
@@ -249,6 +250,7 @@ static void drop_fd(struct fd_entry *e)
     e->used = 0;
     e->kind = 0;
     e->pipe = -1;
+    e->offset = 0;
     for (j = 0; j < FD_PATH_MAX; j++) {
         e->path[j] = 0;
     }
@@ -516,6 +518,7 @@ static void copy_fd(struct fd_entry *dst, const struct fd_entry *src)
     dst->used = src->used;
     dst->kind = src->kind;
     dst->pipe = src->pipe;
+    dst->offset = src->offset;
     for (j = 0; j < FD_PATH_MAX; j++) {
         dst->path[j] = src->path[j];
     }
@@ -540,6 +543,7 @@ static void inherit_fds(struct task *dst, const struct task *src)
             dst->fds[i].used = 0;
             dst->fds[i].kind = 0;
             dst->fds[i].pipe = -1;
+            dst->fds[i].offset = 0;
             continue;
         }
         if (dst->fds[i].kind == FD_KIND_PIPE_R) {
@@ -625,6 +629,7 @@ int sched_fd_open(const char *path)
             t->fds[i].used = 1;
             t->fds[i].kind = FD_KIND_FILE;
             t->fds[i].pipe = -1;
+            t->fds[i].offset = 0;
             copy_path(t->fds[i].path, path);
             return i;
         }
@@ -676,6 +681,7 @@ int sched_fd_dup2(int oldfd, int newfd)
         t->fds[newfd].used = 0;
         t->fds[newfd].kind = 0;
         t->fds[newfd].pipe = -1;
+        t->fds[newfd].offset = 0;
         return -1;
     }
     if (t->fds[newfd].kind == FD_KIND_PIPE_R) {
@@ -684,6 +690,35 @@ int sched_fd_dup2(int oldfd, int newfd)
         pipes[p].wrefs++;
     }
     return newfd;
+}
+
+int sched_fd_lseek(int fd, unsigned off)
+{
+    struct task *t;
+
+    if (task_count == 0 || fd < 0 || fd >= FD_MAX) {
+        return -1;
+    }
+    t = &tasks[current];
+    if (t->fds[fd].used == 0 || t->fds[fd].kind != FD_KIND_FILE) {
+        return -1;
+    }
+    t->fds[fd].offset = off;
+    return (int)off;
+}
+
+unsigned sched_fd_offset(int fd)
+{
+    struct task *t;
+
+    if (task_count == 0 || fd < 0 || fd >= FD_MAX) {
+        return 0;
+    }
+    t = &tasks[current];
+    if (t->fds[fd].used == 0 || t->fds[fd].kind != FD_KIND_FILE) {
+        return 0;
+    }
+    return t->fds[fd].offset;
 }
 
 int sched_fd_path(int fd, char *out)
@@ -771,9 +806,11 @@ int sched_pipe(int out[2])
     t->fds[r].used = 1;
     t->fds[r].kind = FD_KIND_PIPE_R;
     t->fds[r].pipe = p;
+    t->fds[r].offset = 0;
     t->fds[w].used = 1;
     t->fds[w].kind = FD_KIND_PIPE_W;
     t->fds[w].pipe = p;
+    t->fds[w].offset = 0;
     out[0] = r;
     out[1] = w;
     return 0;
@@ -825,6 +862,7 @@ int sched_fd_bind_pipe(int fd, int kind, int pipe_id)
     e->used = 1;
     e->kind = kind;
     e->pipe = pipe_id;
+    e->offset = 0;
     e->path[0] = '\0';
     if (kind == FD_KIND_PIPE_R) {
         pipes[pipe_id].rrefs++;

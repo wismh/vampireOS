@@ -1,4 +1,4 @@
-; BASE 0x400000; open hello, read, legacy write, exit
+; BASE 0x400000; open hello, lseek past 'bl', read, legacy write, exit
 bits 64
 org 0x400000
 
@@ -35,15 +35,22 @@ _start:
     int 0x30
     test rax, rax
     js fail
-    mov edi, eax
+    mov ebx, eax
+    mov eax, 15
+    mov edi, ebx
+    mov esi, 2
+    xor edx, edx
+    int 0x30
+    cmp eax, 2
+    jne fail
     mov eax, 8
+    mov edi, ebx
     mov esi, buf
     mov edx, 16
     int 0x30
-    test rax, rax
-    js fail
-    mov ecx, eax
-    mov byte [buf + rcx], 0
+    cmp eax, 3
+    jne fail
+    mov byte [buf + 3], 0
     mov eax, 1
     mov edi, buf
     int 0x30
