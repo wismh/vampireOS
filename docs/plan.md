@@ -2,14 +2,14 @@
 
 Vampire OS after `vos-64`: BIOS MBR, FAT12 on ATA PIO (128 data clusters, root chains), private CR3 per task, `mv` / argv / `run ls` / exec / 8-bit exit / pipe / shell `|`.
 
-One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 80 KiB (`KERNEL_SECTORS` 160); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again. Stage 2 already loads 160 sectors in two BIOS reads (128+32).
+One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 88 KiB (`KERNEL_SECTORS` 176); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again. Stage 2 already loads 176 sectors in two BIOS reads (128+48).
 
 ## Now
 
 - Volume: 128 data clusters, files up to 4 KiB. Subdirs and the root grow across FAT chains.
 - Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd ps |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them. `ps` lists live slots (id and RUN/SLEEP/WAIT).
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8. `fork` shares the current task’s user frames as read-only until a write.
-- Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (`rdi` 0 any child / `rdi` = pid that child; 8-bit code or -1 in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1). Eight fds per task. `run` loads any FAT12 ELF into a free slot.
+- Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (`rdi` 0 any child / `rdi` = pid that child; 8-bit code or -1 in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1), lseek (`rdi` fd, `rsi` offset; SEEK_SET; `rax` the new offset or -1). Eight fds per task. `run` loads any FAT12 ELF into a free slot.
 - **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` reads `argv[1]`. `exec` does the same for the new image.
 - **readdir:** syscall copies cwd names into a user buffer; `user/ls.asm` writes them. Kernel `ls` still works.
 - **exec:** syscall loads an ELF over the current task (same slot, same CR3/kstack). `run exectest` becomes `echo` without growing the task count.
@@ -25,6 +25,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **pipefork:** `user/pipefork.asm` calls `pipe` then `fork`; the child writes a string, the parent reads it and writes VGA fd 1. `run pipefork` prints that string through the ring. No kernel `|`.
 - **ps:** kernel shell lists live slots (id and RUN/SLEEP/WAIT; DEAD skipped). After `run forktest`, the extra child slot is visible without reading VGA rows.
 - **cowtest:** `user/cowtest.asm` `brk`s a heap page, `fork`s, then parent and child store different bytes at that address. A write `#PF` copies the frame privately. `run cowtest` prints two different values.
+- **lseek:** syscall 15 sets a file fd's offset (`rdi` fd, `rsi` offset; SEEK_SET). `read` starts there and advances it. `run readtest` seeks into `hello` and prints `ood`.
 - No long names, second FAT sector, UEFI, AHCI.
 
 ## Sprint 1 — process and heap
@@ -74,7 +75,7 @@ Parent and child already diverge only because the copy was full. Stop paying tha
 
 `read` always starts at byte 0. One FAT sector maps ~170 clusters; 128 data clusters waste none of that yet, and cannot grow past it.
 
-11. **`lseek`** — file fds keep an offset; `SYS_LSEEK` sets it. `run readtest` (or a new ELF) seeks into `hello` and prints from the middle (`ood` from `blood`, or similar).
+11. **`lseek`** — done: file fds keep an offset; `SYS_LSEEK` (syscall 15) sets it (`rdi` fd, `rsi` offset; SEEK_SET; `rax` the new offset or -1). `read` starts at that offset and advances it. `run readtest` seeks into `hello` and prints `ood` from `blood`.
 12. **Second FAT sector** — `FAT_SEC_PER_FAT` 2 (both copies); grow `FAT_DATA_CLUSTERS` past one sector’s map so more than ~170 clusters can exist. `fill` (or many `put`s) uses a cluster that would not fit in 512 bytes of FAT12 entries; `ls` still lists the file.
 
 ### Week 3 — copy and `stat`

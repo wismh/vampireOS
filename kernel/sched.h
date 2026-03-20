@@ -28,6 +28,10 @@ int sched_fd_open(const char *path);
 int sched_fd_close(int fd);
 /* Remap oldfd onto newfd. Source stays; target is replaced. Returns newfd or -1. */
 int sched_fd_dup2(int oldfd, int newfd);
+/* SEEK_SET on a file fd. rdi=fd, rsi=off. Returns the new offset or -1. */
+int sched_fd_lseek(int fd, unsigned off);
+/* Byte offset of a file fd; 0 if not a file. */
+unsigned sched_fd_offset(int fd);
 /* Copy stored path for an open fd into out (FD_PATH_MAX). */
 int sched_fd_path(int fd, char *out);
 int sched_fd_kind(int fd);
