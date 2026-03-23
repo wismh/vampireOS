@@ -16,7 +16,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
-    times 512 - ($ - fat1) db 0
+    times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
 fat2:
     db 0xF8, 0x2F, 0x01
@@ -31,7 +31,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
-    times 512 - ($ - fat2) db 0
+    times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
 root:
     db "HELLO   ", "   "

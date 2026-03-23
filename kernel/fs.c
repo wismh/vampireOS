@@ -388,12 +388,17 @@ static void drop_page(uint8_t *p)
     }
 }
 
+static unsigned fat_bytes(void)
+{
+    return g_fatsz * SEC;
+}
+
 static unsigned fat12_ent(const uint8_t *fat, unsigned cl)
 {
     unsigned off = cl + cl / 2u;
     unsigned v;
 
-    if (off + 1u >= SEC) {
+    if (off + 1u >= fat_bytes()) {
         return FAT12_EOF;
     }
     v = (unsigned)fat[off] | ((unsigned)fat[off + 1u] << 8);
@@ -410,7 +415,7 @@ static void fat12_set(uint8_t *fat, unsigned cl, unsigned val)
     unsigned off = cl + cl / 2u;
 
     val &= 0xFFFu;
-    if (off + 1u >= SEC) {
+    if (off + 1u >= fat_bytes()) {
         return;
     }
     if ((cl & 1u) != 0) {
@@ -490,10 +495,10 @@ static int fat_flush(void)
     if (g_fat == 0 || g_fatsz == 0) {
         return -1;
     }
-    if (ata_write(g_rsvd, 1u, g_fat) != 0) {
+    if (ata_write(g_rsvd, g_fatsz, g_fat) != 0) {
         return -1;
     }
-    return ata_write(g_rsvd + g_fatsz, 1u, g_fat);
+    return ata_write(g_rsvd + g_fatsz, g_fatsz, g_fat);
 }
 
 static unsigned fat_alloc(void)
@@ -501,7 +506,8 @@ static unsigned fat_alloc(void)
     unsigned cl;
     unsigned last = g_clusters + 1u;
 
-    for (cl = 2u; cl <= last; cl++) {
+    /* Last cluster first so one fill can occupy a FAT12 entry past 512 bytes. */
+    for (cl = last; cl >= 2u; cl--) {
         if (fat12_ent(g_fat, cl) == 0) {
             fat12_set(g_fat, cl, FAT12_EOF);
             return cl;
@@ -958,8 +964,8 @@ int fs_init(int row)
         return row + 1;
     }
     g_fat = scratch;
-    g_sec = scratch + SEC;
-    bpb = scratch + SEC * 2u;
+    g_sec = scratch + SEC * 2u;
+    bpb = scratch + SEC * 3u;
     g_dir = page_buf();
     if (g_dir == 0) {
         vga_write_at(row, 0, "fat fail");
@@ -979,8 +985,8 @@ int fs_init(int row)
     fatsz = rd_u16(bpb + 22);
     tot32 = rd_u32(bpb + 32);
     tot = tot16 != 0 ? tot16 : tot32;
-    if (byts != SEC || spc != 1u || rsvd == 0 || nfats == 0 || fatsz != 1u ||
-        root_ent == 0 || tot == 0) {
+    if (byts != SEC || spc != 1u || rsvd == 0 || nfats == 0 ||
+        fatsz == 0 || fatsz > 2u || root_ent == 0 || tot == 0) {
         vga_write_at(row, 0, "fat fail");
         return row + 1;
     }
@@ -1002,7 +1008,7 @@ int fs_init(int row)
     g_first_root = rsvd + nfats * fatsz;
     g_first_data = g_first_root + root_secs;
     g_cwd = 0;
-    if (ata_read(rsvd, 1u, g_fat) != 0 || scan_dir() != 0) {
+    if (ata_read(rsvd, fatsz, g_fat) != 0 || scan_dir() != 0) {
         vga_write_at(row, 0, "fat fail");
         return row + 1;
     }

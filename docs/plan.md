@@ -1,12 +1,12 @@
 # February–April 2026
 
-Vampire OS after `vos-64`: BIOS MBR, FAT12 on ATA PIO (128 data clusters, root chains), private CR3 per task, `mv` / argv / `run ls` / exec / 8-bit exit / pipe / shell `|`.
+Vampire OS after `vos-64`: BIOS MBR, FAT12 on ATA PIO (344 data clusters, two FAT sectors, root chains), private CR3 per task, `mv` / argv / `run ls` / exec / 8-bit exit / pipe / shell `|`.
 
 One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 88 KiB (`KERNEL_SECTORS` 176); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again. Stage 2 already loads 176 sectors in two BIOS reads (128+48).
 
 ## Now
 
-- Volume: 128 data clusters, files up to 4 KiB. Subdirs and the root grow across FAT chains.
+- Volume: 344 data clusters, two sectors per FAT (both copies). Files up to 4 KiB. Subdirs and the root grow across FAT chains.
 - Shell: `help ls mem cat run put rm mv fill mkdir rmdir cd pwd ps |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them. `ps` lists live slots (id and RUN/SLEEP/WAIT).
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8. `fork` shares the current task’s user frames as read-only until a write.
 - Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (`rdi` 0 any child / `rdi` = pid that child; 8-bit code or -1 in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1), lseek (`rdi` fd, `rsi` offset; SEEK_SET; `rax` the new offset or -1). Eight fds per task. `run` loads any FAT12 ELF into a free slot.
@@ -26,7 +26,8 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **ps:** kernel shell lists live slots (id and RUN/SLEEP/WAIT; DEAD skipped). After `run forktest`, the extra child slot is visible without reading VGA rows.
 - **cowtest:** `user/cowtest.asm` `brk`s a heap page, `fork`s, then parent and child store different bytes at that address. A write `#PF` copies the frame privately. `run cowtest` prints two different values.
 - **lseek:** syscall 15 sets a file fd's offset (`rdi` fd, `rsi` offset; SEEK_SET). `read` starts there and advances it. `run readtest` seeks into `hello` and prints `ood`.
-- No long names, second FAT sector, UEFI, AHCI.
+- **Second FAT sector:** `FAT_SEC_PER_FAT` is 2; both copies are 1024 bytes. `fill` can occupy a cluster whose FAT12 entry sits past the first 512 bytes; `ls` still lists that file.
+- No long names, UEFI, AHCI.
 
 ## Sprint 1 — process and heap
 
@@ -62,7 +63,7 @@ The kernel line parser is not how user code should connect a child. Fork is invi
 
 ## Sprint 2 — memory and files
 
-Eager fork copied every user page. File fds always read from offset 0. The FAT still fits in one sector.
+Eager fork copied every user page. File fds kept no offset. One FAT sector could not map past ~170 clusters.
 
 ### Week 1 — copy on write
 
@@ -73,10 +74,10 @@ Parent and child already diverge only because the copy was full. Stop paying tha
 
 ### Week 2 — seek and more clusters
 
-`read` always starts at byte 0. One FAT sector maps ~170 clusters; 128 data clusters waste none of that yet, and cannot grow past it.
+File fds keep an offset. Each FAT is two sectors so a cluster past the first 512 bytes of FAT12 entries can exist.
 
 11. **`lseek`** — done: file fds keep an offset; `SYS_LSEEK` (syscall 15) sets it (`rdi` fd, `rsi` offset; SEEK_SET; `rax` the new offset or -1). `read` starts at that offset and advances it. `run readtest` seeks into `hello` and prints `ood` from `blood`.
-12. **Second FAT sector** — `FAT_SEC_PER_FAT` 2 (both copies); grow `FAT_DATA_CLUSTERS` past one sector’s map so more than ~170 clusters can exist. `fill` (or many `put`s) uses a cluster that would not fit in 512 bytes of FAT12 entries; `ls` still lists the file.
+12. **Second FAT sector** — done: `FAT_SEC_PER_FAT` 2 (both copies); `FAT_DATA_CLUSTERS` 344 so a FAT12 entry can sit past one sector’s map. `fill` uses a cluster whose entry lives in the second FAT sector; `ls` still lists the file.
 
 ### Week 3 — copy and `stat`
 
