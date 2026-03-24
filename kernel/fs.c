@@ -1233,6 +1233,26 @@ int fs_rename(const char *src, const char *dst)
     return r;
 }
 
+int fs_copy(const char *src, const char *dst)
+{
+    const void *data;
+    unsigned len;
+
+    if (src == 0 || dst == 0 || fs_lookup(src, &data, &len) != 0) {
+        return -1;
+    }
+    if (g_view == 0) {
+        g_view = page_buf();
+    }
+    if (g_view == 0) {
+        return -1;
+    }
+    if ((const uint8_t *)data != g_view) {
+        copy_bytes(g_view, (const uint8_t *)data, len);
+    }
+    return fs_write(dst, g_view, len);
+}
+
 int fs_isdir(int i)
 {
     if (i < 0 || i >= file_count) {

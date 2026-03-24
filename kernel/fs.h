@@ -9,6 +9,7 @@ int fs_lookup(const char *name, const void **data, unsigned *len);
 int fs_write(const char *name, const void *data, unsigned len);
 int fs_remove(const char *name);
 int fs_rename(const char *src, const char *dst);
+int fs_copy(const char *src, const char *dst);
 int fs_isdir(int i);
 int fs_mkdir(const char *name);
 int fs_rmdir(const char *name);
