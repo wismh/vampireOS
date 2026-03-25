@@ -356,8 +356,8 @@ static void run_prog(const char *arg)
         return;
     }
     path = skip_ws(arg);
-    if (streq(name, "cat")) {
-        if (*path == '\0' || user_run("cat", path) != 0) {
+    if (streq(name, "cat") || streq(name, "stat")) {
+        if (*path == '\0' || user_run(name, path) != 0) {
             vga_putc('?');
         }
         return;

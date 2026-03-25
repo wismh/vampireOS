@@ -6,6 +6,8 @@ const char *fs_name(int i);
 /* Pack cwd names into dst (space-separated, dirs with '/'). Returns bytes. */
 int fs_readdir(char *dst, unsigned max);
 int fs_lookup(const char *name, const void **data, unsigned *len);
+/* Packed user ints: size, first cluster, is-dir. */
+int fs_stat(const char *name, unsigned *size, unsigned *cluster, unsigned *is_dir);
 int fs_write(const char *name, const void *data, unsigned len);
 int fs_remove(const char *name);
 int fs_rename(const char *src, const char *dst);
