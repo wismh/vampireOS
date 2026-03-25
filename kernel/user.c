@@ -36,6 +36,7 @@
 #define SYS_FORK 13ull
 #define SYS_DUP2 14ull
 #define SYS_LSEEK 15ull
+#define SYS_STAT 16ull
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
@@ -905,6 +906,7 @@ void user_on_syscall(struct interrupt_frame *frame)
     int fd;
     int kind;
     int pipefd[2];
+    unsigned st[3];
     const void *data;
     unsigned len;
 
@@ -1129,6 +1131,29 @@ void user_on_syscall(struct interrupt_frame *frame)
         fd = sched_fd_open(buf);
         frame->rax = (fd < 0) ? (uint64_t)-1 : (uint64_t)(unsigned)fd;
         vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* rdi=path, rsi=user {size, cluster, is_dir} packed ints; rax 0 or -1. */
+    if (frame->rax == SYS_STAT) {
+        if (copy_from_user(buf, frame->rdi, USER_STR_MAX) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        vmm_set_cr3(vmm_boot_cr3());
+        if (enter_task_cwd() != 0 ||
+            fs_stat(buf, &st[0], &st[1], &st[2]) != 0) {
+            leave_task_cwd();
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
+        leave_task_cwd();
+        vmm_set_cr3(sched_current_cr3());
+        if (copy_to_user(frame->rsi, st, sizeof(st)) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        frame->rax = 0;
         return;
     }
     /* pipe(fd[2]): rdi = user int[2]; fd[0] read, fd[1] write; rax 0 or -1. */

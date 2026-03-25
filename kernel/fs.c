@@ -1119,6 +1119,31 @@ int fs_lookup(const char *name, const void **data, unsigned *len)
     return r;
 }
 
+int fs_stat(const char *name, unsigned *size, unsigned *cluster, unsigned *is_dir)
+{
+    char leaf[13];
+    int i;
+    int r = -1;
+
+    if (size == 0 || cluster == 0 || is_dir == 0) {
+        return -1;
+    }
+    if (enter_parent(name, leaf) != 0) {
+        return -1;
+    }
+    i = find_file(leaf);
+    if (i >= 0 && g_dir != 0 && dir_load() == 0) {
+        *cluster = rd_u16(g_dir + files[i].dir_off + 26);
+        *size = rd_u32(g_dir + files[i].dir_off + 28);
+        *is_dir = files[i].is_dir ? 1u : 0u;
+        r = 0;
+    }
+    if (leave_parent() != 0) {
+        return -1;
+    }
+    return r;
+}
+
 int fs_write(const char *name, const void *src, unsigned len)
 {
     char leaf[13];

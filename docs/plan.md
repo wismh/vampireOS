@@ -9,8 +9,8 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - Volume: 344 data clusters, two sectors per FAT (both copies). Files up to 4 KiB. Subdirs and the root grow across FAT chains.
 - Shell: `help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them. `ps` lists live slots (id and RUN/SLEEP/WAIT).
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8. `fork` shares the current task’s user frames as read-only until a write.
-- Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (`rdi` 0 any child / `rdi` = pid that child; 8-bit code or -1 in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1), lseek (`rdi` fd, `rsi` offset; SEEK_SET; `rax` the new offset or -1). Eight fds per task. `run` loads any FAT12 ELF into a free slot.
-- **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` reads `argv[1]`. `exec` does the same for the new image.
+- Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (`rdi` 0 any child / `rdi` = pid that child; 8-bit code or -1 in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1), lseek (`rdi` fd, `rsi` offset; SEEK_SET; `rax` the new offset or -1), stat (`rdi` path, `rsi` user `{size, cluster, is_dir}` packed ints; `rax` 0 or -1). Eight fds per task. `run` loads any FAT12 ELF into a free slot.
+- **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm` and `stat.asm` read `argv[1]`. `exec` does the same for the new image.
 - **readdir:** syscall copies cwd names into a user buffer; `user/ls.asm` writes them. Kernel `ls` still works.
 - **exec:** syscall loads an ELF over the current task (same slot, same CR3/kstack). `run exectest` becomes `echo` without growing the task count.
 - **Exit status:** `exit` takes an 8-bit code; `wait` returns it in `rax`. `rdi` 0 reaps any child of the caller; `rdi` = pid reaps only that child. The waiter’s VGA row shows `st N` once per distinct code. `run waitpid` forks two children that exit 1 and 2 and prints both codes.
@@ -28,6 +28,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **lseek:** syscall 15 sets a file fd's offset (`rdi` fd, `rsi` offset; SEEK_SET). `read` starts there and advances it. `run readtest` seeks into `hello` and prints `ood`.
 - **Second FAT sector:** `FAT_SEC_PER_FAT` is 2; both copies are 1024 bytes. `fill` can occupy a cluster whose FAT12 entry sits past the first 512 bytes; `ls` still lists that file.
 - **cp:** kernel shell `cp src dst` copies a file onto a new dirent and new clusters. `cp hello dusk` then `cat dusk` prints `blood`. A missing src prints `?`.
+- **stat:** syscall 16 fills a user `{size, first cluster, is-dir}` packed-int struct (`rdi` path, `rsi` struct). `run stat hello` prints `5`.
 - No long names, UEFI, AHCI.
 
 ## Sprint 1 — process and heap
@@ -85,7 +86,7 @@ File fds keep an offset. Each FAT is two sectors so a cluster past the first 512
 A file can be copied on the volume. User code cannot ask size or whether a name is a directory.
 
 13. **`cp`** — done: shell `cp src dst` copies a file on the volume (new clusters + dirent). `cp hello dusk` then `cat dusk` prints `blood`. `cp` of a missing src prints `?`.
-14. **`stat`** — syscall fills a small user struct (size, first cluster / is-dir). Pack `user/stat.asm`; `run stat hello` prints the size.
+14. **`stat`** — done: syscall 16 fills a small user struct (size, first cluster, is-dir packed ints; `rdi` path, `rsi` struct; `rax` 0 or -1). Pack `user/stat.asm`; `run stat hello` prints `5`.
 
 ### Week 4 — kill a slot
 
