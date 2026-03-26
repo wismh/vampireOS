@@ -37,6 +37,7 @@
 #define SYS_DUP2 14ull
 #define SYS_LSEEK 15ull
 #define SYS_STAT 16ull
+#define SYS_KILL 17ull
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
@@ -1252,6 +1253,12 @@ void user_on_syscall(struct interrupt_frame *frame)
         }
         packed = sched_fd_lseek((int)frame->rdi, (unsigned)frame->rsi);
         frame->rax = (packed < 0) ? (uint64_t)-1 : (uint64_t)(unsigned)packed;
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* rdi=pid, rsi=8-bit status like exit. rax 0 or -1. */
+    if (frame->rax == SYS_KILL) {
+        sched_kill(frame);
         vmm_set_cr3(sched_current_cr3());
         return;
     }

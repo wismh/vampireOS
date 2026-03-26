@@ -1219,6 +1219,65 @@ void sched_wait(struct interrupt_frame *frame)
     load_task(frame, &tasks[current]);
 }
 
+static void kill_task(int idx, uint8_t code)
+{
+    struct task *t;
+
+    if (idx < 0 || idx >= task_count) {
+        return;
+    }
+    t = &tasks[idx];
+    if (t->state == TASK_DEAD) {
+        return;
+    }
+    free_task_user(t);
+    clear_fds(t);
+    t->exit_code = code;
+    t->reaped = 0;
+    t->state = TASK_DEAD;
+    t->pipe_wait = -1;
+    wake_parent_waiter(idx, code);
+}
+
+int sched_kill_slot(int pid, uint8_t code)
+{
+    if (pid < 0 || pid >= task_count) {
+        return -1;
+    }
+    if (tasks[pid].state == TASK_DEAD) {
+        return -1;
+    }
+    /* READY current is in user mode; tearing it down from a keyboard IRQ
+     * would iretq into unmapped pages. SLEEP/WAIT/PIPE current is in kernel. */
+    if (pid == current && tasks[pid].state == TASK_READY) {
+        return -1;
+    }
+    kill_task(pid, code);
+    return 0;
+}
+
+void sched_kill(struct interrupt_frame *frame)
+{
+    int pid;
+    uint8_t code;
+
+    if (frame == 0) {
+        return;
+    }
+    pid = (int)frame->rdi;
+    code = (uint8_t)(frame->rsi & 0xffull);
+    if (pid == current) {
+        frame->rdi = (uint64_t)code;
+        sched_exit(frame);
+        return;
+    }
+    if (sched_kill_slot(pid, code) != 0) {
+        frame->rax = (uint64_t)-1;
+        return;
+    }
+    frame->rax = 0;
+}
+
 void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t rsp,
                          uint64_t user_base)
 {
@@ -1272,12 +1331,7 @@ void sched_exit(struct interrupt_frame *frame)
         row = tasks[current].row;
         vga_write_at(row, 2, "done");
         /* Still on this task's kstack until iretq; free that on slot reuse. */
-        free_task_user(&tasks[current]);
-        clear_fds(&tasks[current]);
-        tasks[current].exit_code = code;
-        tasks[current].reaped = 0;
-        tasks[current].state = TASK_DEAD;
-        wake_parent_waiter(current, code);
+        kill_task(current, code);
     }
     next = pick_next(current);
     if (next < 0 || frame == 0) {

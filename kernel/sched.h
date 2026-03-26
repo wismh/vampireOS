@@ -55,6 +55,10 @@ void sched_sleep(struct interrupt_frame *frame, uint64_t ticks);
 /* rdi=0 reaps any child; rdi=pid reaps that child. rax=8-bit code or -1. */
 void sched_wait(struct interrupt_frame *frame);
 void sched_exit(struct interrupt_frame *frame);
+/* rdi=pid, rsi=8-bit status. Marks that slot DEAD so wait can reap it. */
+void sched_kill(struct interrupt_frame *frame);
+/* Same as SYS_KILL without a frame; 0 ok, -1 fail. Does not kill current RUN. */
+int sched_kill_slot(int pid, uint8_t code);
 /* Same slot: new rip/rsp/user_base, keep kstack and CR3, load into frame. */
 void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t rsp,
                          uint64_t user_base);
