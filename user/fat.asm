@@ -16,6 +16,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0xFF, 0xFF
     db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
@@ -27,6 +28,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0x0F
+    db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
@@ -243,6 +245,16 @@ root_extra:
     times 14 db 0
     dw 24
     dd stat_len
+    db "SLEEPER ", "   "
+    db 0x20
+    times 14 db 0
+    dw 25
+    dd sleeper_len
+    db "KILL    ", "   "
+    db 0x20
+    times 14 db 0
+    dw 26
+    dd kill_len
     times 512 - ($ - root_extra) db 0
 
 dup2test_data:
@@ -275,4 +287,14 @@ stat_data:
 stat_len equ $ - stat_data
     times 512 - stat_len db 0
 
-    times (FAT_DATA_CLUSTERS - 23) * 512 db 0
+sleeper_data:
+    incbin "sleeper.bin"
+sleeper_len equ $ - sleeper_data
+    times 512 - sleeper_len db 0
+
+kill_data:
+    incbin "kill.bin"
+kill_len equ $ - kill_data
+    times 512 - kill_len db 0
+
+    times (FAT_DATA_CLUSTERS - 25) * 512 db 0

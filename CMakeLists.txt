@@ -86,6 +86,10 @@ set(COWTEST_ASM "${CMAKE_SOURCE_DIR}/user/cowtest.asm")
 set(COWTEST_BIN "${CMAKE_BINARY_DIR}/cowtest.bin")
 set(STAT_ASM "${CMAKE_SOURCE_DIR}/user/stat.asm")
 set(STAT_BIN "${CMAKE_BINARY_DIR}/stat.bin")
+set(SLEEPER_ASM "${CMAKE_SOURCE_DIR}/user/sleeper.asm")
+set(SLEEPER_BIN "${CMAKE_BINARY_DIR}/sleeper.bin")
+set(KILL_ASM "${CMAKE_SOURCE_DIR}/user/kill.asm")
+set(KILL_BIN "${CMAKE_BINARY_DIR}/kill.bin")
 set(FAT_ASM "${CMAKE_SOURCE_DIR}/user/fat.asm")
 set(FAT_BIN "${CMAKE_BINARY_DIR}/fat.bin")
 
@@ -250,6 +254,22 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${SLEEPER_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${SLEEPER_BIN}" "${SLEEPER_ASM}"
+    DEPENDS "${SLEEPER_ASM}"
+    COMMENT "Assembling user ELF sleeper"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${KILL_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${KILL_BIN}" "${KILL_ASM}"
+    DEPENDS "${KILL_ASM}"
+    COMMENT "Assembling user ELF kill"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${FAT_BIN}"
     COMMAND "${NASM_EXECUTABLE}"
         -f bin
@@ -257,7 +277,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${KILL_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )

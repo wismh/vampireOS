@@ -339,6 +339,25 @@ static void run_ps(void)
     }
 }
 
+static void run_kill(const char *arg)
+{
+    unsigned pid;
+    int any;
+
+    arg = skip_ws(arg);
+    pid = 0;
+    any = 0;
+    while (*arg >= '0' && *arg <= '9') {
+        pid = pid * 10u + (unsigned)(*arg - '0');
+        arg++;
+        any = 1;
+    }
+    arg = skip_ws(arg);
+    if (any == 0 || *arg != '\0' || sched_kill_slot((int)pid, 0) != 0) {
+        vga_putc('?');
+    }
+}
+
 static void run_prog(const char *arg)
 {
     char name[40];
@@ -356,7 +375,7 @@ static void run_prog(const char *arg)
         return;
     }
     path = skip_ws(arg);
-    if (streq(name, "cat") || streq(name, "stat")) {
+    if (streq(name, "cat") || streq(name, "stat") || streq(name, "kill")) {
         if (*path == '\0' || user_run(name, path) != 0) {
             vga_putc('?');
         }
@@ -476,13 +495,15 @@ static void run_line(void)
         return;
     }
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps |");
+        puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill |");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "pwd")) {
         run_pwd();
     } else if (streq(cmd, "ps")) {
         run_ps();
+    } else if (cmd_is(cmd, "kill")) {
+        run_kill(cmd + 4);
     } else if (cmd_is(cmd, "ls")) {
         run_ls(cmd + 2);
     } else if (cmd_is(cmd, "cat")) {
