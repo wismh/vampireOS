@@ -85,6 +85,7 @@ static struct pipe pipes[PIPE_MAX];
 static int task_count;
 static int current;
 static int last_added;
+static int fg_slot;
 
 static void idle_until_ready(struct interrupt_frame *frame);
 
@@ -326,6 +327,7 @@ void sched_init(void)
     task_count = 0;
     current = 0;
     last_added = -1;
+    fg_slot = -1;
     for (i = 0; i < PIPE_MAX; i++) {
         pipes[i].used = 0;
         pipes[i].head = 0;
@@ -1236,7 +1238,20 @@ static void kill_task(int idx, uint8_t code)
     t->reaped = 0;
     t->state = TASK_DEAD;
     t->pipe_wait = -1;
+    if (idx == fg_slot) {
+        fg_slot = -1;
+    }
     wake_parent_waiter(idx, code);
+}
+
+void sched_note_fg(void)
+{
+    fg_slot = last_added;
+}
+
+int sched_kill_fg(uint8_t code)
+{
+    return sched_kill_slot(fg_slot, code);
 }
 
 int sched_kill_slot(int pid, uint8_t code)

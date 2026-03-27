@@ -759,6 +759,7 @@ static int user_run_fds(const char *name, const char *arg, int in_pipe,
         pmm_free(cr3);
         return -1;
     }
+    sched_note_fg();
     if (in_pipe >= 0 &&
         sched_fd_bind_pipe(0, FD_KIND_PIPE_R, in_pipe) != 0) {
         return -1;

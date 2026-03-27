@@ -16,6 +16,8 @@
 #define SCAN_EXT 0xE0
 #define SCAN_LSHIFT 0x2A
 #define SCAN_RSHIFT 0x36
+#define SCAN_LCTRL 0x1D
+#define SCAN_C 0x2E
 #define SCAN_CAPS 0x3A
 #define LINE_MAX 80
 
@@ -51,6 +53,7 @@ static const char map_shift[128] = {
 
 static int shift;
 static int caps;
+static int ctrl;
 static int ext;
 static char *line;
 static unsigned line_len;
@@ -538,6 +541,7 @@ void kbd_init(void)
     }
     shift = 0;
     caps = 0;
+    ctrl = 0;
     ext = 0;
     line = 0;
     line_len = 0;
@@ -563,6 +567,11 @@ void kbd_handle(void)
 
     if (ext) {
         ext = 0;
+        if (sc == SCAN_LCTRL) {
+            ctrl = 1;
+        } else if (sc == (SCAN_LCTRL | SCAN_RELEASE)) {
+            ctrl = 0;
+        }
         return;
     }
 
@@ -574,6 +583,14 @@ void kbd_handle(void)
         shift = 0;
         return;
     }
+    if (sc == SCAN_LCTRL) {
+        ctrl = 1;
+        return;
+    }
+    if (sc == (SCAN_LCTRL | SCAN_RELEASE)) {
+        ctrl = 0;
+        return;
+    }
     if (sc == SCAN_CAPS) {
         caps ^= 1;
         return;
@@ -583,6 +600,10 @@ void kbd_handle(void)
     }
 
     code = sc & 0x7F;
+    if (ctrl && code == SCAN_C) {
+        (void)sched_kill_fg(0);
+        return;
+    }
     c = shift ? map_shift[code] : map[code];
     if (c == 0) {
         return;

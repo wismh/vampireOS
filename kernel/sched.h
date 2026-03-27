@@ -59,6 +59,10 @@ void sched_exit(struct interrupt_frame *frame);
 void sched_kill(struct interrupt_frame *frame);
 /* Same as SYS_KILL without a frame; 0 ok, -1 fail. Does not kill current RUN. */
 int sched_kill_slot(int pid, uint8_t code);
+/* Kernel `run` / pipeline: last spawned ELF is the Ctrl+C target. */
+void sched_note_fg(void);
+/* Kill that foreground slot via sched_kill_slot. 0 ok, -1 none/fail. */
+int sched_kill_fg(uint8_t code);
 /* Same slot: new rip/rsp/user_base, keep kstack and CR3, load into frame. */
 void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t rsp,
                          uint64_t user_base);
