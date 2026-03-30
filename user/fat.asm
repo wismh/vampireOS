@@ -17,6 +17,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0xFF, 0xFF
     db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
@@ -28,6 +29,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0x0F
+    db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
@@ -255,6 +257,11 @@ root_extra:
     times 14 db 0
     dw 26
     dd kill_len
+    db "CRT     ", "   "
+    db 0x20
+    times 14 db 0
+    dw 27
+    dd crt_len
     times 512 - ($ - root_extra) db 0
 
 dup2test_data:
@@ -297,4 +304,9 @@ kill_data:
 kill_len equ $ - kill_data
     times 512 - kill_len db 0
 
-    times (FAT_DATA_CLUSTERS - 25) * 512 db 0
+crt_data:
+    incbin "crt.bin"
+crt_len equ $ - crt_data
+    times 512 - crt_len db 0
+
+    times (FAT_DATA_CLUSTERS - 26) * 512 db 0
