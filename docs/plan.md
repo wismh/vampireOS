@@ -7,7 +7,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 ## Now
 
 - Volume: 344 data clusters, two sectors per FAT (both copies). Files up to 4 KiB. Subdirs and the root grow across FAT chains.
-- Shell: `help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them. `ps` lists live slots (id and RUN/SLEEP/WAIT). `kill <id>` marks that slot DEAD. Ctrl+C on the PS/2 path kills the last `run` ELF the same way and leaves the line buffer. `run crt` prints `crt` through C-callable `int 0x30` stubs.
+- Shell: `help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them. `ps` lists live slots (id and RUN/SLEEP/WAIT). `kill <id>` marks that slot DEAD. Ctrl+C on the PS/2 path kills the last `run` ELF the same way and leaves the line buffer. `run crt` prints `crt` through C-callable `int 0x30` stubs. `run hi` prints `hi` from freestanding C linked against those stubs.
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8. `fork` shares the current task’s user frames as read-only until a write.
 - Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (`rdi` 0 any child / `rdi` = pid that child; 8-bit code or -1 in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1), lseek (`rdi` fd, `rsi` offset; SEEK_SET; `rax` the new offset or -1), stat (`rdi` path, `rsi` user `{size, cluster, is_dir}` packed ints; `rax` 0 or -1), kill (`rdi` pid, `rsi` 8-bit status; `rax` 0 or -1; the slot is DEAD so `ps` skips it and wait can reap it). Eight fds per task. `run` loads any FAT12 ELF into a free slot.
 - **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm`, `stat.asm`, and `kill.asm` read `argv[1]`. `exec` does the same for the new image.
@@ -32,6 +32,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **kill:** syscall 17 marks another slot DEAD with an 8-bit status (`rdi` pid, `rsi` status). `run sleeper` then `kill <id>` (or `run kill <id>`) drops that slot from `ps`. The kernel prompt still takes `help`.
 - **Ctrl+C:** PS/2 Ctrl held + `c` kills the last `run` (or pipeline) ELF via the same DEAD path; the kernel line buffer stays so a new line still takes `ls`.
 - **CRT:** `user/crt.asm` exports C-callable `write` / `read` / `exit` / `fork` / `brk` / `wait` (args in rdi, rsi, rdx; return in rax) wrapping `int 0x30`. `user/crtstart.asm` is linked against that object; `run crt` prints `crt`.
+- **First C program:** `user/hi.c` is freestanding C (`int main(void)` calls `write`). Linked with `user/crt0.asm` and the CRT stubs via clang/ld.lld; packed as `HI`. `run hi` prints `hi`.
 - No long names, UEFI, AHCI.
 
 ## Sprint 1 — process and heap
@@ -104,10 +105,10 @@ Every user program is still NASM. The only shell is the kernel line buffer. Do n
 
 ### Week 1 — C from the volume
 
-Ring 3 cannot call `int 0x30` from C yet.
+Ring 3 can call `write` from C through the CRT stubs.
 
 17. **CRT stubs** — done: `user/crt.asm` exports C-callable `write` / `read` / `exit` / `fork` / `brk` / `wait` wrapping `int 0x30`. `user/crtstart.asm` is linked against that object with the clang/ld.lld pipeline; `run crt` prints `crt`.
-18. **First C program** — `user/hi.c` compiled freestanding with the existing clang/ld.lld pipeline, packed on FAT12. `run hi` prints a line.
+18. **First C program** — done: `user/hi.c` compiled freestanding with clang (`-ffreestanding -fno-stack-protector`) and linked with `crt0` plus the vos-82 CRT stubs via ld.lld; packed as `HI`. `run hi` prints `hi`.
 
 ### Week 2 — a user shell
 
