@@ -262,6 +262,11 @@ root_extra:
     times 14 db 0
     dw 27
     dd crt_len
+    db "HI      ", "   "
+    db 0x20
+    times 14 db 0
+    dw 28
+    dd hi_len
     times 512 - ($ - root_extra) db 0
 
 dup2test_data:
@@ -309,4 +314,9 @@ crt_data:
 crt_len equ $ - crt_data
     times 512 - crt_len db 0
 
-    times (FAT_DATA_CLUSTERS - 26) * 512 db 0
+hi_data:
+    incbin "hi.bin"
+hi_len equ $ - hi_data
+    times 512 - hi_len db 0
+
+    times (FAT_DATA_CLUSTERS - 27) * 512 db 0

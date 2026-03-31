@@ -92,10 +92,15 @@ set(KILL_ASM "${CMAKE_SOURCE_DIR}/user/kill.asm")
 set(KILL_BIN "${CMAKE_BINARY_DIR}/kill.bin")
 set(CRT_ASM "${CMAKE_SOURCE_DIR}/user/crt.asm")
 set(CRTSTART_ASM "${CMAKE_SOURCE_DIR}/user/crtstart.asm")
+set(CRT0_ASM "${CMAKE_SOURCE_DIR}/user/crt0.asm")
+set(HI_C "${CMAKE_SOURCE_DIR}/user/hi.c")
 set(USER_LD "${CMAKE_SOURCE_DIR}/user/user.ld")
 set(CRT_OBJ "${CMAKE_BINARY_DIR}/crt.o")
 set(CRTSTART_OBJ "${CMAKE_BINARY_DIR}/crtstart.o")
+set(CRT0_OBJ "${CMAKE_BINARY_DIR}/crt0.o")
+set(HI_OBJ "${CMAKE_BINARY_DIR}/hi.o")
 set(CRT_BIN "${CMAKE_BINARY_DIR}/crt.bin")
+set(HI_BIN "${CMAKE_BINARY_DIR}/hi.bin")
 set(FAT_ASM "${CMAKE_SOURCE_DIR}/user/fat.asm")
 set(FAT_BIN "${CMAKE_BINARY_DIR}/fat.bin")
 
@@ -308,6 +313,52 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${CRT0_OBJ}"
+    COMMAND "${NASM_EXECUTABLE}" -f elf64 -o "${CRT0_OBJ}" "${CRT0_ASM}"
+    DEPENDS "${CRT0_ASM}"
+    COMMENT "Assembling C start"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${HI_OBJ}"
+    COMMAND "${CLANG_EXECUTABLE}"
+        --target=x86_64-unknown-none
+        -ffreestanding
+        -fno-stack-protector
+        -fno-pic
+        -fno-pie
+        -mno-red-zone
+        -mno-mmx
+        -mno-sse
+        -mno-sse2
+        -fno-asynchronous-unwind-tables
+        -c
+        -o "${HI_OBJ}"
+        "${HI_C}"
+    DEPENDS "${HI_C}"
+    COMMENT "Compiling user/hi.c"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${HI_BIN}"
+    COMMAND "${LLD_EXECUTABLE}"
+        -m elf_x86_64
+        -T "${USER_LD}"
+        -nostdlib
+        -n
+        --strip-all
+        -o "${HI_BIN}"
+        "${CRT0_OBJ}"
+        "${HI_OBJ}"
+        "${CRT_OBJ}"
+    DEPENDS "${CRT0_OBJ}" "${HI_OBJ}" "${CRT_OBJ}" "${USER_LD}"
+    COMMENT "Linking user ELF hi"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${FAT_BIN}"
     COMMAND "${NASM_EXECUTABLE}"
         -f bin
@@ -315,7 +366,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${KILL_BIN}" "${CRT_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${KILL_BIN}" "${CRT_BIN}" "${HI_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )
