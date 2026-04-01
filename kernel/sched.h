@@ -49,6 +49,12 @@ int sched_pipe_read(int fd, void *dst, unsigned n);
 /* Copy into the ring. >=0 bytes, -1 error, -2 full (block). */
 int sched_pipe_write(int fd, const void *src, unsigned n);
 void sched_block_pipe(struct interrupt_frame *frame, int pipe_id);
+/* Block the current task until kbd_stdin_take has a line (fd 0 console). */
+void sched_block_kbd(struct interrupt_frame *frame);
+/* True if a live task is waiting on console stdin. */
+int sched_kbd_waiting(void);
+/* Mark those waiters READY so they retry the read. */
+void sched_wake_kbd(void);
 void sched_on_tick(struct interrupt_frame *frame);
 void sched_yield(struct interrupt_frame *frame);
 void sched_sleep(struct interrupt_frame *frame, uint64_t ticks);

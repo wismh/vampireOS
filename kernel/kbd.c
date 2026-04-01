@@ -57,6 +57,10 @@ static int ctrl;
 static int ext;
 static char *line;
 static unsigned line_len;
+static char stdin_buf[LINE_MAX];
+static unsigned stdin_len;
+static unsigned stdin_have;
+static int stdin_ready;
 
 static int streq(const char *a, const char *b)
 {
@@ -384,6 +388,12 @@ static void run_prog(const char *arg)
         }
         return;
     }
+    if (streq(name, "sh")) {
+        if (user_run(name, *path != '\0' ? path : 0) != 0) {
+            vga_putc('?');
+        }
+        return;
+    }
     if (*path != '\0' || user_run(name, 0) != 0) {
         vga_putc('?');
     }
@@ -545,13 +555,48 @@ void kbd_init(void)
     ext = 0;
     line = 0;
     line_len = 0;
+    stdin_len = 0;
+    stdin_have = 0;
+    stdin_ready = 0;
 }
 
 void kbd_console_init(void)
 {
     line = (char *)kmalloc(LINE_MAX);
     line_len = 0;
+    stdin_len = 0;
+    stdin_have = 0;
+    stdin_ready = 0;
     prompt();
+}
+
+int kbd_stdin_ready(void)
+{
+    return stdin_ready != 0;
+}
+
+int kbd_stdin_take(void *dst, unsigned max)
+{
+    unsigned n;
+    unsigned i;
+    unsigned char *out;
+
+    if (stdin_ready == 0) {
+        return -2;
+    }
+    n = stdin_have;
+    if (n > max) {
+        n = max;
+    }
+    out = (unsigned char *)dst;
+    if (out != 0) {
+        for (i = 0; i < n; i++) {
+            out[i] = (unsigned char)stdin_buf[i];
+        }
+    }
+    stdin_ready = 0;
+    stdin_have = 0;
+    return (int)n;
 }
 
 void kbd_handle(void)
@@ -612,6 +657,37 @@ void kbd_handle(void)
         c = (char)(c - 'a' + 'A');
     } else if (caps && c >= 'A' && c <= 'Z' && !shift) {
         c = (char)(c - 'A' + 'a');
+    }
+
+    /* Foreground `read` on fd 0: type a line, then the kernel prompt resumes. */
+    if (sched_kbd_waiting()) {
+        if (c == '\n') {
+            if (stdin_len + 1 < LINE_MAX) {
+                stdin_buf[stdin_len++] = '\n';
+            }
+            stdin_have = stdin_len;
+            stdin_len = 0;
+            stdin_ready = 1;
+            sched_wake_kbd();
+            vga_putc('\n');
+            prompt();
+            return;
+        }
+        if (c == '\b') {
+            if (stdin_len > 0) {
+                stdin_len--;
+                vga_putc('\b');
+            }
+            return;
+        }
+        if (c == '\t') {
+            return;
+        }
+        if (stdin_len + 1 < LINE_MAX) {
+            stdin_buf[stdin_len++] = c;
+        }
+        vga_putc(c);
+        return;
     }
 
     if (c == '\n') {
