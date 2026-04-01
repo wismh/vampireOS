@@ -2,6 +2,7 @@
 #include "fs.h"
 #include "idt.h"
 #include "pmm.h"
+#include "kbd.h"
 #include "user.h"
 #include "vga.h"
 #include "vmm.h"
@@ -14,6 +15,7 @@
 #define TASK_SLEEP 2
 #define TASK_WAIT 3
 #define TASK_PIPE 4
+#define TASK_KBD 5
 #define USER_CS 0x2B
 #define USER_DS 0x23
 #define PAGE_4K 0x1000ull
@@ -976,6 +978,54 @@ void sched_block_pipe(struct interrupt_frame *frame, int pipe_id)
     load_task(frame, &tasks[current]);
 }
 
+void sched_block_kbd(struct interrupt_frame *frame)
+{
+    int next;
+
+    if (frame == 0 || task_count == 0) {
+        return;
+    }
+    /* Line may have arrived after SYS_READ saw empty; stay READY and retry. */
+    __asm__ volatile ("cli" ::: "memory");
+    if (kbd_stdin_ready()) {
+        __asm__ volatile ("sti" ::: "memory");
+        return;
+    }
+    save_task(&tasks[current], frame);
+    tasks[current].state = TASK_KBD;
+    tasks[current].pipe_wait = -1;
+    next = pick_next(current);
+    if (next < 0) {
+        idle_until_ready(frame);
+        return;
+    }
+    set_current(next);
+    load_task(frame, &tasks[current]);
+}
+
+int sched_kbd_waiting(void)
+{
+    int i;
+
+    for (i = 0; i < task_count; i++) {
+        if (tasks[i].state == TASK_KBD) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void sched_wake_kbd(void)
+{
+    int i;
+
+    for (i = 0; i < task_count; i++) {
+        if (tasks[i].state == TASK_KBD) {
+            tasks[i].state = TASK_READY;
+        }
+    }
+}
+
 uint64_t sched_current_cr3(void)
 {
     if (task_count == 0 || tasks[current].cr3 == 0) {
@@ -1043,7 +1093,7 @@ const char *sched_slot_state_name(int id)
     if (st == TASK_SLEEP) {
         return "SLEEP";
     }
-    if (st == TASK_WAIT || st == TASK_PIPE) {
+    if (st == TASK_WAIT || st == TASK_PIPE || st == TASK_KBD) {
         return "WAIT";
     }
     return "RUN";
