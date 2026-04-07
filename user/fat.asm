@@ -18,6 +18,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0xEF, 0x01
     db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
@@ -36,6 +37,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0xEF, 0x01
     db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
@@ -267,6 +269,11 @@ root_extra:
     times 14 db 0
     dw 28
     dd hi_len
+    db "SH      ", "   "
+    db 0x20
+    times 14 db 0
+    dw 29
+    dd sh_len
     times 512 - ($ - root_extra) db 0
 
 dup2test_data:
@@ -319,4 +326,9 @@ hi_data:
 hi_len equ $ - hi_data
     times 512 - hi_len db 0
 
-    times (FAT_DATA_CLUSTERS - 27) * 512 db 0
+sh_data:
+    incbin "sh.bin"
+sh_len equ $ - sh_data
+    times 1024 - sh_len db 0
+
+    times (FAT_DATA_CLUSTERS - 29) * 512 db 0
