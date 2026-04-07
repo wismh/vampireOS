@@ -1,6 +1,7 @@
 #include "user.h"
 #include "elf.h"
 #include "fs.h"
+#include "kbd.h"
 #include "pmm.h"
 #include "sched.h"
 #include "vga.h"
@@ -41,6 +42,7 @@
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
+#define FD_STDIN 0
 #define FD_CONSOLE 1
 #define CWD_PATH_MAX 80u
 
@@ -1045,6 +1047,30 @@ void user_on_syscall(struct interrupt_frame *frame)
         }
         if (kind == FD_KIND_PIPE_W) {
             frame->rax = (uint64_t)-1;
+            return;
+        }
+        /* Unused fd 0 is console stdin (PS/2), so `run sh` can read a line. */
+        if (fd == FD_STDIN && kind == 0) {
+            if (want == 0) {
+                frame->rax = 0;
+                return;
+            }
+            packed = kbd_stdin_take(file_buf, want);
+            if (packed == -2) {
+                frame->rip -= 2ull;
+                sched_block_kbd(frame);
+                return;
+            }
+            if (packed < 0) {
+                frame->rax = (uint64_t)-1;
+                return;
+            }
+            got = (unsigned)packed;
+            if (got != 0 && copy_to_user(frame->rsi, file_buf, got) != 0) {
+                frame->rax = (uint64_t)-1;
+                return;
+            }
+            frame->rax = (uint64_t)got;
             return;
         }
         if (sched_fd_path(fd, path) != 0) {
