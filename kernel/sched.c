@@ -994,6 +994,7 @@ void sched_block_kbd(struct interrupt_frame *frame)
     save_task(&tasks[current], frame);
     tasks[current].state = TASK_KBD;
     tasks[current].pipe_wait = -1;
+    kbd_stdin_prompt();
     next = pick_next(current);
     if (next < 0) {
         idle_until_ready(frame);

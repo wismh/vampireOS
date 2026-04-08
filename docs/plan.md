@@ -7,7 +7,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 ## Now
 
 - Volume: 344 data clusters, two sectors per FAT (both copies). Files up to 4 KiB. Subdirs and the root grow across FAT chains.
-- Shell: `help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them. `ps` lists live slots (id and RUN/SLEEP/WAIT). `kill <id>` marks that slot DEAD. Ctrl+C on the PS/2 path kills the last `run` ELF the same way and leaves the line buffer. `run crt` prints `crt` through C-callable `int 0x30` stubs. `run hi` prints `hi` from freestanding C linked against those stubs. `run sh` then `hi` (typed, or `run sh hi`) `exec`s that volume ELF from a user shell.
+- Shell: `help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them. `ps` lists live slots (id and RUN/SLEEP/WAIT). `kill <id>` marks that slot DEAD. Ctrl+C on the PS/2 path kills the last `run` ELF the same way and leaves the line buffer. `run crt` prints `crt` through C-callable `int 0x30` stubs. `run hi` prints `hi` from freestanding C linked against those stubs. After kernel init the image `run`s `sh`; the first prompt is `$`. Type `hi` (no `run sh`) to print `hi`. Kernel `help` / `ls` remain as fallback. `run sh` then `hi` (typed, or `run sh hi`) still `exec`s that volume ELF.
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8. `fork` shares the current task’s user frames as read-only until a write.
 - Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (`rdi` 0 any child / `rdi` = pid that child; 8-bit code or -1 in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1), lseek (`rdi` fd, `rsi` offset; SEEK_SET; `rax` the new offset or -1), stat (`rdi` path, `rsi` user `{size, cluster, is_dir}` packed ints; `rax` 0 or -1), kill (`rdi` pid, `rsi` 8-bit status; `rax` 0 or -1; the slot is DEAD so `ps` skips it and wait can reap it). Eight fds per task. `run` loads any FAT12 ELF into a free slot.
 - **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm`, `stat.asm`, and `kill.asm` read `argv[1]`. `exec` does the same for the new image.
@@ -33,7 +33,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **Ctrl+C:** PS/2 Ctrl held + `c` kills the last `run` (or pipeline) ELF via the same DEAD path; the kernel line buffer stays so a new line still takes `ls`.
 - **CRT:** `user/crt.asm` exports C-callable `write` / `read` / `exit` / `fork` / `brk` / `wait` / `exec` (args in rdi, rsi, rdx; return in rax) wrapping `int 0x30`. `user/crtstart.asm` is linked against that object; `run crt` prints `crt`.
 - **First C program:** `user/hi.c` is freestanding C (`int main(void)` calls `write`). Linked with `user/crt0.asm` and the CRT stubs via clang/ld.lld; packed as `HI`. `run hi` prints `hi`.
-- **User shell:** `user/sh.c` reads a line from fd 0 (PS/2 stdin) or takes argv[1] and `exec`s that volume ELF. Packed as `SH`. `run sh` then `hi` (or `run sh hi`) prints `hi`. The kernel prompt still takes `help` / `ls`.
+- **User shell:** `user/sh.c` reads a line from fd 0 (PS/2 stdin) or takes argv[1] and `exec`s that volume ELF. Packed as `SH`. Boot `run`s `sh` after init; the first prompt is `$`. Type `hi` (no `run sh`) prints `hi`. `run sh` then `hi` (or `run sh hi`) still works. Kernel `help` / `ls` remain as fallback.
 - No long names, UEFI, AHCI.
 
 ## Sprint 1 — process and heap
@@ -113,10 +113,10 @@ Ring 3 can call `write` from C through the CRT stubs.
 
 ### Week 2 — a user shell
 
-`run` still starts programs from the kernel prompt.
+`run` still starts programs from the kernel prompt. Boot now starts `sh`.
 
 19. **User shell ELF** — done: `user/sh.c` reads a line (fd 0 / `read`) or takes argv and `exec`s a volume program. Packed as `SH`. `run sh` then `hi` prints `hi`. Kernel `help` / `ls` still work.
-20. **Boot to `sh`** — after kernel init, `exec` / `run` the user shell instead of only the kernel line buffer. Keep kernel `help` / `ls` as fallback if needed. Prove `run sh` or that the first prompt is the user shell (a `$` or similar the kernel buffer did not print yesterday).
+20. **Boot to `sh`** — done: after kernel init, `user_run("sh")` starts the user shell. First prompt is `$`. Type `hi` (no `run sh`) prints `hi`. Kernel `help` / `ls` still work as fallback.
 
 ### Week 3 — another map and string helpers
 

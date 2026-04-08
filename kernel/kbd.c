@@ -567,7 +567,16 @@ void kbd_console_init(void)
     stdin_len = 0;
     stdin_have = 0;
     stdin_ready = 0;
+}
+
+void kbd_prompt(void)
+{
     prompt();
+}
+
+void kbd_stdin_prompt(void)
+{
+    vga_putc('$');
 }
 
 int kbd_stdin_ready(void)
