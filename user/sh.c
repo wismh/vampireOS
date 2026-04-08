@@ -1,4 +1,4 @@
-/* User shell: exec argv[1], or a line from stdin (fd 0). `run sh` then `hi`. */
+/* User shell: exec argv[1], or a line from stdin (fd 0). Boot and `run sh`. */
 long write(int fd, const void *buf, unsigned long n);
 long read(int fd, void *buf, unsigned long n);
 long exec(const char *path);
@@ -14,6 +14,7 @@ int main(int argc, char **argv)
     if (argc >= 2 && argv != 0 && argv[1] != 0 && argv[1][0] != '\0') {
         name = argv[1];
     } else {
+        write(1, "$", 1);
         n = read(0, buf, 39);
         if (n > 0) {
             if (n > 39) {

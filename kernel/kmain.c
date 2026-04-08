@@ -25,8 +25,13 @@ static void kmain_cont(void)
     vga_set_cursor(row, 0);
     kbd_console_init();
     if (user_ready()) {
+        /* Boot into the user shell. Kernel kbd> is the fallback. */
+        if (user_run("sh", 0) != 0) {
+            kbd_prompt();
+        }
         user_enter();
     }
+    kbd_prompt();
     __asm__ volatile ("sti");
     for (;;) {
         __asm__ volatile ("hlt");
