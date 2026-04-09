@@ -39,6 +39,7 @@
 #define SYS_LSEEK 15ull
 #define SYS_STAT 16ull
 #define SYS_KILL 17ull
+#define SYS_MMAP 18ull
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
@@ -855,6 +856,47 @@ static uint64_t user_brk(uint64_t want)
     return want;
 }
 
+/* Anonymous one-page map at a chosen user VA (not the brk heap). rdi=hint,
+ * rsi=length (1..4KiB maps one page); rax=mapped VA or -1. */
+static uint64_t user_mmap(uint64_t hint, uint64_t len)
+{
+    uint64_t cr3;
+    uint64_t base;
+    uint64_t heap_lo;
+    uint64_t heap_hi;
+    uint64_t phys;
+    uint64_t existing;
+
+    cr3 = sched_current_cr3();
+    base = sched_current_base();
+    if (cr3 == 0 || cr3 == vmm_boot_cr3() || base == 0) {
+        return (uint64_t)-1;
+    }
+    if (hint == 0 || (hint & (PAGE_4K - 1ull)) != 0) {
+        return (uint64_t)-1;
+    }
+    if (len == 0 || len > PAGE_4K) {
+        return (uint64_t)-1;
+    }
+    heap_lo = base + 2ull * PAGE_4K;
+    heap_hi = heap_lo + USER_HEAP_PAGES * PAGE_4K;
+    if (hint >= heap_lo && hint < heap_hi) {
+        return (uint64_t)-1;
+    }
+    if (vmm_translate_user(cr3, hint, &existing) == 0) {
+        return (uint64_t)-1;
+    }
+    phys = alloc_page();
+    if (phys == 0) {
+        return (uint64_t)-1;
+    }
+    if (vmm_map_user(cr3, hint, phys) != 0) {
+        pmm_free(phys);
+        return (uint64_t)-1;
+    }
+    return hint;
+}
+
 /* Share user frames read-only; a write fault copies privately. New kstack. */
 static uint64_t user_fork(struct interrupt_frame *frame)
 {
@@ -1286,6 +1328,12 @@ void user_on_syscall(struct interrupt_frame *frame)
     /* rdi=pid, rsi=8-bit status like exit. rax 0 or -1. */
     if (frame->rax == SYS_KILL) {
         sched_kill(frame);
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* rdi=hint VA, rsi=length (one page). rax=mapped VA or -1. Anonymous. */
+    if (frame->rax == SYS_MMAP) {
+        frame->rax = user_mmap(frame->rdi, frame->rsi);
         vmm_set_cr3(sched_current_cr3());
         return;
     }
