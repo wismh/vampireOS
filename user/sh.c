@@ -2,6 +2,7 @@
 long write(int fd, const void *buf, unsigned long n);
 long read(int fd, void *buf, unsigned long n);
 long exec(const char *path);
+int strcmp(const char *a, const char *b);
 
 int main(int argc, char **argv)
 {
@@ -11,7 +12,7 @@ int main(int argc, char **argv)
     long i;
 
     name = 0;
-    if (argc >= 2 && argv != 0 && argv[1] != 0 && argv[1][0] != '\0') {
+    if (argc >= 2 && argv != 0 && argv[1] != 0 && strcmp(argv[1], "") != 0) {
         name = argv[1];
     } else {
         write(1, "$", 1);

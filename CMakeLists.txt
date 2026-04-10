@@ -97,12 +97,14 @@ set(CRTSTART_ASM "${CMAKE_SOURCE_DIR}/user/crtstart.asm")
 set(CRT0_ASM "${CMAKE_SOURCE_DIR}/user/crt0.asm")
 set(HI_C "${CMAKE_SOURCE_DIR}/user/hi.c")
 set(SH_C "${CMAKE_SOURCE_DIR}/user/sh.c")
+set(STRING_C "${CMAKE_SOURCE_DIR}/user/string.c")
 set(USER_LD "${CMAKE_SOURCE_DIR}/user/user.ld")
 set(CRT_OBJ "${CMAKE_BINARY_DIR}/crt.o")
 set(CRTSTART_OBJ "${CMAKE_BINARY_DIR}/crtstart.o")
 set(CRT0_OBJ "${CMAKE_BINARY_DIR}/crt0.o")
 set(HI_OBJ "${CMAKE_BINARY_DIR}/hi.o")
 set(SH_OBJ "${CMAKE_BINARY_DIR}/sh.o")
+set(STRING_OBJ "${CMAKE_BINARY_DIR}/string.o")
 set(CRT_BIN "${CMAKE_BINARY_DIR}/crt.bin")
 set(HI_BIN "${CMAKE_BINARY_DIR}/hi.bin")
 set(SH_BIN "${CMAKE_BINARY_DIR}/sh.bin")
@@ -346,11 +348,34 @@ add_custom_command(
         -mno-sse
         -mno-sse2
         -fno-asynchronous-unwind-tables
+        -fno-builtin
         -c
         -o "${HI_OBJ}"
         "${HI_C}"
     DEPENDS "${HI_C}"
     COMMENT "Compiling user/hi.c"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${STRING_OBJ}"
+    COMMAND "${CLANG_EXECUTABLE}"
+        --target=x86_64-unknown-none
+        -ffreestanding
+        -fno-stack-protector
+        -fno-pic
+        -fno-pie
+        -mno-red-zone
+        -mno-mmx
+        -mno-sse
+        -mno-sse2
+        -fno-asynchronous-unwind-tables
+        -fno-builtin
+        -c
+        -o "${STRING_OBJ}"
+        "${STRING_C}"
+    DEPENDS "${STRING_C}"
+    COMMENT "Compiling user/string.c"
     VERBATIM
 )
 
@@ -365,8 +390,9 @@ add_custom_command(
         -o "${HI_BIN}"
         "${CRT0_OBJ}"
         "${HI_OBJ}"
+        "${STRING_OBJ}"
         "${CRT_OBJ}"
-    DEPENDS "${CRT0_OBJ}" "${HI_OBJ}" "${CRT_OBJ}" "${USER_LD}"
+    DEPENDS "${CRT0_OBJ}" "${HI_OBJ}" "${STRING_OBJ}" "${CRT_OBJ}" "${USER_LD}"
     COMMENT "Linking user ELF hi"
     VERBATIM
 )
@@ -384,6 +410,7 @@ add_custom_command(
         -mno-sse
         -mno-sse2
         -fno-asynchronous-unwind-tables
+        -fno-builtin
         -c
         -o "${SH_OBJ}"
         "${SH_C}"
@@ -403,8 +430,9 @@ add_custom_command(
         -o "${SH_BIN}"
         "${CRT0_OBJ}"
         "${SH_OBJ}"
+        "${STRING_OBJ}"
         "${CRT_OBJ}"
-    DEPENDS "${CRT0_OBJ}" "${SH_OBJ}" "${CRT_OBJ}" "${USER_LD}"
+    DEPENDS "${CRT0_OBJ}" "${SH_OBJ}" "${STRING_OBJ}" "${CRT_OBJ}" "${USER_LD}"
     COMMENT "Linking user ELF sh"
     VERBATIM
 )

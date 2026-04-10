@@ -7,7 +7,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 ## Now
 
 - Volume: 344 data clusters, two sectors per FAT (both copies). Files up to 4 KiB. Subdirs and the root grow across FAT chains.
-- Shell: `help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them. `ps` lists live slots (id and RUN/SLEEP/WAIT). `kill <id>` marks that slot DEAD. Ctrl+C on the PS/2 path kills the last `run` ELF the same way and leaves the line buffer. `run crt` prints `crt` through C-callable `int 0x30` stubs. `run hi` prints `hi` from freestanding C linked against those stubs. After kernel init the image `run`s `sh`; the first prompt is `$`. Type `hi` (no `run sh`) to print `hi`. Kernel `help` / `ls` remain as fallback. `run sh` then `hi` (typed, or `run sh hi`) still `exec`s that volume ELF.
+- Shell: `help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill |`. Kernel `cat` reads the volume; `run cat <path>` uses the user ELF; `run ls` lists the cwd from ring 3. A line with `|` spawns left and right with a pipe between them. `ps` lists live slots (id and RUN/SLEEP/WAIT). `kill <id>` marks that slot DEAD. Ctrl+C on the PS/2 path kills the last `run` ELF the same way and leaves the line buffer. `run crt` prints `crt` through C-callable `int 0x30` stubs. `run hi` prints `hi` from freestanding C via `memcpy` / `strlen` / `strcmp`. After kernel init the image `run`s `sh`; the first prompt is `$`. Type `hi` (no `run sh`) to print `hi`. Kernel `help` / `ls` remain as fallback. `run sh` then `hi` (typed, or `run sh hi`) still `exec`s that volume ELF (`sh` `strcmp`s argv[1]).
 - Tasks: every ELF at `0x400000`, stack at `0x401000`. Per-task cloned PML4; switch loads `task->cr3`. Exit tears down user PTEs; PML4 freed on slot reuse. `TASK_MAX` 8. `fork` shares the current task’s user frames as read-only until a write.
 - Syscalls: write (legacy string or fd), exit (8-bit code in `rdi`), yield, sleep, wait (`rdi` 0 any child / `rdi` = pid that child; 8-bit code or -1 in `rax`), open, close, read, readdir, exec, pipe (`rdi` = user `int fd[2]`; fd[0] read, fd[1] write; `rax` 0 or -1), brk (`rdi` = new break, 0 queries; `rax` the break or -1), fork (child 0 / parent child-id in `rax`), dup2 (`rdi` oldfd, `rsi` newfd; `rax` newfd or -1), lseek (`rdi` fd, `rsi` offset; SEEK_SET; `rax` the new offset or -1), stat (`rdi` path, `rsi` user `{size, cluster, is_dir}` packed ints; `rax` 0 or -1), kill (`rdi` pid, `rsi` 8-bit status; `rax` 0 or -1; the slot is DEAD so `ps` skips it and wait can reap it), mmap (`rdi` hint VA, `rsi` length; one anonymous user page at that address, not the `brk` heap; `rax` the mapped VA or -1). Eight fds per task. `run` loads any FAT12 ELF into a free slot.
 - **Argv:** `run` pushes `argc` / `argv[]` / NULL on the user stack before start. `cat.asm`, `stat.asm`, and `kill.asm` read `argv[1]`. `exec` does the same for the new image.
@@ -32,9 +32,10 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 - **kill:** syscall 17 marks another slot DEAD with an 8-bit status (`rdi` pid, `rsi` status). `run sleeper` then `kill <id>` (or `run kill <id>`) drops that slot from `ps`. The kernel prompt still takes `help`.
 - **Ctrl+C:** PS/2 Ctrl held + `c` kills the last `run` (or pipeline) ELF via the same DEAD path; the kernel line buffer stays so a new line still takes `ls`.
 - **CRT:** `user/crt.asm` exports C-callable `write` / `read` / `exit` / `fork` / `brk` / `wait` / `exec` (args in rdi, rsi, rdx; return in rax) wrapping `int 0x30`. `user/crtstart.asm` is linked against that object; `run crt` prints `crt`.
-- **First C program:** `user/hi.c` is freestanding C (`int main(void)` calls `write`). Linked with `user/crt0.asm` and the CRT stubs via clang/ld.lld; packed as `HI`. `run hi` prints `hi`.
-- **User shell:** `user/sh.c` reads a line from fd 0 (PS/2 stdin) or takes argv[1] and `exec`s that volume ELF. Packed as `SH`. Boot `run`s `sh` after init; the first prompt is `$`. Type `hi` (no `run sh`) prints `hi`. `run sh` then `hi` (or `run sh hi`) still works. Kernel `help` / `ls` remain as fallback.
+- **First C program:** `user/hi.c` is freestanding C (`int main(void)` `memcpy`s a string, `strcmp`s the copy, then `write`s `strlen` bytes). Linked with `user/crt0.asm`, `user/string.c`, and the CRT stubs via clang/ld.lld; packed as `HI`. `run hi` prints `hi`.
+- **User shell:** `user/sh.c` reads a line from fd 0 (PS/2 stdin) or `strcmp`s argv[1] and `exec`s that volume ELF. Packed as `SH`. Boot `run`s `sh` after init; the first prompt is `$`. Type `hi` (no `run sh`) prints `hi`. `run sh` then `hi` (or `run sh hi`) still works. Kernel `help` / `ls` remain as fallback.
 - **mmap:** syscall 18 maps one anonymous user page at a chosen address (`rdi` hint, `rsi` length; `rax` the VA or -1). Distinct from the `brk` heap. `run mmaptest` stores a byte at `0x500000` and writes `mmap`.
+- **Tiny libc:** `user/string.c` provides `memcpy` / `strlen` / `strcmp`. `hi` and `sh` call those helpers (not open-coded loops). `run hi` prints a line they produced.
 - No long names, UEFI, AHCI.
 
 ## Sprint 1 — process and heap
@@ -121,10 +122,10 @@ Ring 3 can call `write` from C through the CRT stubs.
 
 ### Week 3 — another map and string helpers
 
-User space is still code + stack + `brk` heap. `hi` / `sh` should not open-code `strlen`.
+User space is still code + stack + `brk` heap plus `mmap`. `hi` / `sh` call tiny libc string helpers.
 
 21. **Anonymous mmap** — done: `SYS_MMAP` (syscall 18) maps one anonymous user page at a chosen address (`rdi` hint, `rsi` length of one page; `rax` the mapped VA or -1). Distinct from the `brk` heap at `0x402000`. `run mmaptest` stores a byte at `0x500000` and writes `mmap`.
-22. **Tiny libc string/mem** — `memcpy` / `strlen` / `strcmp` used by `hi` or `sh`. `run hi` (or `run sh` with an argv compare) prints a line those helpers produced.
+22. **Tiny libc string/mem** — done: `user/string.c` exports `memcpy` / `strlen` / `strcmp`. `hi` copies `"hi"` with `memcpy`, checks it with `strcmp`, and `write`s `strlen` bytes; `sh` `strcmp`s argv[1] before `exec`. `run hi` prints `hi`.
 
 ### Week 4 — time and `init`
 

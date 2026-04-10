@@ -18,7 +18,8 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0xEF, 0x01
+    db 0x1D, 0xF0, 0xFF
+    db 0x1F, 0x00, 0x02
     db 0xFF, 0xFF, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
@@ -37,7 +38,8 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0xEF, 0x01
+    db 0x1D, 0xF0, 0xFF
+    db 0x1F, 0x00, 0x02
     db 0xFF, 0xFF, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
@@ -272,12 +274,12 @@ root_extra:
     db "SH      ", "   "
     db 0x20
     times 14 db 0
-    dw 29
+    dw 30
     dd sh_len
     db "MMAPTEST", "   "
     db 0x20
     times 14 db 0
-    dw 31
+    dw 33
     dd mmaptest_len
     times 512 - ($ - root_extra) db 0
 
@@ -329,16 +331,16 @@ crt_len equ $ - crt_data
 hi_data:
     incbin "hi.bin"
 hi_len equ $ - hi_data
-    times 512 - hi_len db 0
+    times 1024 - hi_len db 0
 
 sh_data:
     incbin "sh.bin"
 sh_len equ $ - sh_data
-    times 1024 - sh_len db 0
+    times 1536 - sh_len db 0
 
 mmaptest_data:
     incbin "mmaptest.bin"
 mmaptest_len equ $ - mmaptest_data
     times 512 - mmaptest_len db 0
 
-    times (FAT_DATA_CLUSTERS - 31) * 512 db 0
+    times (FAT_DATA_CLUSTERS - 33) * 512 db 0
