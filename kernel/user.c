@@ -40,6 +40,8 @@
 #define SYS_STAT 16ull
 #define SYS_KILL 17ull
 #define SYS_MMAP 18ull
+#define SYS_UPTIME 19ull
+#define PIT_TICKS_PER_SEC 100u
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
@@ -1334,6 +1336,12 @@ void user_on_syscall(struct interrupt_frame *frame)
     /* rdi=hint VA, rsi=length (one page). rax=mapped VA or -1. Anonymous. */
     if (frame->rax == SYS_MMAP) {
         frame->rax = user_mmap(frame->rdi, frame->rsi);
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* PIT seconds (ticks / 100 Hz). rax=seconds since boot. */
+    if (frame->rax == SYS_UPTIME) {
+        frame->rax = (uint64_t)(idt_ticks() / PIT_TICKS_PER_SEC);
         vmm_set_cr3(sched_current_cr3());
         return;
     }

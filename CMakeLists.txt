@@ -92,6 +92,8 @@ set(KILL_ASM "${CMAKE_SOURCE_DIR}/user/kill.asm")
 set(KILL_BIN "${CMAKE_BINARY_DIR}/kill.bin")
 set(MMAPTEST_ASM "${CMAKE_SOURCE_DIR}/user/mmaptest.asm")
 set(MMAPTEST_BIN "${CMAKE_BINARY_DIR}/mmaptest.bin")
+set(UPTIME_ASM "${CMAKE_SOURCE_DIR}/user/uptime.asm")
+set(UPTIME_BIN "${CMAKE_BINARY_DIR}/uptime.bin")
 set(CRT_ASM "${CMAKE_SOURCE_DIR}/user/crt.asm")
 set(CRTSTART_ASM "${CMAKE_SOURCE_DIR}/user/crtstart.asm")
 set(CRT0_ASM "${CMAKE_SOURCE_DIR}/user/crt0.asm")
@@ -296,6 +298,14 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${UPTIME_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${UPTIME_BIN}" "${UPTIME_ASM}"
+    DEPENDS "${UPTIME_ASM}"
+    COMMENT "Assembling user ELF uptime"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${CRT_OBJ}"
     COMMAND "${NASM_EXECUTABLE}" -f elf64 -o "${CRT_OBJ}" "${CRT_ASM}"
     DEPENDS "${CRT_ASM}"
@@ -445,7 +455,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${CRT_BIN}" "${HI_BIN}" "${SH_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${UPTIME_BIN}" "${CRT_BIN}" "${HI_BIN}" "${SH_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )

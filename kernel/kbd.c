@@ -1,6 +1,7 @@
 #include "kbd.h"
 #include "fs.h"
 #include "heap.h"
+#include "idt.h"
 #include "io.h"
 #include "pmm.h"
 #include "sched.h"
@@ -508,9 +509,12 @@ static void run_line(void)
         return;
     }
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill |");
+        puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill uptime |");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
+    } else if (streq(cmd, "uptime")) {
+        /* PIT at 100 Hz; same seconds SYS_UPTIME returns. */
+        put_uint(idt_ticks() / 100u);
     } else if (streq(cmd, "pwd")) {
         run_pwd();
     } else if (streq(cmd, "ps")) {
