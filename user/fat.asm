@@ -21,6 +21,7 @@ fat1:
     db 0x1D, 0xF0, 0xFF
     db 0x1F, 0x00, 0x02
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
 fat2:
@@ -41,6 +42,7 @@ fat2:
     db 0x1D, 0xF0, 0xFF
     db 0x1F, 0x00, 0x02
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
 root:
@@ -281,6 +283,11 @@ root_extra:
     times 14 db 0
     dw 33
     dd mmaptest_len
+    db "UPTIME  ", "   "
+    db 0x20
+    times 14 db 0
+    dw 34
+    dd uptime_len
     times 512 - ($ - root_extra) db 0
 
 dup2test_data:
@@ -343,4 +350,9 @@ mmaptest_data:
 mmaptest_len equ $ - mmaptest_data
     times 512 - mmaptest_len db 0
 
-    times (FAT_DATA_CLUSTERS - 33) * 512 db 0
+uptime_data:
+    incbin "uptime.bin"
+uptime_len equ $ - uptime_data
+    times 512 - uptime_len db 0
+
+    times (FAT_DATA_CLUSTERS - 34) * 512 db 0
