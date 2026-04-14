@@ -1,7 +1,8 @@
-/* User shell: exec argv[1], or a line from stdin (fd 0). Boot and `run sh`. */
+/* User shell: exec argv[1], or a line from stdin (fd 0). Boot init starts sh. */
 long write(int fd, const void *buf, unsigned long n);
 long read(int fd, void *buf, unsigned long n);
 long exec(const char *path);
+void exit(int code);
 int strcmp(const char *a, const char *b);
 
 int main(int argc, char **argv)
@@ -43,6 +44,9 @@ int main(int argc, char **argv)
     if (name == 0) {
         write(1, "?", 1);
         return 1;
+    }
+    if (strcmp(name, "exit") == 0) {
+        exit(0);
     }
     exec(name);
     write(1, "?", 1);

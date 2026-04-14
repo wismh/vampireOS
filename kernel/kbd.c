@@ -62,6 +62,7 @@ static char stdin_buf[LINE_MAX];
 static unsigned stdin_len;
 static unsigned stdin_have;
 static int stdin_ready;
+static struct interrupt_frame *kbd_irq_frame;
 
 static int streq(const char *a, const char *b)
 {
@@ -329,6 +330,7 @@ static void run_ps(void)
     int n;
     int first;
     const char *st;
+    const char *nm;
 
     n = sched_slots();
     first = 1;
@@ -343,6 +345,11 @@ static void run_ps(void)
         first = 0;
         put_uint((unsigned)i);
         vga_putc(' ');
+        nm = sched_slot_name(i);
+        if (nm != 0) {
+            puts_cur(nm);
+            vga_putc(' ');
+        }
         puts_cur(st);
     }
 }
@@ -361,7 +368,8 @@ static void run_kill(const char *arg)
         any = 1;
     }
     arg = skip_ws(arg);
-    if (any == 0 || *arg != '\0' || sched_kill_slot((int)pid, 0) != 0) {
+    if (any == 0 || *arg != '\0' ||
+        sched_kill_at((int)pid, 0, kbd_irq_frame) != 0) {
         vga_putc('?');
     }
 }
@@ -612,11 +620,13 @@ int kbd_stdin_take(void *dst, unsigned max)
     return (int)n;
 }
 
-void kbd_handle(void)
+void kbd_handle(struct interrupt_frame *frame)
 {
     uint8_t sc = inb(KBD_DATA);
     uint8_t code;
     char c;
+
+    kbd_irq_frame = frame;
 
     if (sc == SCAN_EXT) {
         ext = 1;

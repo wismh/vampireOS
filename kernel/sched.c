@@ -70,6 +70,7 @@ struct task {
     unsigned cwd; /* FAT cluster; 0 = volume root. Fork copies this. */
     int parent; /* slot that forked us; -1 if none (run/boot). */
     int wait_pid; /* 0 = any child; else that slot. Used while TASK_WAIT. */
+    char name[TASK_NAME_MAX + 1];
     int state;
     int row;
     unsigned writes;
@@ -284,6 +285,19 @@ static void copy_path(char *dst, const char *src)
     dst[i] = '\0';
 }
 
+static void copy_name(char *dst, const char *src)
+{
+    int i;
+
+    if (dst == 0) {
+        return;
+    }
+    for (i = 0; i < TASK_NAME_MAX && src != 0 && src[i] != '\0'; i++) {
+        dst[i] = src[i];
+    }
+    dst[i] = '\0';
+}
+
 /* Drop all user PTEs in this task's CR3; PML4 stays until slot reuse. */
 static void free_task_user(struct task *t)
 {
@@ -355,6 +369,7 @@ void sched_init(void)
         tasks[i].cwd = 0;
         tasks[i].parent = -1;
         tasks[i].wait_pid = 0;
+        tasks[i].name[0] = '\0';
         clear_fds(&tasks[i]);
     }
 }
@@ -501,6 +516,7 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->cwd = fs_cwd();
     t->parent = -1;
     t->wait_pid = 0;
+    t->name[0] = '\0';
     t->state = TASK_READY;
     t->row = row;
     t->writes = 0;
@@ -600,6 +616,7 @@ int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3)
     t->cwd = parent->cwd;
     t->parent = current;
     t->wait_pid = 0;
+    copy_name(t->name, parent->name);
     t->state = TASK_READY;
     row = parent->row + 1;
     if (row < 0 || row >= VGA_HEIGHT) {
@@ -1100,6 +1117,20 @@ const char *sched_slot_state_name(int id)
     return "RUN";
 }
 
+const char *sched_slot_name(int id)
+{
+    if (id < 0 || id >= task_count) {
+        return 0;
+    }
+    if (tasks[id].state == TASK_DEAD) {
+        return 0;
+    }
+    if (tasks[id].name[0] == '\0') {
+        return 0;
+    }
+    return tasks[id].name;
+}
+
 unsigned sched_note_write(void)
 {
     if (task_count == 0) {
@@ -1300,6 +1331,27 @@ void sched_note_fg(void)
     fg_slot = last_added;
 }
 
+void sched_clear_fg(void)
+{
+    fg_slot = -1;
+}
+
+void sched_set_name(const char *name)
+{
+    if (last_added < 0 || last_added >= task_count) {
+        return;
+    }
+    copy_name(tasks[last_added].name, name);
+}
+
+void sched_rename_current(const char *name)
+{
+    if (task_count == 0) {
+        return;
+    }
+    copy_name(tasks[current].name, name);
+}
+
 int sched_kill_fg(uint8_t code)
 {
     return sched_kill_slot(fg_slot, code);
@@ -1307,16 +1359,27 @@ int sched_kill_fg(uint8_t code)
 
 int sched_kill_slot(int pid, uint8_t code)
 {
+    return sched_kill_at(pid, code, 0);
+}
+
+int sched_kill_at(int pid, uint8_t code, struct interrupt_frame *frame)
+{
     if (pid < 0 || pid >= task_count) {
         return -1;
     }
     if (tasks[pid].state == TASK_DEAD) {
         return -1;
     }
-    /* READY current is in user mode; tearing it down from a keyboard IRQ
-     * would iretq into unmapped pages. SLEEP/WAIT/PIPE current is in kernel. */
+    /* READY current is in user mode. With a user IRQ frame, exit through it
+     * so iretq does not land in unmapped pages. Without a frame (Ctrl+C),
+     * refuse — the timer will run someone else. */
     if (pid == current && tasks[pid].state == TASK_READY) {
-        return -1;
+        if (frame == 0 || (frame->cs & 3ull) != 3ull) {
+            return -1;
+        }
+        frame->rdi = (uint64_t)code;
+        sched_exit(frame);
+        return 0;
     }
     kill_task(pid, code);
     return 0;

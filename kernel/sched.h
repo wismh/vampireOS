@@ -6,6 +6,7 @@
 
 #define FD_MAX 8
 #define FD_PATH_MAX 32
+#define TASK_NAME_MAX 8
 #define FD_KIND_FILE 1
 #define FD_KIND_PIPE_R 2
 #define FD_KIND_PIPE_W 3
@@ -65,10 +66,18 @@ void sched_exit(struct interrupt_frame *frame);
 void sched_kill(struct interrupt_frame *frame);
 /* Same as SYS_KILL without a frame; 0 ok, -1 fail. Does not kill current RUN. */
 int sched_kill_slot(int pid, uint8_t code);
+/* Kernel `kill`: if pid is the current READY task, exit through frame. */
+int sched_kill_at(int pid, uint8_t code, struct interrupt_frame *frame);
 /* Kernel `run` / pipeline: last spawned ELF is the Ctrl+C target. */
 void sched_note_fg(void);
+/* Drop the Ctrl+C target so boot init is not killed. */
+void sched_clear_fg(void);
 /* Kill that foreground slot via sched_kill_slot. 0 ok, -1 none/fail. */
 int sched_kill_fg(uint8_t code);
+/* Name the last sched_add_user / fork slot (run). */
+void sched_set_name(const char *name);
+/* Name the current task (exec). */
+void sched_rename_current(const char *name);
 /* Same slot: new rip/rsp/user_base, keep kstack and CR3, load into frame. */
 void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t rsp,
                          uint64_t user_base);
@@ -79,3 +88,5 @@ int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3)
 int sched_slots(void);
 /* RUN / SLEEP / WAIT for a live slot; 0 if DEAD or unused. */
 const char *sched_slot_state_name(int id);
+/* Stored name for a live slot, or 0 if none. */
+const char *sched_slot_name(int id);
