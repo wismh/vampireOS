@@ -4,6 +4,7 @@
 #include "idt.h"
 #include "kbd.h"
 #include "pmm.h"
+#include "sched.h"
 #include "user.h"
 #include "vga.h"
 #include "vmm.h"
@@ -25,9 +26,12 @@ static void kmain_cont(void)
     vga_set_cursor(row, 0);
     kbd_console_init();
     if (user_ready()) {
-        /* Boot into the user shell. Kernel kbd> is the fallback. */
-        if (user_run("sh", 0) != 0) {
+        /* Boot init; it fork/execs sh and restarts it. Kernel kbd> is fallback. */
+        if (user_run("init", 0) != 0) {
             kbd_prompt();
+        } else {
+            /* Do not Ctrl+C the reaper; kernel `run` will note a new fg. */
+            sched_clear_fg();
         }
         user_enter();
     }

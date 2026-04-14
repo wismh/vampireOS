@@ -21,7 +21,7 @@ fat1:
     db 0x1D, 0xF0, 0xFF
     db 0x1F, 0x00, 0x02
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
 fat2:
@@ -42,7 +42,7 @@ fat2:
     db 0x1D, 0xF0, 0xFF
     db 0x1F, 0x00, 0x02
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
 root:
@@ -288,6 +288,11 @@ root_extra:
     times 14 db 0
     dw 34
     dd uptime_len
+    db "INIT    ", "   "
+    db 0x20
+    times 14 db 0
+    dw 35
+    dd init_len
     times 512 - ($ - root_extra) db 0
 
 dup2test_data:
@@ -355,4 +360,9 @@ uptime_data:
 uptime_len equ $ - uptime_data
     times 512 - uptime_len db 0
 
-    times (FAT_DATA_CLUSTERS - 34) * 512 db 0
+init_data:
+    incbin "init.bin"
+init_len equ $ - init_data
+    times 512 - init_len db 0
+
+    times (FAT_DATA_CLUSTERS - 35) * 512 db 0

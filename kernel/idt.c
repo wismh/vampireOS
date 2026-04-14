@@ -69,7 +69,7 @@ void irq_handler(struct interrupt_frame *frame)
         vga_write_dec_at(1, 6, ticks);
         sched_on_tick(frame);
     } else if (irq == 1) {
-        kbd_handle();
+        kbd_handle(frame);
     }
 
     pic_eoi(irq);

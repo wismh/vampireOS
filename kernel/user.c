@@ -427,6 +427,7 @@ static int user_exec_current(struct interrupt_frame *frame, const char *name)
         return -2;
     }
     sched_reset_current(frame, entry, stack_top, base);
+    sched_rename_current(name);
     return 0;
 }
 
@@ -764,6 +765,7 @@ static int user_run_fds(const char *name, const char *arg, int in_pipe,
         pmm_free(cr3);
         return -1;
     }
+    sched_set_name(name);
     sched_note_fg();
     if (in_pipe >= 0 &&
         sched_fd_bind_pipe(0, FD_KIND_PIPE_R, in_pipe) != 0) {
