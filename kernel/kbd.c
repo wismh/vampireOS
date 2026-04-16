@@ -488,6 +488,69 @@ static void run_pipe_line(char *cmd)
     }
 }
 
+static void run_redir_line(char *cmd)
+{
+    char *op;
+    char *p;
+    int n_in;
+    int n_out;
+    char name[40];
+    char file[40];
+    const char *arg;
+    const char *rest;
+    int fd;
+
+    n_in = 0;
+    n_out = 0;
+    op = 0;
+    p = cmd;
+    while (*p != '\0') {
+        if (*p == '<') {
+            n_in++;
+            op = p;
+        } else if (*p == '>') {
+            n_out++;
+            op = p;
+        }
+        p++;
+    }
+    if ((n_in + n_out) != 1 || op == 0) {
+        vga_putc('?');
+        return;
+    }
+    *op = '\0';
+    p = op;
+    while (p > cmd && p[-1] == ' ') {
+        p--;
+        *p = '\0';
+    }
+    rest = skip_ws(op + 1);
+    take_word(&rest, file, 40u);
+    if (file[0] == '\0') {
+        vga_putc('?');
+        return;
+    }
+    if (parse_side(cmd, name, 40u, &arg) != 0) {
+        vga_putc('?');
+        return;
+    }
+    if (*arg == '\0') {
+        arg = 0;
+    }
+    if (n_out != 0 && fs_write(file, "", 0) != 0) {
+        vga_putc('?');
+        return;
+    }
+    if (user_run(name, arg) != 0) {
+        vga_putc('?');
+        return;
+    }
+    fd = n_in != 0 ? 0 : 1;
+    if (sched_fd_bind_file(fd, file) != 0) {
+        vga_putc('?');
+    }
+}
+
 static void run_line(void)
 {
     unsigned i = 0;
@@ -516,8 +579,16 @@ static void run_line(void)
         run_pipe_line((char *)cmd);
         return;
     }
+    scan = cmd;
+    while (*scan != '\0' && *scan != '<' && *scan != '>') {
+        scan++;
+    }
+    if (*scan == '<' || *scan == '>') {
+        run_redir_line((char *)cmd);
+        return;
+    }
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill uptime |");
+        puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill uptime | < >");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "uptime")) {
