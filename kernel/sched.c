@@ -893,6 +893,33 @@ int sched_fd_bind_pipe(int fd, int kind, int pipe_id)
     return 0;
 }
 
+int sched_fd_bind_file(int fd, const char *path)
+{
+    struct task *t;
+    struct fd_entry *e;
+
+    if (last_added < 0 || last_added >= task_count) {
+        return -1;
+    }
+    if (fd < 0 || fd >= FD_MAX || path == 0 || path[0] == '\0') {
+        return -1;
+    }
+    t = &tasks[last_added];
+    if (t->state == TASK_DEAD) {
+        return -1;
+    }
+    e = &t->fds[fd];
+    if (e->used != 0) {
+        return -1;
+    }
+    e->used = 1;
+    e->kind = FD_KIND_FILE;
+    e->pipe = -1;
+    e->offset = 0;
+    copy_path(e->path, path);
+    return 0;
+}
+
 int sched_pipe_read(int fd, void *dst, unsigned n)
 {
     struct pipe *p;
@@ -1445,7 +1472,7 @@ void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t r
     t->writes = 0;
     t->wake_tick = 0;
     t->pipe_wait = -1;
-    clear_fds(t);
+    /* Keep fds so `sh` can dup2 then exec (`hi > out`). */
     load_task(frame, t);
 }
 

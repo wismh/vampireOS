@@ -912,14 +912,14 @@ static int scan_dir(void)
             continue;
         }
         sz = rd_u32(ent + 28);
-        if (sz == 0 || sz > FILE_MAX) {
+        if (sz > FILE_MAX) {
             continue;
         }
         dst = page_buf();
         if (dst == 0) {
             return -1;
         }
-        if (load_file(dst, cl, sz) != 0) {
+        if (sz != 0 && load_file(dst, cl, sz) != 0) {
             drop_page(dst);
             return -1;
         }
@@ -1093,14 +1093,17 @@ int fs_lookup(const char *name, const void **data, unsigned *len)
     if (i >= 0 && files[i].is_dir == 0 && g_dir != 0 && files[i].data != 0) {
         if (dir_load() == 0) {
             files[i].len = rd_u32(g_dir + files[i].dir_off + 28);
-            if (files[i].len != 0 && files[i].len <= FILE_MAX &&
-                load_file(files[i].data, files[i].cluster, files[i].len) == 0) {
+            if (files[i].len <= FILE_MAX &&
+                (files[i].len == 0 ||
+                 load_file(files[i].data, files[i].cluster, files[i].len) == 0)) {
                 if (g_cwd != g_saved_cwd) {
                     if (g_view == 0) {
                         g_view = page_buf();
                     }
                     if (g_view != 0) {
-                        copy_bytes(g_view, files[i].data, files[i].len);
+                        if (files[i].len != 0) {
+                            copy_bytes(g_view, files[i].data, files[i].len);
+                        }
                         *data = g_view;
                         *len = files[i].len;
                         r = 0;
@@ -1162,8 +1165,15 @@ int fs_write(const char *name, const void *src, unsigned len)
     if (i < 0) {
         i = fs_create(leaf);
     }
-    if (i >= 0 && src != 0 && len != 0 && len <= FILE_MAX && g_dir != 0 &&
-        files[i].is_dir == 0) {
+    if (i < 0 || files[i].is_dir != 0) {
+        if (leave_parent() != 0) {
+            return -1;
+        }
+        return -1;
+    }
+    if (len == 0) {
+        r = 0;
+    } else if (src != 0 && len <= FILE_MAX && g_dir != 0) {
         need = (len + SEC - 1u) / SEC;
         if (fat_resize(&files[i].cluster, need) == 0 && fat_flush() == 0 &&
             store_chain(files[i].cluster, (const uint8_t *)src, len) == 0 &&
