@@ -7,21 +7,21 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 ## Now
 
 - Volume: FAT12, 344 data clusters, two sectors per FAT. 8.3 names. ATA PIO only.
-- Boot: kernel starts `init`, which `fork`/`exec`s `sh`. Prompt `$`. Kernel line buffer remains as fallback (`help` / `ls` / `run` / …).
+- Boot: kernel starts `init`, which `fork`/`exec`s `sh`. Prompt `$`. `sh` parses one `<` or `>` (`hi > out` then `cat out` prints `hi`; `cat < hello` prints `blood`). Kernel line buffer remains as fallback (`help` / `ls` / `run` / …) and understands the same redirects.
 - Tasks: ELF at `0x400000`, stack `0x401000`, heap from `0x402000`. COW fork. `TASK_MAX` 8. Eight fds.
-- Syscalls through `int 0x30`: write, exit, yield, sleep, wait/waitpid, open, close, read, readdir, exec, pipe, brk, fork, dup2, lseek, stat, kill, mmap, uptime.
+- Syscalls through `int 0x30`: write, exit, yield, sleep, wait/waitpid, open (rsi 1 creates), close, read, readdir, exec, pipe, brk, fork, dup2, lseek, stat, kill, mmap, uptime.
 - Userland C: `hi`, `sh`, `init`, CRT stubs, `memcpy` / `strlen` / `strcmp`.
-- No nested `|`, no `<`/`>`, no long names, no FAT16, no framebuffer, no AHCI/VirtIO, no serial console, no SMP, no networking, no signals beyond kill/Ctrl+C, no file-backed mmap, no `munmap` / `truncate` / cross-directory `mv`.
+- No nested `|`, no `>>`, no `&`, no long names, no FAT16, no framebuffer, no AHCI/VirtIO, no serial console, no SMP, no networking, no signals beyond kill/Ctrl+C, no file-backed mmap, no `munmap` / `truncate` / cross-directory `mv`.
 
 ---
 
 # Sprint 1 — shell that feels like a shell
 
-`sh` can `exec` one name. Pipes and redirects still live mostly in the kernel line parser.
+`sh` can `exec` one name. Nested pipes still wait; one `<` or `>` is parsed in `sh` and the kernel fallback.
 
 ## Week 1 — redirects and nested pipes
 
-1. **Shell `<` and `>`** — in `sh` (and kernel fallback): `cat < hello` opens `hello` on fd 0; a tiny writer or `echo`-style helper `> out` creates/overwrites on fd 1. One redirect per command is enough. Prove `hi > out` then `cat out` shows `hi`.
+1. **Shell `<` and `>`** — done: `sh` (and kernel fallback) parse one `<` or `>`. `cat < hello` opens `hello` on fd 0; `hi > out` creates/overwrites on fd 1. `hi > out` then `cat out` shows `hi`.
 2. **Nested `|` in `sh`** — `sh` parses `a | b | c` with `pipe`/`fork`/`dup2`/`exec` (no kernel `|` required for the happy path). `cat hello | cat | cat` prints `blood`. Keep left-to-right; no `&` yet.
 
 ## Week 2 — console and append

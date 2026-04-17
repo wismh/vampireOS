@@ -996,6 +996,32 @@ void user_on_syscall(struct interrupt_frame *frame)
                 frame->rax = (uint64_t)-1;
                 return;
             }
+            /* File on fd 1 (after `>`) must hit the volume, not VGA. */
+            if (kind == FD_KIND_FILE) {
+                if (sched_fd_path(fd, path) != 0) {
+                    frame->rax = (uint64_t)-1;
+                    return;
+                }
+                if (want == 0) {
+                    frame->rax = 0;
+                    return;
+                }
+                if (copy_from_user_n(file_buf, frame->rsi, want) != 0) {
+                    frame->rax = (uint64_t)-1;
+                    return;
+                }
+                vmm_set_cr3(vmm_boot_cr3());
+                if (enter_task_cwd() != 0 || fs_write(path, file_buf, want) != 0) {
+                    leave_task_cwd();
+                    frame->rax = (uint64_t)-1;
+                    vmm_set_cr3(sched_current_cr3());
+                    return;
+                }
+                leave_task_cwd();
+                frame->rax = (uint64_t)want;
+                vmm_set_cr3(sched_current_cr3());
+                return;
+            }
             if (fd == FD_CONSOLE) {
                 if (want >= USER_STR_MAX) {
                     want = (unsigned)USER_STR_MAX - 1u;
@@ -1017,28 +1043,7 @@ void user_on_syscall(struct interrupt_frame *frame)
                 vmm_set_cr3(sched_current_cr3());
                 return;
             }
-            if (sched_fd_path(fd, path) != 0) {
-                frame->rax = (uint64_t)-1;
-                return;
-            }
-            if (want == 0) {
-                frame->rax = 0;
-                return;
-            }
-            if (copy_from_user_n(file_buf, frame->rsi, want) != 0) {
-                frame->rax = (uint64_t)-1;
-                return;
-            }
-            vmm_set_cr3(vmm_boot_cr3());
-            if (enter_task_cwd() != 0 || fs_write(path, file_buf, want) != 0) {
-                leave_task_cwd();
-                frame->rax = (uint64_t)-1;
-                vmm_set_cr3(sched_current_cr3());
-                return;
-            }
-            leave_task_cwd();
-            frame->rax = (uint64_t)want;
-            vmm_set_cr3(sched_current_cr3());
+            frame->rax = (uint64_t)-1;
             return;
         }
         /* Walk task PTEs via HHDM; works even if %cr3 is already boot. */
@@ -1195,11 +1200,21 @@ void user_on_syscall(struct interrupt_frame *frame)
             return;
         }
         vmm_set_cr3(vmm_boot_cr3());
-        if (enter_task_cwd() != 0 || fs_lookup(buf, &data, &len) != 0) {
+        if (enter_task_cwd() != 0) {
             leave_task_cwd();
             frame->rax = (uint64_t)-1;
             vmm_set_cr3(sched_current_cr3());
             return;
+        }
+        if (fs_lookup(buf, &data, &len) != 0) {
+            /* rsi == 1: create so `>` can open a new name. */
+            if (frame->rsi != 1ull || fs_write(buf, "", 0) != 0 ||
+                fs_lookup(buf, &data, &len) != 0) {
+                leave_task_cwd();
+                frame->rax = (uint64_t)-1;
+                vmm_set_cr3(sched_current_cr3());
+                return;
+            }
         }
         leave_task_cwd();
         fd = sched_fd_open(buf);
