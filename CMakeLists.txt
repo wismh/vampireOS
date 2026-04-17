@@ -95,6 +95,7 @@ set(MMAPTEST_BIN "${CMAKE_BINARY_DIR}/mmaptest.bin")
 set(UPTIME_ASM "${CMAKE_SOURCE_DIR}/user/uptime.asm")
 set(UPTIME_BIN "${CMAKE_BINARY_DIR}/uptime.bin")
 set(CRT_ASM "${CMAKE_SOURCE_DIR}/user/crt.asm")
+set(FD_ASM "${CMAKE_SOURCE_DIR}/user/fd.asm")
 set(CRTSTART_ASM "${CMAKE_SOURCE_DIR}/user/crtstart.asm")
 set(CRT0_ASM "${CMAKE_SOURCE_DIR}/user/crt0.asm")
 set(HI_C "${CMAKE_SOURCE_DIR}/user/hi.c")
@@ -103,6 +104,7 @@ set(INIT_C "${CMAKE_SOURCE_DIR}/user/init.c")
 set(STRING_C "${CMAKE_SOURCE_DIR}/user/string.c")
 set(USER_LD "${CMAKE_SOURCE_DIR}/user/user.ld")
 set(CRT_OBJ "${CMAKE_BINARY_DIR}/crt.o")
+set(FD_OBJ "${CMAKE_BINARY_DIR}/fd.o")
 set(CRTSTART_OBJ "${CMAKE_BINARY_DIR}/crtstart.o")
 set(CRT0_OBJ "${CMAKE_BINARY_DIR}/crt0.o")
 set(HI_OBJ "${CMAKE_BINARY_DIR}/hi.o")
@@ -317,6 +319,14 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${FD_OBJ}"
+    COMMAND "${NASM_EXECUTABLE}" -f elf64 -o "${FD_OBJ}" "${FD_ASM}"
+    DEPENDS "${FD_ASM}"
+    COMMENT "Assembling open/close/dup2 stubs"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${CRTSTART_OBJ}"
     COMMAND "${NASM_EXECUTABLE}" -f elf64 -o "${CRTSTART_OBJ}" "${CRTSTART_ASM}"
     DEPENDS "${CRTSTART_ASM}"
@@ -445,7 +455,8 @@ add_custom_command(
         "${SH_OBJ}"
         "${STRING_OBJ}"
         "${CRT_OBJ}"
-    DEPENDS "${CRT0_OBJ}" "${SH_OBJ}" "${STRING_OBJ}" "${CRT_OBJ}" "${USER_LD}"
+        "${FD_OBJ}"
+    DEPENDS "${CRT0_OBJ}" "${SH_OBJ}" "${STRING_OBJ}" "${CRT_OBJ}" "${FD_OBJ}" "${USER_LD}"
     COMMENT "Linking user ELF sh"
     VERBATIM
 )
