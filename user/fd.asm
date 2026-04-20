@@ -1,11 +1,12 @@
-; open / close / dup2 stubs for sh redirects. Linked only into sh.
-; System V x86_64: args in rdi, rsi; return in rax.
+; open / close / dup2 / pipe stubs for sh redirects and nested `|`.
+; Linked only into sh. System V x86_64: args in rdi, rsi; return in rax.
 bits 64
 section .text
 
 global open
 global close
 global dup2
+global pipe
 
 open:
     mov eax, 6
@@ -19,5 +20,10 @@ close:
 
 dup2:
     mov eax, 14
+    int 0x30
+    ret
+
+pipe:
+    mov eax, 11
     int 0x30
     ret
