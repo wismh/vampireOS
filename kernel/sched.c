@@ -272,6 +272,23 @@ static void clear_fds(struct task *t)
     }
 }
 
+/* fd 0 = keyboard, fd 1 = VGA, fd 2 = VGA err (same kind as 1). */
+static void bind_console_std(struct task *t)
+{
+    int i;
+
+    if (t == 0) {
+        return;
+    }
+    for (i = 0; i < 3; i++) {
+        t->fds[i].used = 1;
+        t->fds[i].kind = (i == 0) ? FD_KIND_CONSOLE_R : FD_KIND_CONSOLE_W;
+        t->fds[i].pipe = -1;
+        t->fds[i].offset = 0;
+        t->fds[i].path[0] = '\0';
+    }
+}
+
 static void copy_path(char *dst, const char *src)
 {
     int i;
@@ -527,6 +544,7 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->shown_status = 0;
     t->pipe_wait = -1;
     clear_fds(t);
+    bind_console_std(t);
     last_added = (int)(t - tasks);
     return 0;
 }
@@ -878,7 +896,7 @@ int sched_fd_bind_pipe(int fd, int kind, int pipe_id)
     }
     e = &t->fds[fd];
     if (e->used != 0) {
-        return -1;
+        drop_fd(e);
     }
     e->used = 1;
     e->kind = kind;
@@ -910,7 +928,7 @@ int sched_fd_bind_file(int fd, const char *path)
     }
     e = &t->fds[fd];
     if (e->used != 0) {
-        return -1;
+        drop_fd(e);
     }
     e->used = 1;
     e->kind = FD_KIND_FILE;

@@ -1022,7 +1022,8 @@ void user_on_syscall(struct interrupt_frame *frame)
                 vmm_set_cr3(sched_current_cr3());
                 return;
             }
-            if (fd == FD_CONSOLE) {
+            /* Bound console out (fd 1/2), or unused fd 1 leftover from old tests. */
+            if (kind == FD_KIND_CONSOLE_W || (fd == FD_CONSOLE && kind == 0)) {
                 if (want >= USER_STR_MAX) {
                     want = (unsigned)USER_STR_MAX - 1u;
                 }
@@ -1100,8 +1101,8 @@ void user_on_syscall(struct interrupt_frame *frame)
             frame->rax = (uint64_t)-1;
             return;
         }
-        /* Unused fd 0 is console stdin (PS/2), so `run sh` can read a line. */
-        if (fd == FD_STDIN && kind == 0) {
+        /* Console in (fd 0), or unused fd 0 leftover so `run sh` can still read. */
+        if (kind == FD_KIND_CONSOLE_R || (fd == FD_STDIN && kind == 0)) {
             if (want == 0) {
                 frame->rax = 0;
                 return;

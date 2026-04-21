@@ -80,7 +80,9 @@ done:
     int 0x30
 fail:
     mov eax, 1
-    mov edi, bad
+    mov edi, 2
+    mov esi, bad
+    mov edx, 1
     int 0x30
     mov eax, 2
     xor edi, edi

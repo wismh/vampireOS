@@ -1,4 +1,5 @@
-; BASE 0x400000; open hello five times so the fifth open returns fd 4
+; BASE 0x400000; open hello five times so the fifth open returns fd 7
+; (0/1/2 are console; first file fd is 3)
 bits 64
 org 0x400000
 
@@ -42,9 +43,9 @@ opens:
     inc ebx
     cmp ebx, 5
     jb opens
-    cmp byte [out + 4], '4'
+    cmp byte [out + 4], '7'
     jne fail
-    ; Write "4" (out+4) so column 0 keeps the extra fd after exit's "done".
+    ; Write "7" (out+4) so column 0 keeps the extra fd after exit's "done".
     mov eax, 1
     mov edi, out + 4
     int 0x30
