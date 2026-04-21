@@ -397,7 +397,7 @@ static void run_prog(const char *arg)
         }
         return;
     }
-    if (streq(name, "sh")) {
+    if (streq(name, "sh") || streq(name, "echo")) {
         if (user_run(name, *path != '\0' ? path : 0) != 0) {
             vga_putc('?');
         }

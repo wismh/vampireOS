@@ -1,4 +1,4 @@
-; BASE 0x400000; stack page at BASE+0x1000
+; BASE 0x400000; write argv[1] (or "E") to fd 1, exit
 bits 64
 org 0x400000
 
@@ -30,15 +30,38 @@ phdr:
     dq 0x1000
 
 _start:
+    cmp qword [rsp], 2
+    jb noarg
+    mov rsi, [rsp+16]
+    test rsi, rsi
+    jz noarg
+    xor ecx, ecx
+.len:
+    cmp byte [rsi + rcx], 0
+    je .got
+    inc ecx
+    cmp ecx, 80
+    jb .len
+.got:
+    test ecx, ecx
+    jz noarg
     mov eax, 1
-    mov edi, str
+    mov edi, 1
+    mov edx, ecx
     int 0x30
-    mov eax, 3
+    jmp done
+noarg:
+    mov eax, 1
+    mov edi, 1
+    mov esi, str
+    mov edx, 1
+    int 0x30
+done:
+    mov eax, 2
     xor edi, edi
     int 0x30
-    jmp _start
 
 str:
-    db "E", 0
+    db "E"
 
 filesize equ $ - $$

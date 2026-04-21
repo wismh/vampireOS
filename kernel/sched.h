@@ -10,6 +10,8 @@
 #define FD_KIND_FILE 1
 #define FD_KIND_PIPE_R 2
 #define FD_KIND_PIPE_W 3
+#define FD_KIND_CONSOLE_R 4
+#define FD_KIND_CONSOLE_W 5
 
 void sched_init(void);
 int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,

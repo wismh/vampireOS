@@ -1,4 +1,4 @@
-/* User shell: nested `|` plus one `<` or `>`; fork/exec keeps VGA. */
+/* User shell: nested `|` plus one `<` or `>`; fork/exec keeps console fds. */
 long write(int fd, const void *buf, unsigned long n);
 long read(int fd, void *buf, unsigned long n);
 long exec(const char *path);
@@ -15,7 +15,7 @@ enum { CMD_MAX = 4 };
 
 static void fail(void)
 {
-    write(1, "?", 1);
+    write(2, "?", 1);
     exit(1);
 }
 

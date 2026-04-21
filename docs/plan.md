@@ -8,7 +8,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 - Volume: FAT12, 344 data clusters, two sectors per FAT. 8.3 names. ATA PIO only.
 - Boot: kernel starts `init`, which `fork`/`exec`s `sh`. Prompt `$`. `sh` parses nested `|` (`cat hello | cat | cat` prints `blood`) and one `<` or `>` (`hi > out` then `cat out` prints `hi`; `cat < hello` prints `blood`). Kernel line buffer remains as fallback (`help` / `ls` / `run` / …): one `|` and the same redirects.
-- Tasks: ELF at `0x400000`, stack `0x401000`, heap from `0x402000`. COW fork. `TASK_MAX` 8. Eight fds.
+- Tasks: ELF at `0x400000`, stack `0x401000`, heap from `0x402000`. COW fork. `TASK_MAX` 8. Eight fds. New tasks start with fd 0/1/2 on the console (keyboard / VGA / VGA err); redirects and pipes still override those slots.
 - Syscalls through `int 0x30`: write, exit, yield, sleep, wait/waitpid, open (rsi 1 creates), close, read, readdir, exec, pipe, brk, fork, dup2, lseek, stat, kill, mmap, uptime.
 - Userland C: `hi`, `sh`, `init`, CRT stubs, `memcpy` / `strlen` / `strcmp`.
 - No `>>`, no `&`, no long names, no FAT16, no framebuffer, no AHCI/VirtIO, no serial console, no SMP, no networking, no signals beyond kill/Ctrl+C, no file-backed mmap, no `munmap` / `truncate` / cross-directory `mv`.
@@ -26,7 +26,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 ## Week 2 — console and append
 
-3. **Console fds 0/1/2** — every new task starts with fd 0/1/2 bound to the kernel console (keyboard / VGA). Legacy string-only `write` path can stay for old NASM tests; new C programs use fd 1 only. `hi` already writes fd-style; migrate `echo` / `cat` if they still use the string path.
+3. **Console fds 0/1/2** — done: every new task starts with fd 0/1/2 bound to the kernel console (keyboard / VGA). Legacy string-only `write` path stays for old NASM tests; C programs and `echo` / `cat` write fd 1 (or fd 2 for `cat` fail). `run echo hi` prints `hi`; `hi > out` and nested pipes still work.
 4. **`>>` append** — `put`-like open mode or `open` flag: `hi >> out` appends. After two appends, `cat out` shows both lines (or concatenated bytes).
 
 ## Week 3 — background and `cd` in `sh`

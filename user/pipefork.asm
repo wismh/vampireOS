@@ -43,7 +43,7 @@ _start:
     jz child
     mov [pid], rax
 
-    ; Parent: drop the write end so fd 1 is VGA again, then read the ring.
+    ; Parent: drop the write end so the reader sees EOF, then read the ring.
     mov eax, 7
     mov edi, [fds + 4]
     int 0x30

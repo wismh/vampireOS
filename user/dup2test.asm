@@ -1,4 +1,5 @@
-; BASE 0x400000; pipe, dup2 write end onto fd 3, write through it, read, VGA
+; BASE 0x400000; pipe, dup2 write end onto fd 5, write through it, read, VGA
+; 0/1/2 are console so pipe takes 3/4; fd 5 is the first free slot.
 bits 64
 org 0x400000
 
@@ -37,12 +38,12 @@ _start:
     js fail
     mov eax, 14
     mov edi, [fds + 4]
-    mov esi, 3
+    mov esi, 5
     int 0x30
-    cmp eax, 3
+    cmp eax, 5
     jne fail
     mov eax, 1
-    mov edi, 3
+    mov edi, 5
     mov esi, msg
     mov edx, 4
     int 0x30
