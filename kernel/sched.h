@@ -47,8 +47,8 @@ int sched_pipe_new(void);
 void sched_pipe_unused(int pipe_id);
 /* Bind fd on the last sched_add_user task to a pipe end. Bumps that ref. */
 int sched_fd_bind_pipe(int fd, int kind, int pipe_id);
-/* Bind fd on the last sched_add_user task to a file path. */
-int sched_fd_bind_file(int fd, const char *path);
+/* Bind fd on the last sched_add_user task to a file path. off is the start. */
+int sched_fd_bind_file(int fd, const char *path, unsigned off);
 /* Copy from the ring. >=0 bytes, -1 error, -2 empty (block). */
 int sched_pipe_read(int fd, void *dst, unsigned n);
 /* Copy into the ring. >=0 bytes, -1 error, -2 full (block). */

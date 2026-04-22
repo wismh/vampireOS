@@ -911,7 +911,7 @@ int sched_fd_bind_pipe(int fd, int kind, int pipe_id)
     return 0;
 }
 
-int sched_fd_bind_file(int fd, const char *path)
+int sched_fd_bind_file(int fd, const char *path, unsigned off)
 {
     struct task *t;
     struct fd_entry *e;
@@ -933,7 +933,7 @@ int sched_fd_bind_file(int fd, const char *path)
     e->used = 1;
     e->kind = FD_KIND_FILE;
     e->pipe = -1;
-    e->offset = 0;
+    e->offset = off;
     copy_path(e->path, path);
     return 0;
 }

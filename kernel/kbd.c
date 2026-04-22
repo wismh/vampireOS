@@ -494,20 +494,30 @@ static void run_redir_line(char *cmd)
     char *p;
     int n_in;
     int n_out;
+    int n_app;
     char name[40];
     char file[40];
     const char *arg;
     const char *rest;
+    const void *data;
+    unsigned len;
+    unsigned off;
     int fd;
 
     n_in = 0;
     n_out = 0;
+    n_app = 0;
     op = 0;
     p = cmd;
     while (*p != '\0') {
         if (*p == '<') {
             n_in++;
             op = p;
+        } else if (*p == '>' && p[1] == '>') {
+            n_out++;
+            n_app++;
+            op = p;
+            p++;
         } else if (*p == '>') {
             n_out++;
             op = p;
@@ -524,7 +534,7 @@ static void run_redir_line(char *cmd)
         p--;
         *p = '\0';
     }
-    rest = skip_ws(op + 1);
+    rest = skip_ws(n_app != 0 ? op + 2 : op + 1);
     take_word(&rest, file, 40u);
     if (file[0] == '\0') {
         vga_putc('?');
@@ -537,16 +547,28 @@ static void run_redir_line(char *cmd)
     if (*arg == '\0') {
         arg = 0;
     }
-    if (n_out != 0 && fs_write(file, "", 0) != 0) {
-        vga_putc('?');
-        return;
+    off = 0;
+    if (n_out != 0) {
+        if (n_app != 0) {
+            if (fs_lookup(file, &data, &len) != 0) {
+                if (fs_write(file, "", 0) != 0) {
+                    vga_putc('?');
+                    return;
+                }
+                len = 0;
+            }
+            off = len;
+        } else if (fs_write(file, "", 0) != 0) {
+            vga_putc('?');
+            return;
+        }
     }
     if (user_run(name, arg) != 0) {
         vga_putc('?');
         return;
     }
     fd = n_in != 0 ? 0 : 1;
-    if (sched_fd_bind_file(fd, file) != 0) {
+    if (sched_fd_bind_file(fd, file, off) != 0) {
         vga_putc('?');
     }
 }
@@ -588,7 +610,7 @@ static void run_line(void)
         return;
     }
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill uptime | < >");
+        puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill uptime | < > >>");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "uptime")) {
