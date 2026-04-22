@@ -1,4 +1,4 @@
-/* User shell: nested `|` plus one `<` or `>`; fork/exec keeps console fds. */
+/* User shell: nested `|` plus one `<`, `>`, or `>>`; fork/exec keeps console fds. */
 long write(int fd, const void *buf, unsigned long n);
 long read(int fd, void *buf, unsigned long n);
 long exec(const char *path);
@@ -12,6 +12,10 @@ void exit(int code);
 int strcmp(const char *a, const char *b);
 
 enum { CMD_MAX = 4 };
+
+/* Per-stage `open` flags: 1 overwrite `>`, 2 append `>>`. */
+static int oflag[CMD_MAX];
+static int cur;
 
 static void fail(void)
 {
@@ -92,8 +96,12 @@ static int parse_line(char **namep, char **in_path, char **out_path)
                 return -1;
             }
             redir = *p;
+            oflag[cur] = 1;
+            if (redir == '>' && p[1] == '>') {
+                oflag[cur] = 2;
+            }
             *p = '\0';
-            p = skip_ws(p + 1);
+            p = skip_ws(p + oflag[cur]);
             if (redir == '<') {
                 *in_path = p;
             } else {
@@ -205,7 +213,7 @@ static void child_exec(char *name, char *in_path, char *out_path, int in_fd,
     if (in_path != 0 && apply_redir(in_path, 0, 0) != 0) {
         fail();
     }
-    if (out_path != 0 && apply_redir(out_path, 1, 1) != 0) {
+    if (out_path != 0 && apply_redir(out_path, 1, oflag[cur]) != 0) {
         fail();
     }
     exec(name);
@@ -252,6 +260,7 @@ static int run_cmds(char **names, char **ins, char **outs, int n)
             return -1;
         }
         if (pid == 0) {
+            cur = i;
             child_exec(names[i], ins[i], outs[i], in_fd, out_fd, pr, pw);
         }
         started++;
@@ -320,6 +329,8 @@ int main(int argc, char **argv)
             names[i] = cmds[i];
             ins[i] = 0;
             outs[i] = 0;
+            cur = i;
+            oflag[i] = 1;
             if (parse_line(&names[i], &ins[i], &outs[i]) != 0) {
                 n = -1;
                 break;

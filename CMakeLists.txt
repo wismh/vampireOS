@@ -434,6 +434,7 @@ add_custom_command(
         -mno-sse2
         -fno-asynchronous-unwind-tables
         -fno-builtin
+        -Os
         -c
         -o "${SH_OBJ}"
         "${SH_C}"

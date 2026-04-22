@@ -996,7 +996,8 @@ void user_on_syscall(struct interrupt_frame *frame)
                 frame->rax = (uint64_t)-1;
                 return;
             }
-            /* File on fd 1 (after `>`) must hit the volume, not VGA. */
+            /* File on fd 1 (after `>` / `>>`) must hit the volume, not VGA.
+             * Offset 0 replaces (overwrite `>`). Offset past 0 appends (`>>`). */
             if (kind == FD_KIND_FILE) {
                 if (sched_fd_path(fd, path) != 0) {
                     frame->rax = (uint64_t)-1;
@@ -1011,13 +1012,44 @@ void user_on_syscall(struct interrupt_frame *frame)
                     return;
                 }
                 vmm_set_cr3(vmm_boot_cr3());
-                if (enter_task_cwd() != 0 || fs_write(path, file_buf, want) != 0) {
+                if (enter_task_cwd() != 0) {
+                    leave_task_cwd();
+                    frame->rax = (uint64_t)-1;
+                    vmm_set_cr3(sched_current_cr3());
+                    return;
+                }
+                off = sched_fd_offset(fd);
+                got = want;
+                if (off != 0) {
+                    if (fs_lookup(path, &data, &len) != 0 || off > len ||
+                        off + want > (unsigned)FILE_MAX) {
+                        leave_task_cwd();
+                        frame->rax = (uint64_t)-1;
+                        vmm_set_cr3(sched_current_cr3());
+                        return;
+                    }
+                    n = want;
+                    while (n > 0u) {
+                        n--;
+                        file_buf[off + n] = file_buf[n];
+                    }
+                    {
+                        const uint8_t *src = (const uint8_t *)data;
+
+                        for (n = 0; n < off; n++) {
+                            file_buf[n] = src[n];
+                        }
+                    }
+                    got = off + want;
+                }
+                if (fs_write(path, file_buf, got) != 0) {
                     leave_task_cwd();
                     frame->rax = (uint64_t)-1;
                     vmm_set_cr3(sched_current_cr3());
                     return;
                 }
                 leave_task_cwd();
+                (void)sched_fd_lseek(fd, off + want);
                 frame->rax = (uint64_t)want;
                 vmm_set_cr3(sched_current_cr3());
                 return;
@@ -1208,9 +1240,9 @@ void user_on_syscall(struct interrupt_frame *frame)
             return;
         }
         if (fs_lookup(buf, &data, &len) != 0) {
-            /* rsi == 1: create so `>` can open a new name. */
-            if (frame->rsi != 1ull || fs_write(buf, "", 0) != 0 ||
-                fs_lookup(buf, &data, &len) != 0) {
+            /* rsi 1: create so `>` can open a new name. rsi 2: same for `>>`. */
+            if ((frame->rsi != 1ull && frame->rsi != 2ull) ||
+                fs_write(buf, "", 0) != 0 || fs_lookup(buf, &data, &len) != 0) {
                 leave_task_cwd();
                 frame->rax = (uint64_t)-1;
                 vmm_set_cr3(sched_current_cr3());
@@ -1219,6 +1251,10 @@ void user_on_syscall(struct interrupt_frame *frame)
         }
         leave_task_cwd();
         fd = sched_fd_open(buf);
+        if (fd >= 0 && frame->rsi == 2ull) {
+            /* Append: seek to the current size so the next write concatenates. */
+            (void)sched_fd_lseek(fd, len);
+        }
         frame->rax = (fd < 0) ? (uint64_t)-1 : (uint64_t)(unsigned)fd;
         vmm_set_cr3(sched_current_cr3());
         return;
