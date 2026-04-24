@@ -713,6 +713,46 @@ int kbd_stdin_take(void *dst, unsigned max)
     return (int)n;
 }
 
+/* `ps` / `help` are kernel-only; run them at `$` without waking `sh`. */
+static int kbd_dollar_builtin(void)
+{
+    char tmp[LINE_MAX];
+    unsigned i;
+    char *s;
+
+    if (stdin_len + 1u >= LINE_MAX) {
+        return 0;
+    }
+    for (i = 0; i < stdin_len; i++) {
+        tmp[i] = stdin_buf[i];
+    }
+    tmp[stdin_len] = '\0';
+    s = tmp;
+    while (*s == ' ') {
+        s++;
+    }
+    i = 0;
+    while (s[i] != '\0') {
+        i++;
+    }
+    while (i > 0 && s[i - 1] == ' ') {
+        i--;
+        s[i] = '\0';
+    }
+    if (streq(s, "ps") == 0 && streq(s, "help") == 0) {
+        return 0;
+    }
+    vga_putc('\n');
+    if (streq(s, "ps") != 0) {
+        run_ps();
+    } else {
+        puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill uptime | < > >>");
+    }
+    stdin_len = 0;
+    kbd_stdin_prompt();
+    return 1;
+}
+
 void kbd_handle(struct interrupt_frame *frame)
 {
     uint8_t sc = inb(KBD_DATA);
@@ -778,6 +818,9 @@ void kbd_handle(struct interrupt_frame *frame)
     /* Foreground `read` on fd 0: type a line, then the kernel prompt resumes. */
     if (sched_kbd_waiting()) {
         if (c == '\n') {
+            if (kbd_dollar_builtin() != 0) {
+                return;
+            }
             if (stdin_len + 1 < LINE_MAX) {
                 stdin_buf[stdin_len++] = '\n';
             }

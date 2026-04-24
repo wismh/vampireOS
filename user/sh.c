@@ -1,4 +1,4 @@
-/* User shell: nested `|` plus one `<`, `>`, or `>>`; fork/exec keeps console fds. */
+/* User shell: nested `|`, one `<`/`>`/`>>`, trailing `&`; fork/exec keeps console fds. */
 long write(int fd, const void *buf, unsigned long n);
 long read(int fd, void *buf, unsigned long n);
 long exec(const char *path);
@@ -220,7 +220,31 @@ static void child_exec(char *name, char *in_path, char *out_path, int in_fd,
     fail();
 }
 
-static int run_cmds(char **names, char **ins, char **outs, int n)
+/* Trailing `&` backgrounds the line. Lone `&` is a parse error. */
+static int take_bg(char **linep)
+{
+    char *s;
+    long n;
+
+    s = *linep;
+    n = 0;
+    while (s[n] != '\0') {
+        n++;
+    }
+    if (n == 0 || s[n - 1] != '&') {
+        return 0;
+    }
+    s[n - 1] = '\0';
+    trim_end(s);
+    s = skip_ws(s);
+    *linep = s;
+    if (s[0] == '\0') {
+        return -1;
+    }
+    return 1;
+}
+
+static int run_cmds(char **names, char **ins, char **outs, int n, int bg)
 {
     int i;
     int p[2];
@@ -269,8 +293,10 @@ static int run_cmds(char **names, char **ins, char **outs, int n)
         in_fd = pr;
     }
     drop(in_fd);
-    for (i = 0; i < started; i++) {
-        (void)wait(0);
+    if (bg == 0) {
+        for (i = 0; i < started; i++) {
+            (void)wait(0);
+        }
     }
     return 0;
 }
@@ -288,6 +314,7 @@ int main(int argc, char **argv)
     int n;
     int i;
     int once;
+    int bg;
 
     once = 0;
     for (;;) {
@@ -317,6 +344,14 @@ int main(int argc, char **argv)
         if (strcmp(line, "exit") == 0) {
             exit(0);
         }
+        bg = take_bg(&line);
+        if (bg < 0) {
+            write(1, "?", 1);
+            if (once != 0) {
+                fail();
+            }
+            continue;
+        }
         n = split_pipes(line, cmds, CMD_MAX);
         if (n < 1) {
             write(1, "?", 1);
@@ -343,7 +378,7 @@ int main(int argc, char **argv)
             }
             continue;
         }
-        if (run_cmds(names, ins, outs, n) != 0) {
+        if (run_cmds(names, ins, outs, n, bg) != 0) {
             write(1, "?", 1);
             if (once != 0) {
                 fail();
