@@ -7,17 +7,17 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 ## Now
 
 - Volume: FAT12, 344 data clusters, two sectors per FAT. 8.3 names. ATA PIO only.
-- Boot: kernel starts `init`, which `fork`/`exec`s `sh`. Prompt `$`. `sh` parses nested `|` (`cat hello | cat | cat` prints `blood`) and one `<`, `>`, or `>>` (`hi > out` then `cat out` prints `hi`; `cat < hello` prints `blood`; `hi >> out` twice then `cat out` prints `hihi`). Kernel line buffer remains as fallback (`help` / `ls` / `run` / …): one `|` and the same redirects.
+- Boot: kernel starts `init`, which `fork`/`exec`s `sh`. Prompt `$`. `sh` parses nested `|` (`cat hello | cat | cat` prints `blood`) and one `<`, `>`, or `>>` (`hi > out` then `cat out` prints `hi`; `cat < hello` prints `blood`; `hi >> out` twice then `cat out` prints `hihi`). A trailing `&` backgrounds the line (`sleeper &` returns `$` while that sleeper stays in `ps`). Kernel line buffer remains as fallback (`help` / `ls` / `run` / …): one `|` and the same redirects.
 - Tasks: ELF at `0x400000`, stack `0x401000`, heap from `0x402000`. COW fork. `TASK_MAX` 8. Eight fds. New tasks start with fd 0/1/2 on the console (keyboard / VGA / VGA err); redirects and pipes still override those slots.
 - Syscalls through `int 0x30`: write, exit, yield, sleep, wait/waitpid, open (rsi 1 creates, rsi 2 creates and appends), close, read, readdir, exec, pipe, brk, fork, dup2, lseek, stat, kill, mmap, uptime.
 - Userland C: `hi`, `sh`, `init`, CRT stubs, `memcpy` / `strlen` / `strcmp`.
-- No `&`, no long names, no FAT16, no framebuffer, no AHCI/VirtIO, no serial console, no SMP, no networking, no signals beyond kill/Ctrl+C, no file-backed mmap, no `munmap` / `truncate` / cross-directory `mv`.
+- No job control (`fg` / `bg` / `jobs`), no long names, no FAT16, no framebuffer, no AHCI/VirtIO, no serial console, no SMP, no networking, no signals beyond kill/Ctrl+C, no file-backed mmap, no `munmap` / `truncate` / cross-directory `mv`.
 
 ---
 
 # Sprint 1 — shell that feels like a shell
 
-`sh` can `exec` one name, parse nested `|`, and apply one `<`, `>`, or `>>`. Kernel fallback still has two-way `|` and the same redirects.
+`sh` can `exec` one name, parse nested `|`, apply one `<`, `>`, or `>>`, and background a line with trailing `&`. Kernel fallback still has two-way `|` and the same redirects.
 
 ## Week 1 — redirects and nested pipes
 
@@ -31,7 +31,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 ## Week 3 — background and `cd` in `sh`
 
-5. **Background `&`** — `sleeper &` returns the `$` prompt while the sleeper stays in `ps`. No job control yet; `wait` from `sh` optional later.
+5. **Background `&`** — done: `sleeper &` returns the `$` prompt while the sleeper stays in `ps`. No job control; `wait` from `sh` optional later.
 6. **`cd` / `pwd` in `sh`** — builtins change the shell task’s cwd (already per-task). `$` `cd sub` then `ls` lists `sub`. Kernel `cd` can remain for the fallback prompt.
 
 ## Week 4 — volume polish left from spring
