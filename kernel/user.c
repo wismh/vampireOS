@@ -41,13 +41,14 @@
 #define SYS_KILL 17ull
 #define SYS_MMAP 18ull
 #define SYS_UPTIME 19ull
+#define SYS_CHDIR 20ull
+#define SYS_GETCWD 21ull
 #define PIT_TICKS_PER_SEC 100u
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
 #define FD_STDIN 0
 #define FD_CONSOLE 1
-#define CWD_PATH_MAX 80u
 
 #define GDT_KERNEL_CODE32 0x00CF9A000000FFFFULL
 #define GDT_KERNEL_CODE64 0x00209A0000000000ULL
@@ -280,6 +281,7 @@ static int enter_task_cwd(void)
 {
     unsigned cl;
     const char *pwd;
+    const char *task_pwd;
 
     cwd_switched = 0;
     cl = sched_current_cwd();
@@ -294,7 +296,49 @@ static int enter_task_cwd(void)
         (void)fs_setpwd(cwd_saved_path);
         return -1;
     }
+    task_pwd = sched_current_pwd();
+    if (task_pwd != 0 && task_pwd[0] != '\0') {
+        (void)fs_setpwd(task_pwd);
+    }
     cwd_switched = 1;
+    return 0;
+}
+
+/* Always save/restore kernel cwd: enter_task_cwd is a no-op when clusters
+ * already match, and fs_chdir would then move the fallback prompt too. */
+static int user_chdir(const char *path)
+{
+    unsigned saved_cl;
+    char saved_path[CWD_PATH_MAX];
+    const char *pwd;
+    const char *task_pwd;
+
+    if (path == 0 || *path == '\0') {
+        return -1;
+    }
+    saved_cl = fs_cwd();
+    pwd = fs_pwd();
+    copy_cwd_path(saved_path, CWD_PATH_MAX, pwd);
+    if (fs_setcwd(sched_current_cwd()) != 0) {
+        (void)fs_setcwd(saved_cl);
+        (void)fs_setpwd(saved_path);
+        return -1;
+    }
+    task_pwd = sched_current_pwd();
+    if (task_pwd != 0 && task_pwd[0] != '\0') {
+        (void)fs_setpwd(task_pwd);
+    } else {
+        (void)fs_setpwd("/");
+    }
+    if (fs_chdir(path) != 0) {
+        (void)fs_setcwd(saved_cl);
+        (void)fs_setpwd(saved_path);
+        return -1;
+    }
+    sched_set_current_cwd(fs_cwd());
+    sched_set_current_pwd(fs_pwd());
+    (void)fs_setcwd(saved_cl);
+    (void)fs_setpwd(saved_path);
     return 0;
 }
 
@@ -1227,6 +1271,44 @@ void user_on_syscall(struct interrupt_frame *frame)
         frame->rax = (uint64_t)got;
         return;
     }
+    /* rdi=buf, rsi=max; rax=strlen of `/` or `/sub`, or -1. */
+    if (frame->rax == SYS_GETCWD) {
+        const char *pwd;
+        unsigned i;
+
+        want = (unsigned)frame->rsi;
+        if (want == 0 || want > FILE_MAX) {
+            if (want == 0) {
+                frame->rax = (uint64_t)-1;
+                return;
+            }
+            want = (unsigned)FILE_MAX;
+        }
+        vmm_set_cr3(vmm_boot_cr3());
+        pwd = sched_current_pwd();
+        if (pwd == 0 || pwd[0] == '\0') {
+            pwd = "/";
+        }
+        i = 0;
+        while (pwd[i] != '\0' && i + 1u < want) {
+            file_buf[i] = (uint8_t)pwd[i];
+            i++;
+        }
+        if (pwd[i] != '\0') {
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
+        file_buf[i] = 0;
+        got = i;
+        vmm_set_cr3(sched_current_cr3());
+        if (got != 0 && copy_to_user(frame->rdi, file_buf, got) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        frame->rax = (uint64_t)got;
+        return;
+    }
     if (frame->rax == SYS_OPEN) {
         if (copy_from_user(buf, frame->rdi, USER_STR_MAX) != 0) {
             frame->rax = (uint64_t)-1;
@@ -1280,6 +1362,18 @@ void user_on_syscall(struct interrupt_frame *frame)
             return;
         }
         frame->rax = 0;
+        return;
+    }
+    /* rdi=path; rax 0 or -1. Changes this task's cwd; kernel kbd> cwd stays. */
+    if (frame->rax == SYS_CHDIR) {
+        if (copy_from_user(buf, frame->rdi, USER_STR_MAX) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        vmm_set_cr3(vmm_boot_cr3());
+        packed = user_chdir(buf);
+        frame->rax = (packed != 0) ? (uint64_t)-1 : 0;
+        vmm_set_cr3(sched_current_cr3());
         return;
     }
     /* pipe(fd[2]): rdi = user int[2]; fd[0] read, fd[1] write; rax 0 or -1. */

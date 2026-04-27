@@ -68,6 +68,7 @@ struct task {
     uint64_t brk; /* first byte past the user heap */
     uint64_t cr3; /* cloned PML4 phys; loaded on switch */
     unsigned cwd; /* FAT cluster; 0 = volume root. Fork copies this. */
+    char cwd_path[CWD_PATH_MAX]; /* `/` or `/sub`; chdir updates this. */
     int parent; /* slot that forked us; -1 if none (run/boot). */
     int wait_pid; /* 0 = any child; else that slot. Used while TASK_WAIT. */
     char name[TASK_NAME_MAX + 1];
@@ -315,6 +316,24 @@ static void copy_name(char *dst, const char *src)
     dst[i] = '\0';
 }
 
+static void copy_cwd_path(char *dst, const char *src)
+{
+    int i;
+
+    if (dst == 0) {
+        return;
+    }
+    if (src == 0 || src[0] == '\0') {
+        dst[0] = '/';
+        dst[1] = '\0';
+        return;
+    }
+    for (i = 0; i + 1 < CWD_PATH_MAX && src[i] != '\0'; i++) {
+        dst[i] = src[i];
+    }
+    dst[i] = '\0';
+}
+
 /* Drop all user PTEs in this task's CR3; PML4 stays until slot reuse. */
 static void free_task_user(struct task *t)
 {
@@ -384,6 +403,8 @@ void sched_init(void)
         tasks[i].brk = 0;
         tasks[i].cr3 = 0;
         tasks[i].cwd = 0;
+        tasks[i].cwd_path[0] = '/';
+        tasks[i].cwd_path[1] = '\0';
         tasks[i].parent = -1;
         tasks[i].wait_pid = 0;
         tasks[i].name[0] = '\0';
@@ -531,6 +552,7 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->cr3 = cr3;
     /* Snapshot the kernel/shell cwd so `cd` then `run` inherits it. */
     t->cwd = fs_cwd();
+    copy_cwd_path(t->cwd_path, fs_pwd());
     t->parent = -1;
     t->wait_pid = 0;
     t->name[0] = '\0';
@@ -632,6 +654,7 @@ int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3)
     t->brk = parent->brk;
     t->cr3 = cr3;
     t->cwd = parent->cwd;
+    copy_cwd_path(t->cwd_path, parent->cwd_path);
     t->parent = current;
     t->wait_pid = 0;
     copy_name(t->name, parent->name);
@@ -1119,6 +1142,33 @@ unsigned sched_current_cwd(void)
         return 0;
     }
     return tasks[current].cwd;
+}
+
+void sched_set_current_cwd(unsigned cl)
+{
+    if (task_count == 0) {
+        return;
+    }
+    tasks[current].cwd = cl;
+}
+
+const char *sched_current_pwd(void)
+{
+    if (task_count == 0) {
+        return "/";
+    }
+    if (tasks[current].cwd_path[0] == '\0') {
+        return "/";
+    }
+    return tasks[current].cwd_path;
+}
+
+void sched_set_current_pwd(const char *path)
+{
+    if (task_count == 0) {
+        return;
+    }
+    copy_cwd_path(tasks[current].cwd_path, path);
 }
 
 void sched_set_brk(uint64_t brk)

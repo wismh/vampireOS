@@ -1,4 +1,4 @@
-/* User shell: nested `|`, one `<`/`>`/`>>`, trailing `&`; fork/exec keeps console fds. */
+/* User shell: nested `|`, one `<`/`>`/`>>`, trailing `&`, `cd`/`pwd` builtins. */
 long write(int fd, const void *buf, unsigned long n);
 long read(int fd, void *buf, unsigned long n);
 long exec(const char *path);
@@ -8,6 +8,8 @@ long close(int fd);
 long fork(void);
 long wait(long pid);
 long pipe(int fd[2]);
+long chdir(const char *path);
+long getcwd(char *buf, unsigned long max);
 void exit(int code);
 int strcmp(const char *a, const char *b);
 
@@ -301,6 +303,56 @@ static int run_cmds(char **names, char **ins, char **outs, int n, int bg)
     return 0;
 }
 
+static int is_cmd(const char *s, const char *cmd)
+{
+    while (*cmd != '\0') {
+        if (*s != *cmd) {
+            return 0;
+        }
+        s++;
+        cmd++;
+    }
+    return *s == '\0' || *s == ' ';
+}
+
+/* 1 handled, -1 handled fail, 0 not a builtin. Do not exec `cd` / `pwd`. */
+static int builtin(char *line)
+{
+    char path[40];
+    long n;
+
+    if (is_cmd(line, "cd")) {
+        line += 2;
+        while (*line == ' ') {
+            line++;
+        }
+        if (*line == '\0' || chdir(line) != 0) {
+            return -1;
+        }
+        return 1;
+    }
+    if (is_cmd(line, "pwd")) {
+        long pid;
+
+        n = getcwd(path, 40);
+        if (n < 1) {
+            return -1;
+        }
+        /* Child write: fd 1 is this task’s VGA row; the next `$` would wipe it. */
+        pid = fork();
+        if (pid < 0) {
+            return -1;
+        }
+        if (pid == 0) {
+            write(1, path, (unsigned long)n);
+            exit(0);
+        }
+        (void)wait(0);
+        return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     char buf[40];
@@ -351,6 +403,23 @@ int main(int argc, char **argv)
                 fail();
             }
             continue;
+        }
+        {
+            int b;
+
+            b = builtin(line);
+            if (b != 0) {
+                if (b < 0) {
+                    write(1, "?", 1);
+                    if (once != 0) {
+                        fail();
+                    }
+                }
+                if (once != 0) {
+                    exit(0);
+                }
+                continue;
+            }
         }
         n = split_pipes(line, cmds, CMD_MAX);
         if (n < 1) {

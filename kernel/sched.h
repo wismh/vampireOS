@@ -6,6 +6,7 @@
 
 #define FD_MAX 8
 #define FD_PATH_MAX 32
+#define CWD_PATH_MAX 80
 #define TASK_NAME_MAX 8
 #define FD_KIND_FILE 1
 #define FD_KIND_PIPE_R 2
@@ -23,6 +24,10 @@ uint64_t sched_current_base(void);
 uint64_t sched_current_brk(void);
 /* FAT cluster of the current task cwd (0 = volume root). */
 unsigned sched_current_cwd(void);
+void sched_set_current_cwd(unsigned cl);
+/* Packed cwd path (`/` or `/sub`); fork copies this. */
+const char *sched_current_pwd(void);
+void sched_set_current_pwd(const char *path);
 void sched_set_brk(uint64_t brk);
 int sched_row(void);
 unsigned sched_note_write(void);

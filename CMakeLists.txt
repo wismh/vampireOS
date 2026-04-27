@@ -322,7 +322,7 @@ add_custom_command(
     OUTPUT "${FD_OBJ}"
     COMMAND "${NASM_EXECUTABLE}" -f elf64 -o "${FD_OBJ}" "${FD_ASM}"
     DEPENDS "${FD_ASM}"
-    COMMENT "Assembling open/close/dup2/pipe stubs"
+    COMMENT "Assembling open/close/dup2/pipe/chdir/getcwd stubs"
     VERBATIM
 )
 
