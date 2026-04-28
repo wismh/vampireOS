@@ -7,17 +7,17 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 ## Now
 
 - Volume: FAT12, 344 data clusters, two sectors per FAT. 8.3 names. ATA PIO only.
-- Boot: kernel starts `init`, which `fork`/`exec`s `sh`. Prompt `$`. `sh` parses nested `|` (`cat hello | cat | cat` prints `blood`) and one `<`, `>`, or `>>` (`hi > out` then `cat out` prints `hi`; `cat < hello` prints `blood`; `hi >> out` twice then `cat out` prints `hihi`). A trailing `&` backgrounds the line (`sleeper &` returns `$` while that sleeper stays in `ps`). `cd` / `pwd` are `sh` builtins (`cd sub` then `ls` lists `sub`; `pwd` prints `/sub`). Kernel line buffer remains as fallback (`help` / `ls` / `run` / …): one `|` and the same redirects; kernel `cd` / `pwd` stay on `kbd>`.
+- Boot: kernel starts `init`, which `fork`/`exec`s `sh`. Prompt `$`. `sh` parses nested `|` (`cat hello | cat | cat` prints `blood`) and one `<`, `>`, or `>>` (`hi > out` then `cat out` prints `hi`; `cat < hello` prints `blood`; `hi >> out` twice then `cat out` prints `hihi`). A trailing `&` backgrounds the line (`sleeper &` returns `$` while that sleeper stays in `ps`). `cd` / `pwd` are `sh` builtins (`cd sub` then `ls` lists `sub`; `pwd` prints `/sub`). Kernel `mv` rewrites both parent dirents so `mv sub/note dusk` leaves the clusters put; an existing dest name prints `?`. Kernel line buffer remains as fallback (`help` / `ls` / `run` / …): one `|` and the same redirects; kernel `cd` / `pwd` stay on `kbd>`.
 - Tasks: ELF at `0x400000`, stack `0x401000`, heap from `0x402000`. COW fork. `TASK_MAX` 8. Eight fds. New tasks start with fd 0/1/2 on the console (keyboard / VGA / VGA err); redirects and pipes still override those slots.
 - Syscalls through `int 0x30`: write, exit, yield, sleep, wait/waitpid, open (rsi 1 creates, rsi 2 creates and appends), close, read, readdir, exec, pipe, brk, fork, dup2, lseek, stat, kill, mmap, uptime, chdir, getcwd.
 - Userland C: `hi`, `sh`, `init`, CRT stubs, `memcpy` / `strlen` / `strcmp`.
-- No job control (`fg` / `bg` / `jobs`), no long names, no FAT16, no framebuffer, no AHCI/VirtIO, no serial console, no SMP, no networking, no signals beyond kill/Ctrl+C, no file-backed mmap, no `munmap` / `truncate` / cross-directory `mv`.
+- No job control (`fg` / `bg` / `jobs`), no long names, no FAT16, no framebuffer, no AHCI/VirtIO, no serial console, no SMP, no networking, no signals beyond kill/Ctrl+C, no file-backed mmap, no `munmap` / `truncate`.
 
 ---
 
 # Sprint 1 — shell that feels like a shell
 
-`sh` can `exec` one name, parse nested `|`, apply one `<`, `>`, or `>>`, background a line with trailing `&`, and `cd` / `pwd` as builtins. Kernel fallback still has two-way `|` and the same redirects.
+`sh` can `exec` one name, parse nested `|`, apply one `<`, `>`, or `>>`, background a line with trailing `&`, and `cd` / `pwd` as builtins. Kernel `mv` rewrites both parent dirents so a file can change directories. Kernel fallback still has two-way `|` and the same redirects.
 
 ## Week 1 — redirects and nested pipes
 
@@ -36,7 +36,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 ## Week 4 — volume polish left from spring
 
-7. **Cross-directory `mv`** — move a file between directories by rewriting both parents; clusters stay put. `mv sub/note dusk` works; overwrite existing name prints `?`.
+7. **Cross-directory `mv`** — done: move a file between directories by rewriting both parents; clusters stay put. `mv sub/note dusk` works; overwrite existing name prints `?`.
 8. **`truncate`** — syscall or shell `trunc name N` sets size (free trailing clusters when shrinking). `fill note 600` then `trunc note 5` / `cat note` shows five bytes.
 
 ---

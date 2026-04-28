@@ -713,7 +713,7 @@ int kbd_stdin_take(void *dst, unsigned max)
     return (int)n;
 }
 
-/* `ps` / `help` / `mkdir` are kernel-only; run them at `$` without waking `sh`. */
+/* `ps` / `help` / `mkdir` / `mv` are kernel-only; run them at `$` without waking `sh`. */
 static int kbd_dollar_builtin(void)
 {
     char tmp[LINE_MAX];
@@ -739,7 +739,8 @@ static int kbd_dollar_builtin(void)
         i--;
         s[i] = '\0';
     }
-    if (streq(s, "ps") == 0 && streq(s, "help") == 0 && cmd_is(s, "mkdir") == 0) {
+    if (streq(s, "ps") == 0 && streq(s, "help") == 0 && cmd_is(s, "mkdir") == 0 &&
+        cmd_is(s, "mv") == 0) {
         return 0;
     }
     vga_putc('\n');
@@ -747,8 +748,10 @@ static int kbd_dollar_builtin(void)
         run_ps();
     } else if (streq(s, "help") != 0) {
         puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill uptime | < > >>");
-    } else {
+    } else if (cmd_is(s, "mkdir") != 0) {
         run_mkdir(s + 5);
+    } else {
+        run_mv(s + 2);
     }
     stdin_len = 0;
     kbd_stdin_prompt();
