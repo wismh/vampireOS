@@ -1232,8 +1232,12 @@ int fs_rename(const char *src, const char *dst)
     char src_leaf[13];
     char dst_leaf[13];
     uint8_t n83[11];
+    uint8_t ent[32];
     unsigned src_parent;
+    unsigned dst_parent;
+    unsigned is_dir;
     int i;
+    int off;
     int r = -1;
 
     if (enter_parent(src, src_leaf) != 0) {
@@ -1241,23 +1245,59 @@ int fs_rename(const char *src, const char *dst)
     }
     src_parent = g_cwd;
     i = find_file(src_leaf);
-    if (i < 0) {
+    if (i < 0 || g_dir == 0 || dir_load() != 0) {
         (void)leave_parent();
         return -1;
     }
+    is_dir = files[i].is_dir;
+    copy_bytes(ent, g_dir + files[i].dir_off, 32u);
     if (leave_parent() != 0) {
         return -1;
     }
     if (enter_parent(dst, dst_leaf) != 0) {
         return -1;
     }
-    if (g_cwd != src_parent || find_file(dst_leaf) >= 0 || to_83(dst_leaf, n83) != 0) {
+    dst_parent = g_cwd;
+    /* Existing dest name, bad 8.3, or a directory leaving its parent: `?`. */
+    if (find_file(dst_leaf) >= 0 || to_83(dst_leaf, n83) != 0 ||
+        (is_dir != 0 && dst_parent != src_parent)) {
         (void)leave_parent();
+        return -1;
+    }
+    if (dst_parent == src_parent) {
+        i = find_file(src_leaf);
+        if (i >= 0 && g_dir != 0 && dir_load() == 0) {
+            copy_bytes(g_dir + files[i].dir_off, n83, 11u);
+            if (dir_store() == 0 && scan_dir() == 0) {
+                r = 0;
+            }
+        }
+        if (leave_parent() != 0) {
+            return -1;
+        }
+        return r;
+    }
+    /* New dest dirent, then 0xE5 the source. File clusters stay put. */
+    off = dir_slot();
+    if (off < 0) {
+        (void)leave_parent();
+        return -1;
+    }
+    copy_bytes(g_dir + (unsigned)off, ent, 32u);
+    copy_bytes(g_dir + (unsigned)off, n83, 11u);
+    if (dir_store() != 0) {
+        (void)leave_parent();
+        return -1;
+    }
+    if (leave_parent() != 0) {
+        return -1;
+    }
+    if (enter_parent(src, src_leaf) != 0) {
         return -1;
     }
     i = find_file(src_leaf);
     if (i >= 0 && g_dir != 0 && dir_load() == 0) {
-        copy_bytes(g_dir + files[i].dir_off, n83, 11u);
+        g_dir[files[i].dir_off] = 0xE5;
         if (dir_store() == 0 && scan_dir() == 0) {
             r = 0;
         }
