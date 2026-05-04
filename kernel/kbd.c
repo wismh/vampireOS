@@ -239,6 +239,32 @@ static void run_fill(const char *arg)
     kfree(buf);
 }
 
+static void run_trunc(const char *arg)
+{
+    char name[40];
+    unsigned n = 0;
+    unsigned len = 0;
+    int have = 0;
+
+    arg = skip_ws(arg);
+    while (*arg != '\0' && *arg != ' ' && n < 39u) {
+        name[n++] = *arg;
+        arg++;
+    }
+    name[n] = '\0';
+    arg = skip_ws(arg);
+    if (*arg >= '0' && *arg <= '9') {
+        have = 1;
+    }
+    while (*arg >= '0' && *arg <= '9') {
+        len = len * 10u + (unsigned)(*arg - '0');
+        arg++;
+    }
+    if (n == 0 || have == 0 || fs_truncate(name, len) != 0) {
+        vga_putc('?');
+    }
+}
+
 static void run_rm(const char *arg)
 {
     arg = skip_ws(arg);
@@ -610,7 +636,7 @@ static void run_line(void)
         return;
     }
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill uptime | < > >>");
+        puts_cur("help ls mem cat run put rm mv cp fill trunc mkdir rmdir cd pwd ps kill uptime | < > >>");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "uptime")) {
@@ -640,6 +666,8 @@ static void run_line(void)
         run_cp(cmd + 2);
     } else if (cmd_is(cmd, "fill")) {
         run_fill(cmd + 4);
+    } else if (cmd_is(cmd, "trunc")) {
+        run_trunc(cmd + 5);
     } else if (cmd_is(cmd, "mkdir")) {
         run_mkdir(cmd + 5);
     } else if (cmd_is(cmd, "cd")) {
@@ -713,12 +741,24 @@ int kbd_stdin_take(void *dst, unsigned max)
     return (int)n;
 }
 
-/* `ps` / `help` / `mkdir` / `mv` are kernel-only; run them at `$` without waking `sh`. */
+/* `ps` / `help` / `mkdir` / `mv` / `fill` / `trunc` / plain `cat` are kernel-only; run them at `$` without waking `sh`. */
+static int line_has_meta(const char *s)
+{
+    while (*s != '\0') {
+        if (*s == '|' || *s == '<' || *s == '>') {
+            return 1;
+        }
+        s++;
+    }
+    return 0;
+}
+
 static int kbd_dollar_builtin(void)
 {
     char tmp[LINE_MAX];
     unsigned i;
     char *s;
+    int cat;
 
     if (stdin_len + 1u >= LINE_MAX) {
         return 0;
@@ -739,17 +779,25 @@ static int kbd_dollar_builtin(void)
         i--;
         s[i] = '\0';
     }
+    cat = cmd_is(s, "cat") != 0 && line_has_meta(s) == 0;
     if (streq(s, "ps") == 0 && streq(s, "help") == 0 && cmd_is(s, "mkdir") == 0 &&
-        cmd_is(s, "mv") == 0) {
+        cmd_is(s, "mv") == 0 && cmd_is(s, "fill") == 0 && cmd_is(s, "trunc") == 0 &&
+        cat == 0) {
         return 0;
     }
     vga_putc('\n');
     if (streq(s, "ps") != 0) {
         run_ps();
     } else if (streq(s, "help") != 0) {
-        puts_cur("help ls mem cat run put rm mv cp fill mkdir rmdir cd pwd ps kill uptime | < > >>");
+        puts_cur("help ls mem cat run put rm mv cp fill trunc mkdir rmdir cd pwd ps kill uptime | < > >>");
     } else if (cmd_is(s, "mkdir") != 0) {
         run_mkdir(s + 5);
+    } else if (cmd_is(s, "fill") != 0) {
+        run_fill(s + 4);
+    } else if (cmd_is(s, "trunc") != 0) {
+        run_trunc(s + 5);
+    } else if (cat != 0) {
+        run_cat(s + 3);
     } else {
         run_mv(s + 2);
     }
