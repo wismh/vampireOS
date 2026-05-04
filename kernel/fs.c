@@ -1193,6 +1193,77 @@ int fs_write(const char *name, const void *src, unsigned len)
     return r;
 }
 
+int fs_truncate(const char *name, unsigned len)
+{
+    char leaf[13];
+    int i;
+    unsigned need;
+    unsigned old;
+    unsigned k;
+    int r = -1;
+
+    if (len > FILE_MAX) {
+        return -1;
+    }
+    if (enter_parent(name, leaf) != 0) {
+        return -1;
+    }
+    i = find_file(leaf);
+    if (i < 0 || files[i].is_dir != 0 || files[i].data == 0 || g_dir == 0 ||
+        g_fat == 0) {
+        (void)leave_parent();
+        return -1;
+    }
+    old = files[i].len;
+    if (len == old) {
+        if (leave_parent() != 0) {
+            return -1;
+        }
+        return 0;
+    }
+    if (len == 0) {
+        /* Every cluster is trailing; drop the chain and leave cluster 0. */
+        fat_free_chain(files[i].cluster);
+        files[i].cluster = 0;
+        if (fat_flush() == 0 && dir_load() == 0) {
+            wr_u16(g_dir + files[i].dir_off + 26, 0);
+            wr_u32(g_dir + files[i].dir_off + 28, 0);
+            if (dir_store() == 0) {
+                files[i].len = 0;
+                r = 0;
+            }
+        }
+    } else {
+        need = (len + SEC - 1u) / SEC;
+        /* fat_resize zeros FAT entries past `need`, so shrink frees tails. */
+        if (fat_resize(&files[i].cluster, need) == 0 && fat_flush() == 0) {
+            if (len > old) {
+                for (k = old; k < len; k++) {
+                    files[i].data[k] = 0;
+                }
+                if (store_chain(files[i].cluster, files[i].data, len) != 0) {
+                    if (leave_parent() != 0) {
+                        return -1;
+                    }
+                    return -1;
+                }
+            }
+            if (dir_load() == 0) {
+                wr_u16(g_dir + files[i].dir_off + 26, files[i].cluster);
+                wr_u32(g_dir + files[i].dir_off + 28, len);
+                if (dir_store() == 0) {
+                    files[i].len = len;
+                    r = 0;
+                }
+            }
+        }
+    }
+    if (leave_parent() != 0) {
+        return -1;
+    }
+    return r;
+}
+
 int fs_remove(const char *name)
 {
     char leaf[13];
