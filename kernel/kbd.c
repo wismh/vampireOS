@@ -741,7 +741,7 @@ int kbd_stdin_take(void *dst, unsigned max)
     return (int)n;
 }
 
-/* `ps` / `help` / `mkdir` / `mv` / `fill` / `trunc` / plain `cat` are kernel-only; run them at `$` without waking `sh`. */
+/* `ps` / `help` / `mkdir` / `mv` / `fill` / `trunc` / plain `cat` / `ls` are kernel-only; run them at `$` without waking `sh`. */
 static int line_has_meta(const char *s)
 {
     while (*s != '\0') {
@@ -759,6 +759,7 @@ static int kbd_dollar_builtin(void)
     unsigned i;
     char *s;
     int cat;
+    int ls;
 
     if (stdin_len + 1u >= LINE_MAX) {
         return 0;
@@ -780,9 +781,10 @@ static int kbd_dollar_builtin(void)
         s[i] = '\0';
     }
     cat = cmd_is(s, "cat") != 0 && line_has_meta(s) == 0;
+    ls = cmd_is(s, "ls") != 0 && line_has_meta(s) == 0;
     if (streq(s, "ps") == 0 && streq(s, "help") == 0 && cmd_is(s, "mkdir") == 0 &&
         cmd_is(s, "mv") == 0 && cmd_is(s, "fill") == 0 && cmd_is(s, "trunc") == 0 &&
-        cat == 0) {
+        cat == 0 && ls == 0) {
         return 0;
     }
     vga_putc('\n');
@@ -796,6 +798,8 @@ static int kbd_dollar_builtin(void)
         run_fill(s + 4);
     } else if (cmd_is(s, "trunc") != 0) {
         run_trunc(s + 5);
+    } else if (ls != 0) {
+        run_ls(s + 2);
     } else if (cat != 0) {
         run_cat(s + 3);
     } else {

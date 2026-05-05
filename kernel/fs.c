@@ -843,6 +843,45 @@ static void fat_name(const uint8_t *ent, char *out)
     out[n] = '\0';
 }
 
+/* VFAT LFN checksum of the 11-byte 8.3 alias. */
+static uint8_t lfn_cksum(const uint8_t *n83)
+{
+    unsigned i;
+    uint8_t s = 0;
+
+    for (i = 0; i < 11u; i++) {
+        s = (uint8_t)(((s & 1u) != 0 ? 0x80u : 0u) + (s >> 1) + n83[i]);
+    }
+    return s;
+}
+
+/* ASCII from one LFN dirent that holds the start of the name (seq 1). */
+static int lfn_ascii(const uint8_t *ent, char *out)
+{
+    static const uint8_t slot[13] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30};
+    unsigned n = 0;
+    unsigned i;
+
+    if (ent == 0 || out == 0 || (ent[0] & 0x1Fu) != 1u || (ent[0] & 0x80u) != 0 ||
+        ent[11] != 0x0Fu || ent[12] != 0) {
+        return -1;
+    }
+    for (i = 0; i < 13u; i++) {
+        uint8_t lo = ent[slot[i]];
+        uint8_t hi = ent[slot[i] + 1u];
+
+        if (lo == 0 && hi == 0) {
+            break;
+        }
+        if (hi != 0 || lo < 0x20 || n >= 12u) {
+            return -1;
+        }
+        out[n++] = (char)lo;
+    }
+    out[n] = '\0';
+    return n == 0 ? -1 : 0;
+}
+
 static int load_file(uint8_t *dst, unsigned start, unsigned size)
 {
     unsigned left = size;
@@ -873,6 +912,7 @@ static int scan_dir(void)
     unsigned i;
     unsigned n;
     int old = file_count;
+    const uint8_t *lfn_ent = 0;
 
     for (i = 0; i < (unsigned)old; i++) {
         drop_page(files[i].data);
@@ -894,14 +934,24 @@ static int scan_dir(void)
             break;
         }
         if (ent[0] == 0xE5 || ent[0] == 0x05 || ent[0] == '.') {
+            lfn_ent = 0;
             continue;
         }
         attr = ent[11];
-        if ((attr & 0x08u) != 0 || attr == 0x0Fu) {
+        if (attr == 0x0Fu) {
+            lfn_ent = ent;
+            continue;
+        }
+        if ((attr & 0x08u) != 0) {
+            lfn_ent = 0;
             continue;
         }
         cl = rd_u16(ent + 26);
-        fat_name(ent, files[file_count].name);
+        if (lfn_ent == 0 || lfn_cksum(ent) != lfn_ent[13] ||
+            lfn_ascii(lfn_ent, files[file_count].name) != 0) {
+            fat_name(ent, files[file_count].name);
+        }
+        lfn_ent = 0;
         files[file_count].cluster = cl;
         files[file_count].dir_off = i * 32u;
         files[file_count].data = 0;
