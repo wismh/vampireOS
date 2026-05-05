@@ -52,6 +52,19 @@ fat2:
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
 root:
+    ; VFAT LFN longname.txt, 8.3 alias LONGNA~1.TXT
+    db 0x41
+    db "l", 0, "o", 0, "n", 0, "g", 0, "n", 0
+    db 0x0F, 0, 0xF4
+    db "a", 0, "m", 0, "e", 0, ".", 0, "t", 0, "x", 0
+    dw 0
+    db "t", 0, 0, 0
+    db "LONGNA~1", "TXT"
+    db 0x20
+    times 14 db 0
+    dw 41
+    dd 4
+
     db "HELLO   ", "   "
     db 0x20
     times 14 db 0
@@ -136,18 +149,6 @@ root:
     dw 15
     dd pipetest_len
 
-    db "BRKTEST ", "   "
-    db 0x20
-    times 14 db 0
-    dw 16
-    dd brktest_len
-
-    db "FORKTEST", "   "
-    db 0x20
-    times 14 db 0
-    dw 17
-    dd forktest_len
-
     times 512 - ($ - root) db 0
 
 cluster2:
@@ -229,6 +230,16 @@ forktest_len equ $ - forktest_data
     times 512 - forktest_len db 0
 
 root_extra:
+    db "BRKTEST ", "   "
+    db 0x20
+    times 14 db 0
+    dw 16
+    dd brktest_len
+    db "FORKTEST", "   "
+    db 0x20
+    times 14 db 0
+    dw 17
+    dd forktest_len
     db "DUP2TEST", "   "
     db 0x20
     times 14 db 0
@@ -371,4 +382,8 @@ init_data:
 init_len equ $ - init_data
     times 512 - init_len db 0
 
-    times (FAT_DATA_CLUSTERS - 39) * 512 db 0
+longname_data:
+    db "long"
+    times 512 - ($ - longname_data) db 0
+
+    times (FAT_DATA_CLUSTERS - 40) * 512 db 0
