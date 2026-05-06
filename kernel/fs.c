@@ -13,9 +13,12 @@
 #define FAT12_EOF 0xFF8u
 #define FAT12_MAX 4084u
 #define PATH_MAX 80u
+#define NAME_MAX 16u
+#define LFN_CHARS 13u
+#define LFN_MAX 2u
 
 struct fs_file {
-    char name[13];
+    char name[NAME_MAX];
     uint8_t *data;
     unsigned len;
     unsigned cluster;
@@ -39,6 +42,9 @@ static char g_path[PATH_MAX];
 static uint8_t *g_dir;
 static unsigned g_dir_bytes;
 static uint8_t *g_view;
+static const uint8_t lfn_slot[LFN_CHARS] = {
+    1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30
+};
 
 static unsigned rd_u16(const uint8_t *p)
 {
@@ -119,6 +125,7 @@ static int copy_str(char *dst, unsigned max, const char *src)
 static int scan_dir(void);
 static unsigned dir_lba(void);
 static int split_next(const char **sp, char *comp, unsigned max);
+static uint8_t lfn_cksum(const uint8_t *n83);
 
 static void path_reset(void)
 {
@@ -174,7 +181,7 @@ static int path_push(const char *name)
 
 static int path_apply(const char *path)
 {
-    char comp[13];
+    char comp[NAME_MAX];
     char saved[PATH_MAX];
     int got;
 
@@ -186,7 +193,7 @@ static int path_apply(const char *path)
         path++;
     }
     for (;;) {
-        got = split_next(&path, comp, 13u);
+        got = split_next(&path, comp, NAME_MAX);
         if (got < 0) {
             (void)copy_str(g_path, PATH_MAX, saved);
             return -1;
@@ -265,7 +272,7 @@ static int chdir_one(const char *name)
 
 static int walk_all(const char *path)
 {
-    char comp[13];
+    char comp[NAME_MAX];
     int got;
 
     if (path == 0) {
@@ -281,7 +288,7 @@ static int walk_all(const char *path)
         path++;
     }
     for (;;) {
-        got = split_next(&path, comp, 13u);
+        got = split_next(&path, comp, NAME_MAX);
         if (got < 0) {
             return -1;
         }
@@ -296,7 +303,7 @@ static int walk_all(const char *path)
 
 static int enter_parent(const char *path, char *leaf)
 {
-    char comp[13];
+    char comp[NAME_MAX];
     const char *s;
     int got;
 
@@ -317,21 +324,21 @@ static int enter_parent(const char *path, char *leaf)
             goto fail;
         }
     }
-    got = split_next(&s, comp, 13u);
+    got = split_next(&s, comp, NAME_MAX);
     if (got <= 0) {
         goto fail;
     }
     for (;;) {
-        char more[13];
+        char more[NAME_MAX];
         int g2;
         const char *rest = s;
 
-        g2 = split_next(&rest, more, 13u);
+        g2 = split_next(&rest, more, NAME_MAX);
         if (g2 < 0) {
             goto fail;
         }
         if (g2 == 0) {
-            if (copy_str(leaf, 13u, comp) != 0) {
+            if (copy_str(leaf, NAME_MAX, comp) != 0) {
                 goto fail;
             }
             return 0;
@@ -339,7 +346,7 @@ static int enter_parent(const char *path, char *leaf)
         if (chdir_one(comp) != 0) {
             goto fail;
         }
-        if (copy_str(comp, 13u, more) != 0) {
+        if (copy_str(comp, NAME_MAX, more) != 0) {
             goto fail;
         }
         s = rest;
@@ -611,10 +618,37 @@ static int dir_store(void)
     return off < g_dir_bytes ? -1 : 0;
 }
 
-static int dir_slot(void)
+static int dir_find_run(unsigned need)
 {
     unsigned i;
     unsigned n;
+    unsigned run = 0;
+    unsigned start = 0;
+
+    if (need == 0 || g_dir == 0) {
+        return -1;
+    }
+    n = dir_ents();
+    for (i = 0; i < n; i++) {
+        uint8_t c = g_dir[i * 32u];
+
+        if (c == 0 || c == 0xE5) {
+            if (run == 0) {
+                start = i;
+            }
+            run++;
+            if (run >= need) {
+                return (int)(start * 32u);
+            }
+        } else {
+            run = 0;
+        }
+    }
+    return -1;
+}
+
+static int dir_grow(void)
+{
     unsigned cl;
     unsigned last;
     unsigned next;
@@ -622,17 +656,7 @@ static int dir_slot(void)
     unsigned off;
     unsigned k;
 
-    if (dir_load() != 0) {
-        return -1;
-    }
-    n = dir_ents();
-    for (i = 0; i < n; i++) {
-        uint8_t c = g_dir[i * 32u];
-        if (c == 0 || c == 0xE5) {
-            return (int)(i * 32u);
-        }
-    }
-    if (g_fat == 0 || g_dir_bytes + SEC > CHAIN_MAX * SEC) {
+    if (g_fat == 0 || g_dir == 0 || g_dir_bytes + SEC > CHAIN_MAX * SEC) {
         return -1;
     }
     if (g_cwd < 2u) {
@@ -670,7 +694,204 @@ static int dir_slot(void)
         g_dir[off + k] = 0;
     }
     g_dir_bytes = off + SEC;
-    return (int)off;
+    return 0;
+}
+
+static int dir_slots(unsigned need)
+{
+    int off;
+
+    if (dir_load() != 0) {
+        return -1;
+    }
+    off = dir_find_run(need);
+    if (off >= 0) {
+        return off;
+    }
+    if (dir_grow() != 0) {
+        return -1;
+    }
+    return dir_find_run(need);
+}
+
+static int dir_slot(void)
+{
+    return dir_slots(1u);
+}
+
+static void dir_wipe(unsigned off)
+{
+    if (g_dir == 0) {
+        return;
+    }
+    g_dir[off] = 0xE5;
+    while (off >= 32u) {
+        off -= 32u;
+        if (g_dir[off] == 0 || g_dir[off] == 0xE5 || g_dir[off + 11] != 0x0F) {
+            break;
+        }
+        g_dir[off] = 0xE5;
+    }
+}
+
+static int lfn_ok(const char *name)
+{
+    unsigned n = 0;
+
+    if (name == 0 || *name == '\0') {
+        return -1;
+    }
+    while (name[n] != '\0') {
+        char c = name[n];
+
+        if (n + 1u >= NAME_MAX) {
+            return -1;
+        }
+        if (c != '.') {
+            c = fold_az(c);
+            if (!name_char(c)) {
+                return -1;
+            }
+        }
+        n++;
+    }
+    return 0;
+}
+
+static int alias_used(const uint8_t *n83)
+{
+    unsigned i;
+    unsigned n;
+    unsigned k;
+
+    if (n83 == 0 || g_dir == 0) {
+        return 1;
+    }
+    n = dir_ents();
+    for (i = 0; i < n; i++) {
+        const uint8_t *ent = g_dir + i * 32u;
+
+        if (ent[0] == 0) {
+            break;
+        }
+        if (ent[0] == 0xE5 || ent[11] == 0x0Fu || (ent[11] & 0x08u) != 0) {
+            continue;
+        }
+        k = 0;
+        while (k < 11u && ent[k] == n83[k]) {
+            k++;
+        }
+        if (k == 11u) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int make_alias(const char *name, uint8_t *out)
+{
+    const char *dot;
+    const char *p;
+    unsigned n;
+    unsigned e;
+    unsigned gen;
+    unsigned stem;
+    char base[8];
+    char ext[3];
+    char c;
+
+    if (name == 0 || out == 0 || g_dir == 0) {
+        return -1;
+    }
+    dot = 0;
+    p = name;
+    while (*p != '\0') {
+        if (*p == '.') {
+            dot = p;
+        }
+        p++;
+    }
+    n = 0;
+    p = name;
+    while (*p != '\0' && p != dot && n < 8u) {
+        c = fold_az(*p);
+        if (name_char(c)) {
+            if (c >= 'a' && c <= 'z') {
+                c = (char)(c - 'a' + 'A');
+            }
+            base[n++] = c;
+        }
+        p++;
+    }
+    if (n == 0) {
+        return -1;
+    }
+    e = 0;
+    if (dot != 0) {
+        p = dot + 1;
+        while (*p != '\0' && e < 3u) {
+            c = fold_az(*p);
+            if (name_char(c)) {
+                if (c >= 'a' && c <= 'z') {
+                    c = (char)(c - 'a' + 'A');
+                }
+                ext[e++] = c;
+            }
+            p++;
+        }
+    }
+    stem = n;
+    if (stem > 6u) {
+        stem = 6u;
+    }
+    for (gen = 1; gen <= 9u; gen++) {
+        unsigned i;
+
+        for (i = 0; i < 11u; i++) {
+            out[i] = ' ';
+        }
+        for (i = 0; i < stem; i++) {
+            out[i] = (uint8_t)base[i];
+        }
+        out[stem] = '~';
+        out[stem + 1u] = (uint8_t)('0' + gen);
+        for (i = 0; i < e; i++) {
+            out[8u + i] = (uint8_t)ext[i];
+        }
+        if (alias_used(out) == 0) {
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static void lfn_store(uint8_t *ent, uint8_t seq, uint8_t sum, const char *name,
+                      unsigned start)
+{
+    unsigned i;
+    unsigned k;
+    unsigned done = 0;
+
+    if (ent == 0 || name == 0) {
+        return;
+    }
+    for (i = 0; i < 32u; i++) {
+        ent[i] = 0;
+    }
+    ent[0] = seq;
+    ent[11] = 0x0F;
+    ent[13] = sum;
+    for (i = 0; i < LFN_CHARS; i++) {
+        k = start + i;
+        if (done != 0) {
+            ent[lfn_slot[i]] = 0xFF;
+            ent[lfn_slot[i] + 1u] = 0xFF;
+        } else if (name[k] == '\0') {
+            done = 1;
+        } else {
+            ent[lfn_slot[i]] = (uint8_t)name[k];
+        }
+    }
 }
 
 static void fat_free_chain(unsigned cl)
@@ -759,13 +980,28 @@ static int fs_create(const char *name)
 {
     uint8_t n83[11];
     unsigned cl;
+    unsigned lfn_n = 0;
+    unsigned nlen = 0;
+    unsigned seq;
     int off;
     unsigned k;
     uint8_t *ent;
     uint8_t *dst;
 
-    if (to_83(name, n83) != 0 || file_count >= FS_MAX || g_fat == 0) {
+    if (name == 0 || file_count >= FS_MAX || g_fat == 0) {
         return -1;
+    }
+    while (name[nlen] != '\0') {
+        nlen++;
+    }
+    if (to_83(name, n83) != 0) {
+        if (dir_load() != 0 || lfn_ok(name) != 0 || make_alias(name, n83) != 0) {
+            return -1;
+        }
+        lfn_n = (nlen + (LFN_CHARS - 1u)) / LFN_CHARS;
+        if (lfn_n == 0 || lfn_n > LFN_MAX) {
+            return -1;
+        }
     }
     dst = page_buf();
     if (dst == 0) {
@@ -781,14 +1017,30 @@ static int fs_create(const char *name)
         drop_page(dst);
         return -1;
     }
-    off = dir_slot();
+    off = dir_slots(lfn_n + 1u);
     if (off < 0) {
         fat12_set(g_fat, cl, 0);
         (void)fat_flush();
         drop_page(dst);
         return -1;
     }
-    ent = g_dir + (unsigned)off;
+    if (lfn_n != 0) {
+        uint8_t sum = lfn_cksum(n83);
+
+        seq = lfn_n;
+        while (seq > 0u) {
+            uint8_t ord = (uint8_t)seq;
+            uint8_t bits = ord;
+
+            if (seq == lfn_n) {
+                bits |= 0x40u;
+            }
+            lfn_store(g_dir + (unsigned)off + (lfn_n - seq) * 32u, bits, sum, name,
+                      (seq - 1u) * LFN_CHARS);
+            seq--;
+        }
+    }
+    ent = g_dir + (unsigned)off + lfn_n * 32u;
     for (k = 0; k < 32u; k++) {
         ent[k] = 0;
     }
