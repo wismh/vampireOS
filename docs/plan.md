@@ -2,16 +2,16 @@
 
 Vampire OS after `vos-89`: BIOS MBR, FAT12 on ATA PIO (344 data clusters, two FAT sectors), private CR3 + COW fork, `brk` / `mmap`, eight fds, user `init` → `sh`, freestanding C (`hi`, CRT stubs, tiny `string.c`), `ps` / `kill` / Ctrl+C / `uptime`.
 
-One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 96 KiB (`KERNEL_SECTORS` 192); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again. No full libc, no second language — stay on the clang/nasm/lld flags in `CMakeLists.txt`. Grow freestanding helpers only.
+One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 100 KiB (`KERNEL_SECTORS` 200); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again. No full libc, no second language — stay on the clang/nasm/lld flags in `CMakeLists.txt`. Grow freestanding helpers only.
 
 ## Now
 
-- Volume: FAT12, 344 data clusters, two sectors per FAT. 8.3 names plus a packed VFAT LFN (`ls` / `open` / `cat longname.txt`). ATA PIO only.
-- Boot: kernel starts `init`, which `fork`/`exec`s `sh`. Prompt `$`. `sh` parses nested `|` (`cat hello | cat | cat` prints `blood`) and one `<`, `>`, or `>>` (`hi > out` then `cat out` prints `hi`; `cat < hello` prints `blood`; `hi >> out` twice then `cat out` prints `hihi`). A trailing `&` backgrounds the line (`sleeper &` returns `$` while that sleeper stays in `ps`). `cd` / `pwd` are `sh` builtins (`cd sub` then `ls` lists `sub`; `pwd` prints `/sub`). Kernel `mv` rewrites both parent dirents so `mv sub/note dusk` leaves the clusters put; an existing dest name prints `?`. Kernel `trunc name N` sets the dirent size and frees trailing FAT clusters on shrink (`fill note 600` then `trunc note 5` / `cat note` shows five bytes). `$` `ls` lists `longname.txt` from a packed VFAT LFN (8.3 alias `LONGNA~1.TXT`); `$` `cat longname.txt` prints `long`. Kernel line buffer remains as fallback (`help` / `ls` / `run` / …): one `|` and the same redirects; kernel `cd` / `pwd` stay on `kbd>`.
+- Volume: FAT12, 344 data clusters, two sectors per FAT. 8.3 names plus VFAT LFN (`ls` / `open` / `cat longname.txt`; `put` / `cp` / `>` of a longer name writes LFN + 8.3 alias). ATA PIO only.
+- Boot: kernel starts `init`, which `fork`/`exec`s `sh`. Prompt `$`. `sh` parses nested `|` (`cat hello | cat | cat` prints `blood`) and one `<`, `>`, or `>>` (`hi > out` then `cat out` prints `hi`; `cat < hello` prints `blood`; `hi >> out` twice then `cat out` prints `hihi`). A trailing `&` backgrounds the line (`sleeper &` returns `$` while that sleeper stays in `ps`). `cd` / `pwd` are `sh` builtins (`cd sub` then `ls` lists `sub`; `pwd` prints `/sub`). Kernel `mv` rewrites both parent dirents so `mv sub/note dusk` leaves the clusters put; an existing dest name prints `?`. Kernel `trunc name N` sets the dirent size and frees trailing FAT clusters on shrink (`fill note 600` then `trunc note 5` / `cat note` shows five bytes). `$` `ls` lists `longname.txt` from a packed VFAT LFN (8.3 alias `LONGNA~1.TXT`); `$` `cat longname.txt` prints `long`. `$` `hi > longername.txt` writes LFN + alias `LONGER~1.TXT`; `$` `ls` lists `longername.txt` and `$` `cat longername.txt` prints `hi`. Kernel line buffer remains as fallback (`help` / `ls` / `run` / …): one `|` and the same redirects; kernel `cd` / `pwd` stay on `kbd>`.
 - Tasks: ELF at `0x400000`, stack `0x401000`, heap from `0x402000`. COW fork. `TASK_MAX` 8. Eight fds. New tasks start with fd 0/1/2 on the console (keyboard / VGA / VGA err); redirects and pipes still override those slots.
 - Syscalls through `int 0x30`: write, exit, yield, sleep, wait/waitpid, open (rsi 1 creates, rsi 2 creates and appends), close, read, readdir, exec, pipe, brk, fork, dup2, lseek, stat, kill, mmap, uptime, chdir, getcwd.
 - Userland C: `hi`, `sh`, `init`, CRT stubs, `memcpy` / `strlen` / `strcmp`.
-- No job control (`fg` / `bg` / `jobs`), no LFN create, no FAT16, no framebuffer, no AHCI/VirtIO, no serial console, no SMP, no networking, no signals beyond kill/Ctrl+C, no file-backed mmap, no `munmap`.
+- No job control (`fg` / `bg` / `jobs`), no FAT16, no framebuffer, no AHCI/VirtIO, no serial console, no SMP, no networking, no signals beyond kill/Ctrl+C, no file-backed mmap, no `munmap`.
 
 ---
 
@@ -48,7 +48,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 ## Week 1 — long names
 
 9. **LFN read** — done: recognize VFAT long-name entries enough to `open` / `ls` a hand-packed `longname.txt` on the volume. Creating LFNs can wait one slice.
-10. **LFN create** — `put` / `cp` / `>` of a long name writes LFN + 8.3 alias. `ls` shows the long form. ASCII only.
+10. **LFN create** — done: `put` / `cp` / `>` of a long name writes LFN + 8.3 alias. `ls` shows the long form. ASCII only.
 
 ## Week 2 — size and sync
 

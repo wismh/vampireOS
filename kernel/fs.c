@@ -1053,11 +1053,15 @@ static int fs_create(const char *name)
         drop_page(dst);
         return -1;
     }
-    fat_name(ent, files[file_count].name);
+    if (lfn_n != 0) {
+        (void)copy_str(files[file_count].name, NAME_MAX, name);
+    } else {
+        fat_name(ent, files[file_count].name);
+    }
     files[file_count].data = dst;
     files[file_count].len = 0;
     files[file_count].cluster = cl;
-    files[file_count].dir_off = (unsigned)off;
+    files[file_count].dir_off = (unsigned)off + lfn_n * 32u;
     files[file_count].is_dir = 0;
     file_count++;
     return file_count - 1;
@@ -1107,31 +1111,65 @@ static uint8_t lfn_cksum(const uint8_t *n83)
     return s;
 }
 
-/* ASCII from one LFN dirent that holds the start of the name (seq 1). */
-static int lfn_ascii(const uint8_t *ent, char *out)
+/* ASCII chars from one LFN dirent, appended at *n. */
+static int lfn_chars(const uint8_t *ent, char *out, unsigned *n)
 {
-    static const uint8_t slot[13] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30};
-    unsigned n = 0;
     unsigned i;
 
-    if (ent == 0 || out == 0 || (ent[0] & 0x1Fu) != 1u || (ent[0] & 0x80u) != 0 ||
-        ent[11] != 0x0Fu || ent[12] != 0) {
+    if (ent == 0 || out == 0 || n == 0 || ent[11] != 0x0Fu || ent[12] != 0) {
         return -1;
     }
-    for (i = 0; i < 13u; i++) {
-        uint8_t lo = ent[slot[i]];
-        uint8_t hi = ent[slot[i] + 1u];
+    for (i = 0; i < LFN_CHARS; i++) {
+        uint8_t lo = ent[lfn_slot[i]];
+        uint8_t hi = ent[lfn_slot[i] + 1u];
 
         if (lo == 0 && hi == 0) {
             break;
         }
-        if (hi != 0 || lo < 0x20 || n >= 12u) {
+        if (hi != 0 || lo < 0x20 || *n + 1u >= NAME_MAX) {
             return -1;
         }
-        out[n++] = (char)lo;
+        out[(*n)++] = (char)lo;
+    }
+    return 0;
+}
+
+/* Assemble a VFAT name from `count` LFN dirents immediately before the 8.3. */
+static int lfn_build(const uint8_t *first, unsigned count, const uint8_t *n83,
+                     char *out)
+{
+    unsigned n = 0;
+    unsigned i;
+    uint8_t sum;
+
+    if (first == 0 || n83 == 0 || out == 0 || count == 0 || count > LFN_MAX) {
+        return -1;
+    }
+    sum = lfn_cksum(n83);
+    for (i = 0; i < count; i++) {
+        const uint8_t *ent = first + i * 32u;
+        uint8_t seq = (uint8_t)(count - i);
+        uint8_t want = seq;
+
+        if (i == 0) {
+            want |= 0x40u;
+        }
+        if (ent[0] != want || ent[13] != sum) {
+            return -1;
+        }
+    }
+    i = count;
+    while (i > 0u) {
+        i--;
+        if (lfn_chars(first + i * 32u, out, &n) != 0) {
+            return -1;
+        }
+    }
+    if (n == 0) {
+        return -1;
     }
     out[n] = '\0';
-    return n == 0 ? -1 : 0;
+    return 0;
 }
 
 static int load_file(uint8_t *dst, unsigned start, unsigned size)
@@ -1165,6 +1203,7 @@ static int scan_dir(void)
     unsigned n;
     int old = file_count;
     const uint8_t *lfn_ent = 0;
+    unsigned lfn_n = 0;
 
     for (i = 0; i < (unsigned)old; i++) {
         drop_page(files[i].data);
@@ -1187,23 +1226,33 @@ static int scan_dir(void)
         }
         if (ent[0] == 0xE5 || ent[0] == 0x05 || ent[0] == '.') {
             lfn_ent = 0;
+            lfn_n = 0;
             continue;
         }
         attr = ent[11];
         if (attr == 0x0Fu) {
-            lfn_ent = ent;
+            if ((ent[0] & 0x40u) != 0) {
+                lfn_ent = ent;
+                lfn_n = 1u;
+            } else if (lfn_ent != 0 && lfn_n < LFN_MAX) {
+                lfn_n++;
+            } else {
+                lfn_ent = 0;
+                lfn_n = 0;
+            }
             continue;
         }
         if ((attr & 0x08u) != 0) {
             lfn_ent = 0;
+            lfn_n = 0;
             continue;
         }
         cl = rd_u16(ent + 26);
-        if (lfn_ent == 0 || lfn_cksum(ent) != lfn_ent[13] ||
-            lfn_ascii(lfn_ent, files[file_count].name) != 0) {
+        if (lfn_ent == 0 || lfn_build(lfn_ent, lfn_n, ent, files[file_count].name) != 0) {
             fat_name(ent, files[file_count].name);
         }
         lfn_ent = 0;
+        lfn_n = 0;
         files[file_count].cluster = cl;
         files[file_count].dir_off = i * 32u;
         files[file_count].data = 0;
@@ -1381,7 +1430,7 @@ int fs_readdir(char *dst, unsigned max)
 
 int fs_lookup(const char *name, const void **data, unsigned *len)
 {
-    char leaf[13];
+    char leaf[NAME_MAX];
     int i;
     int r = -1;
 
@@ -1426,7 +1475,7 @@ int fs_lookup(const char *name, const void **data, unsigned *len)
 
 int fs_stat(const char *name, unsigned *size, unsigned *cluster, unsigned *is_dir)
 {
-    char leaf[13];
+    char leaf[NAME_MAX];
     int i;
     int r = -1;
 
@@ -1451,7 +1500,7 @@ int fs_stat(const char *name, unsigned *size, unsigned *cluster, unsigned *is_di
 
 int fs_write(const char *name, const void *src, unsigned len)
 {
-    char leaf[13];
+    char leaf[NAME_MAX];
     int i;
     unsigned need;
     int r = -1;
@@ -1497,7 +1546,7 @@ int fs_write(const char *name, const void *src, unsigned len)
 
 int fs_truncate(const char *name, unsigned len)
 {
-    char leaf[13];
+    char leaf[NAME_MAX];
     int i;
     unsigned need;
     unsigned old;
@@ -1568,7 +1617,7 @@ int fs_truncate(const char *name, unsigned len)
 
 int fs_remove(const char *name)
 {
-    char leaf[13];
+    char leaf[NAME_MAX];
     int i;
     uint64_t phys;
     int r = -1;
@@ -1580,7 +1629,7 @@ int fs_remove(const char *name)
     if (i >= 0 && files[i].is_dir == 0 && g_dir != 0 && g_fat != 0) {
         fat_free_chain(files[i].cluster);
         if (fat_flush() == 0 && dir_load() == 0) {
-            g_dir[files[i].dir_off] = 0xE5;
+            dir_wipe(files[i].dir_off);
             if (dir_store() == 0) {
                 phys = virt_to_phys((uint64_t)(uintptr_t)files[i].data);
                 if (i != file_count - 1) {
@@ -1602,8 +1651,8 @@ int fs_remove(const char *name)
 
 int fs_rename(const char *src, const char *dst)
 {
-    char src_leaf[13];
-    char dst_leaf[13];
+    char src_leaf[NAME_MAX];
+    char dst_leaf[NAME_MAX];
     uint8_t n83[11];
     uint8_t ent[32];
     unsigned src_parent;
@@ -1670,7 +1719,7 @@ int fs_rename(const char *src, const char *dst)
     }
     i = find_file(src_leaf);
     if (i >= 0 && g_dir != 0 && dir_load() == 0) {
-        g_dir[files[i].dir_off] = 0xE5;
+        dir_wipe(files[i].dir_off);
         if (dir_store() == 0 && scan_dir() == 0) {
             r = 0;
         }
@@ -1711,7 +1760,7 @@ int fs_isdir(int i)
 
 int fs_mkdir(const char *name)
 {
-    char leaf[13];
+    char leaf[NAME_MAX];
     uint8_t n83[11];
     unsigned cl;
     unsigned k;
@@ -1819,7 +1868,7 @@ static int dir_empty(unsigned cl)
 
 int fs_rmdir(const char *name)
 {
-    char leaf[13];
+    char leaf[NAME_MAX];
     int i;
     int r = -1;
 
@@ -1831,7 +1880,7 @@ int fs_rmdir(const char *name)
         files[i].cluster != g_saved_cwd && dir_empty(files[i].cluster)) {
         fat_free_chain(files[i].cluster);
         if (fat_flush() == 0 && dir_load() == 0) {
-            g_dir[files[i].dir_off] = 0xE5;
+            dir_wipe(files[i].dir_off);
             if (dir_store() == 0) {
                 if (i != file_count - 1) {
                     files[i] = files[file_count - 1];
