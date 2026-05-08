@@ -1,13 +1,13 @@
-# April 2026 – July 2026
+# August 2026 – January 2027
 
-Vampire OS after `vos-89`: BIOS MBR, FAT12 on ATA PIO (344 data clusters, two FAT sectors), private CR3 + COW fork, `brk` / `mmap`, eight fds, user `init` → `sh`, freestanding C (`hi`, CRT stubs, tiny `string.c`), `ps` / `kill` / Ctrl+C / `uptime`.
+Vampire OS after `vos-89`: BIOS MBR, FAT12 on ATA PIO (1024 data clusters, four FAT sectors), private CR3 + COW fork, `brk` / `mmap`, eight fds, user `init` → `sh`, freestanding C (`hi`, CRT stubs, tiny `string.c`), `ps` / `kill` / Ctrl+C / `uptime`.
 
 One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a line on the VGA that was impossible the day before. Kernel pad is 100 KiB (`KERNEL_SECTORS` 200); bump `KERNEL_SECTORS` and `KERNEL_SIZE` together when `.text` plus `.bss` get near the PMM bitmap again. No full libc, no second language — stay on the clang/nasm/lld flags in `CMakeLists.txt`. Grow freestanding helpers only.
 
 ## Now
 
-- Volume: FAT12, 344 data clusters, two sectors per FAT. 8.3 names plus VFAT LFN (`ls` / `open` / `cat longname.txt`; `put` / `cp` / `>` of a longer name writes LFN + 8.3 alias). ATA PIO only.
-- Boot: kernel starts `init`, which `fork`/`exec`s `sh`. Prompt `$`. `sh` parses nested `|` (`cat hello | cat | cat` prints `blood`) and one `<`, `>`, or `>>` (`hi > out` then `cat out` prints `hi`; `cat < hello` prints `blood`; `hi >> out` twice then `cat out` prints `hihi`). A trailing `&` backgrounds the line (`sleeper &` returns `$` while that sleeper stays in `ps`). `cd` / `pwd` are `sh` builtins (`cd sub` then `ls` lists `sub`; `pwd` prints `/sub`). Kernel `mv` rewrites both parent dirents so `mv sub/note dusk` leaves the clusters put; an existing dest name prints `?`. Kernel `trunc name N` sets the dirent size and frees trailing FAT clusters on shrink (`fill note 600` then `trunc note 5` / `cat note` shows five bytes). `$` `ls` lists `longname.txt` from a packed VFAT LFN (8.3 alias `LONGNA~1.TXT`); `$` `cat longname.txt` prints `long`. `$` `hi > longername.txt` writes LFN + alias `LONGER~1.TXT`; `$` `ls` lists `longername.txt` and `$` `cat longername.txt` prints `hi`. Kernel line buffer remains as fallback (`help` / `ls` / `run` / …): one `|` and the same redirects; kernel `cd` / `pwd` stay on `kbd>`.
+- Volume: FAT12, 1024 data clusters, four sectors per FAT (both copies). 8.3 names plus VFAT LFN (`ls` / `open` / `cat longname.txt`; `put` / `cp` / `>` of a longer name writes LFN + 8.3 alias). ATA PIO only.
+- Boot: kernel starts `init`, which `fork`/`exec`s `sh`. Prompt `$`. `sh` parses nested `|` (`cat hello | cat | cat` prints `blood`) and one `<`, `>`, or `>>` (`hi > out` then `cat out` prints `hi`; `cat < hello` prints `blood`; `hi >> out` twice then `cat out` prints `hihi`). A trailing `&` backgrounds the line (`sleeper &` returns `$` while that sleeper stays in `ps`). `cd` / `pwd` are `sh` builtins (`cd sub` then `ls` lists `sub`; `pwd` prints `/sub`). Kernel `mv` rewrites both parent dirents so `mv sub/note dusk` leaves the clusters put; an existing dest name prints `?`. Kernel `trunc name N` sets the dirent size and frees trailing FAT clusters on shrink (`fill note 600` then `trunc note 5` / `cat note` shows five bytes). `$` `fill note 2048` writes a multi-KiB chain on the extra FAT map; `$` `ls` lists `note` and `$` `cat note` prints the filled bytes. `$` `ls` lists `longname.txt` from a packed VFAT LFN (8.3 alias `LONGNA~1.TXT`); `$` `cat longname.txt` prints `long`. `$` `hi > longername.txt` writes LFN + alias `LONGER~1.TXT`; `$` `ls` lists `longername.txt` and `$` `cat longername.txt` prints `hi`. Kernel line buffer remains as fallback (`help` / `ls` / `run` / …): one `|` and the same redirects; kernel `cd` / `pwd` stay on `kbd>`.
 - Tasks: ELF at `0x400000`, stack `0x401000`, heap from `0x402000`. COW fork. `TASK_MAX` 8. Eight fds. New tasks start with fd 0/1/2 on the console (keyboard / VGA / VGA err); redirects and pipes still override those slots.
 - Syscalls through `int 0x30`: write, exit, yield, sleep, wait/waitpid, open (rsi 1 creates, rsi 2 creates and appends), close, read, readdir, exec, pipe, brk, fork, dup2, lseek, stat, kill, mmap, uptime, chdir, getcwd.
 - Userland C: `hi`, `sh`, `init`, CRT stubs, `memcpy` / `strlen` / `strcmp`.
@@ -52,7 +52,7 @@ One `vos-N` slice per step. Each slice boots in QEMU and leaves a command or a l
 
 ## Week 2 — size and sync
 
-11. **FAT16 (or more FAT12 sectors)** — pick one: graduate the volume to FAT16 with a larger data region, **or** stay FAT12 and raise `FAT_SEC_PER_FAT` again so ≥1024 data clusters fit. Document the choice in the slice. `fill` of a multi-KiB file still lists and `cat`s.
+11. **FAT16 (or more FAT12 sectors)** — done: stayed FAT12 (FAT16 is a bigger BPB/entry-width change). `FAT_SEC_PER_FAT` 4; `FAT_DATA_CLUSTERS` 1024 so a FAT12 entry can sit past two sectors. `fill note 2048` still lists and `cat`s.
 12. **`sync` / flush** — syscall or shell `sync` forces dirty FAT/dir sectors to disk (explicit ATA flush). After `put` without reboot, a cold QEMU restart still sees the file (prove with `cache=writethrough` already on; this is about not leaving cached FS state if any appears).
 
 ## Week 3 — directories and links

@@ -513,7 +513,7 @@ static unsigned fat_alloc(void)
     unsigned cl;
     unsigned last = g_clusters + 1u;
 
-    /* Last cluster first so one fill can occupy a FAT12 entry past 512 bytes. */
+    /* Last cluster first so one fill can occupy a FAT12 entry past two FAT sectors. */
     for (cl = last; cl >= 2u; cl--) {
         if (fat12_ent(g_fat, cl) == 0) {
             fat12_set(g_fat, cl, FAT12_EOF);
@@ -1315,8 +1315,8 @@ int fs_init(int row)
         return row + 1;
     }
     g_fat = scratch;
-    g_sec = scratch + SEC * 2u;
-    bpb = scratch + SEC * 3u;
+    g_sec = scratch + SEC * 4u;
+    bpb = scratch + SEC * 5u;
     g_dir = page_buf();
     if (g_dir == 0) {
         vga_write_at(row, 0, "fat fail");
@@ -1337,7 +1337,7 @@ int fs_init(int row)
     tot32 = rd_u32(bpb + 32);
     tot = tot16 != 0 ? tot16 : tot32;
     if (byts != SEC || spc != 1u || rsvd == 0 || nfats == 0 ||
-        fatsz == 0 || fatsz > 2u || root_ent == 0 || tot == 0) {
+        fatsz == 0 || fatsz > 4u || root_ent == 0 || tot == 0) {
         vga_write_at(row, 0, "fat fail");
         return row + 1;
     }
