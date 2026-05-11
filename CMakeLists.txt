@@ -657,7 +657,7 @@ if(QEMU_EXECUTABLE)
     endif()
     add_custom_target(run
         COMMAND ${_qemu_cmd}
-            -drive "format=raw,file=${DISK_IMG},if=ide"
+            -drive "format=raw,file=${DISK_IMG},if=ide,cache=writethrough"
             -m 128
             -no-reboot
             -no-shutdown

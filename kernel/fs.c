@@ -1544,6 +1544,20 @@ int fs_write(const char *name, const void *src, unsigned len)
     return r;
 }
 
+int fs_sync(void)
+{
+    if (g_fat == 0 || g_dir == 0) {
+        return -1;
+    }
+    if (fat_flush() != 0) {
+        return -1;
+    }
+    if (dir_store() != 0) {
+        return -1;
+    }
+    return ata_flush();
+}
+
 int fs_truncate(const char *name, unsigned len)
 {
     char leaf[NAME_MAX];

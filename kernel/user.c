@@ -43,6 +43,7 @@
 #define SYS_UPTIME 19ull
 #define SYS_CHDIR 20ull
 #define SYS_GETCWD 21ull
+#define SYS_SYNC 22ull
 #define PIT_TICKS_PER_SEC 100u
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
@@ -1490,6 +1491,12 @@ void user_on_syscall(struct interrupt_frame *frame)
     /* PIT seconds (ticks / 100 Hz). rax=seconds since boot. */
     if (frame->rax == SYS_UPTIME) {
         frame->rax = (uint64_t)(idt_ticks() / PIT_TICKS_PER_SEC);
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* Rewrite FAT copies and the cwd dirent, then ATA FLUSH CACHE (E7h). */
+    if (frame->rax == SYS_SYNC) {
+        frame->rax = (fs_sync() != 0) ? (uint64_t)-1 : 0;
         vmm_set_cr3(sched_current_cr3());
         return;
     }

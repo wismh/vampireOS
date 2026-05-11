@@ -9,6 +9,7 @@ int fs_lookup(const char *name, const void **data, unsigned *len);
 /* Packed user ints: size, first cluster, is-dir. */
 int fs_stat(const char *name, unsigned *size, unsigned *cluster, unsigned *is_dir);
 int fs_write(const char *name, const void *data, unsigned len);
+int fs_sync(void);
 int fs_truncate(const char *name, unsigned len);
 int fs_remove(const char *name);
 int fs_rename(const char *src, const char *dst);

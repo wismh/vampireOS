@@ -265,6 +265,13 @@ static void run_trunc(const char *arg)
     }
 }
 
+static void run_sync(void)
+{
+    if (fs_sync() != 0) {
+        vga_putc('?');
+    }
+}
+
 static void run_rm(const char *arg)
 {
     arg = skip_ws(arg);
@@ -636,7 +643,7 @@ static void run_line(void)
         return;
     }
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm mv cp fill trunc mkdir rmdir cd pwd ps kill uptime | < > >>");
+        puts_cur("help ls mem cat run put rm mv cp fill trunc sync mkdir rmdir cd pwd ps kill uptime | < > >>");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "uptime")) {
@@ -668,6 +675,8 @@ static void run_line(void)
         run_fill(cmd + 4);
     } else if (cmd_is(cmd, "trunc")) {
         run_trunc(cmd + 5);
+    } else if (streq(cmd, "sync")) {
+        run_sync();
     } else if (cmd_is(cmd, "mkdir")) {
         run_mkdir(cmd + 5);
     } else if (cmd_is(cmd, "cd")) {
@@ -741,7 +750,7 @@ int kbd_stdin_take(void *dst, unsigned max)
     return (int)n;
 }
 
-/* `ps` / `help` / `mkdir` / `mv` / `fill` / `trunc` / plain `cat` / `ls` are kernel-only; run them at `$` without waking `sh`. */
+/* `ps` / `help` / `mkdir` / `mv` / `fill` / `trunc` / `sync` / plain `cat` / `ls` are kernel-only; run them at `$` without waking `sh`. */
 static int line_has_meta(const char *s)
 {
     while (*s != '\0') {
@@ -782,7 +791,8 @@ static int kbd_dollar_builtin(void)
     }
     cat = cmd_is(s, "cat") != 0 && line_has_meta(s) == 0;
     ls = cmd_is(s, "ls") != 0 && line_has_meta(s) == 0;
-    if (streq(s, "ps") == 0 && streq(s, "help") == 0 && cmd_is(s, "mkdir") == 0 &&
+    if (streq(s, "ps") == 0 && streq(s, "help") == 0 && streq(s, "sync") == 0 &&
+        cmd_is(s, "mkdir") == 0 &&
         cmd_is(s, "mv") == 0 && cmd_is(s, "fill") == 0 && cmd_is(s, "trunc") == 0 &&
         cat == 0 && ls == 0) {
         return 0;
@@ -791,7 +801,9 @@ static int kbd_dollar_builtin(void)
     if (streq(s, "ps") != 0) {
         run_ps();
     } else if (streq(s, "help") != 0) {
-        puts_cur("help ls mem cat run put rm mv cp fill trunc mkdir rmdir cd pwd ps kill uptime | < > >>");
+        puts_cur("help ls mem cat run put rm mv cp fill trunc sync mkdir rmdir cd pwd ps kill uptime | < > >>");
+    } else if (streq(s, "sync") != 0) {
+        run_sync();
     } else if (cmd_is(s, "mkdir") != 0) {
         run_mkdir(s + 5);
     } else if (cmd_is(s, "fill") != 0) {
