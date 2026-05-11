@@ -11,6 +11,7 @@
 #define ATA_ALT 0x3F6
 #define ATA_READ 0x20
 #define ATA_WRITE 0x30
+#define ATA_FLUSH 0xE7
 #define ATA_BSY 0x80
 #define ATA_DRQ 0x08
 #define ATA_ERR 0x01
@@ -129,6 +130,24 @@ int ata_write(uint32_t lba, unsigned sectors, const void *src)
             outw(ATA_DATA, buf[s * 256u + w]);
         }
     }
+    st = ata_wait();
+    if (st < 0 || (st & (ATA_ERR | ATA_DF)) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+int ata_flush(void)
+{
+    int st;
+
+    st = ata_wait();
+    if (st < 0) {
+        return -1;
+    }
+    outb(ATA_DRIVE, 0xE0);
+    ata_delay();
+    outb(ATA_CMD, ATA_FLUSH);
     st = ata_wait();
     if (st < 0 || (st & (ATA_ERR | ATA_DF)) != 0) {
         return -1;
