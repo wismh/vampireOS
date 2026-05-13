@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-#define FS_MAX 32
+#define FS_MAX 40
 #define SEC 512u
 #define FILE_MAX 0x1000u
 #define CHAIN_MAX 8u
@@ -906,6 +906,38 @@ static void fat_free_chain(unsigned cl)
     }
 }
 
+/* FAT12 has no inode. A hard link is another 8.3 dirent with the same first
+ * cluster. nlink is how many of those dirents remain in this directory. */
+static int other_links(unsigned cl, unsigned skip_off)
+{
+    unsigned i;
+    unsigned n;
+    int count = 0;
+
+    if (cl < 2u || g_dir == 0) {
+        return 0;
+    }
+    n = dir_ents();
+    for (i = 0; i < n; i++) {
+        const uint8_t *ent = g_dir + i * 32u;
+        unsigned off = i * 32u;
+        unsigned attr;
+
+        if (ent[0] == 0) {
+            break;
+        }
+        attr = ent[11];
+        if (off == skip_off || ent[0] == 0xE5 || ent[0] == '.' ||
+            attr == 0x0Fu || (attr & 0x08u) != 0 || (attr & 0x10u) != 0) {
+            continue;
+        }
+        if (rd_u16(ent + 26) == cl) {
+            count++;
+        }
+    }
+    return count;
+}
+
 static int fat_resize(unsigned *start, unsigned need)
 {
     unsigned cls[CHAIN_MAX];
@@ -1640,21 +1672,29 @@ int fs_remove(const char *name)
         return -1;
     }
     i = find_file(leaf);
-    if (i >= 0 && files[i].is_dir == 0 && g_dir != 0 && g_fat != 0) {
-        fat_free_chain(files[i].cluster);
-        if (fat_flush() == 0 && dir_load() == 0) {
-            dir_wipe(files[i].dir_off);
-            if (dir_store() == 0) {
-                phys = virt_to_phys((uint64_t)(uintptr_t)files[i].data);
-                if (i != file_count - 1) {
-                    files[i] = files[file_count - 1];
+    if (i >= 0 && files[i].is_dir == 0 && g_dir != 0 && g_fat != 0 &&
+        dir_load() == 0) {
+        /* Last name on this cluster: free the chain. A remaining link keeps it. */
+        if (other_links(files[i].cluster, files[i].dir_off) == 0) {
+            fat_free_chain(files[i].cluster);
+            if (fat_flush() != 0) {
+                if (leave_parent() != 0) {
+                    return -1;
                 }
-                file_count--;
-                if (phys != 0) {
-                    pmm_free(phys);
-                }
-                r = 0;
+                return -1;
             }
+        }
+        dir_wipe(files[i].dir_off);
+        if (dir_store() == 0) {
+            phys = virt_to_phys((uint64_t)(uintptr_t)files[i].data);
+            if (i != file_count - 1) {
+                files[i] = files[file_count - 1];
+            }
+            file_count--;
+            if (phys != 0) {
+                pmm_free(phys);
+            }
+            r = 0;
         }
     }
     if (leave_parent() != 0) {
@@ -1762,6 +1802,52 @@ int fs_copy(const char *src, const char *dst)
         copy_bytes(g_view, (const uint8_t *)data, len);
     }
     return fs_write(dst, g_view, len);
+}
+
+int fs_link(const char *src, const char *dst)
+{
+    char src_leaf[NAME_MAX];
+    char dst_leaf[NAME_MAX];
+    uint8_t n83[11];
+    uint8_t ent[32];
+    int i;
+    int off;
+    int r = -1;
+
+    if (enter_parent(src, src_leaf) != 0) {
+        return -1;
+    }
+    i = find_file(src_leaf);
+    if (i < 0 || files[i].is_dir != 0 || g_dir == 0 || dir_load() != 0) {
+        (void)leave_parent();
+        return -1;
+    }
+    copy_bytes(ent, g_dir + files[i].dir_off, 32u);
+    if (leave_parent() != 0) {
+        return -1;
+    }
+    if (enter_parent(dst, dst_leaf) != 0) {
+        return -1;
+    }
+    if (find_file(dst_leaf) >= 0 || to_83(dst_leaf, n83) != 0 ||
+        file_count >= FS_MAX) {
+        (void)leave_parent();
+        return -1;
+    }
+    off = dir_slot();
+    if (off < 0) {
+        (void)leave_parent();
+        return -1;
+    }
+    copy_bytes(g_dir + (unsigned)off, ent, 32u);
+    copy_bytes(g_dir + (unsigned)off, n83, 11u);
+    if (dir_store() == 0 && scan_dir() == 0) {
+        r = 0;
+    }
+    if (leave_parent() != 0) {
+        return -1;
+    }
+    return r;
 }
 
 int fs_isdir(int i)

@@ -14,6 +14,7 @@ int fs_truncate(const char *name, unsigned len);
 int fs_remove(const char *name);
 int fs_rename(const char *src, const char *dst);
 int fs_copy(const char *src, const char *dst);
+int fs_link(const char *src, const char *dst);
 int fs_isdir(int i);
 int fs_mkdir(const char *name);
 int fs_rmdir(const char *name);
