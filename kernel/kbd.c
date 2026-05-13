@@ -328,6 +328,30 @@ static void run_cp(const char *arg)
     }
 }
 
+static void run_ln(const char *arg)
+{
+    char src[40];
+    char dst[40];
+    unsigned n = 0;
+    unsigned m = 0;
+
+    arg = skip_ws(arg);
+    while (*arg != '\0' && *arg != ' ' && n < 39u) {
+        src[n++] = *arg;
+        arg++;
+    }
+    src[n] = '\0';
+    arg = skip_ws(arg);
+    while (*arg != '\0' && *arg != ' ' && m < 39u) {
+        dst[m++] = *arg;
+        arg++;
+    }
+    dst[m] = '\0';
+    if (n == 0 || m == 0 || fs_link(src, dst) != 0) {
+        vga_putc('?');
+    }
+}
+
 static void run_mkdir(const char *arg)
 {
     arg = skip_ws(arg);
@@ -643,7 +667,7 @@ static void run_line(void)
         return;
     }
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm mv cp fill trunc sync mkdir rmdir cd pwd ps kill uptime | < > >>");
+        puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync mkdir rmdir cd pwd ps kill uptime | < > >>");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "uptime")) {
@@ -671,6 +695,8 @@ static void run_line(void)
         run_mv(cmd + 2);
     } else if (cmd_is(cmd, "cp")) {
         run_cp(cmd + 2);
+    } else if (cmd_is(cmd, "ln")) {
+        run_ln(cmd + 2);
     } else if (cmd_is(cmd, "fill")) {
         run_fill(cmd + 4);
     } else if (cmd_is(cmd, "trunc")) {
@@ -750,7 +776,7 @@ int kbd_stdin_take(void *dst, unsigned max)
     return (int)n;
 }
 
-/* `ps` / `help` / `mkdir` / `mv` / `cp` / `fill` / `trunc` / `sync` / plain `cat` / `ls` are kernel-only; run them at `$` without waking `sh`. */
+/* `ps` / `help` / `mkdir` / `mv` / `cp` / `ln` / `rm` / `fill` / `trunc` / `sync` / plain `cat` / `ls` are kernel-only; run them at `$` without waking `sh`. */
 static int line_has_meta(const char *s)
 {
     while (*s != '\0') {
@@ -793,7 +819,8 @@ static int kbd_dollar_builtin(void)
     ls = cmd_is(s, "ls") != 0 && line_has_meta(s) == 0;
     if (streq(s, "ps") == 0 && streq(s, "help") == 0 && streq(s, "sync") == 0 &&
         cmd_is(s, "mkdir") == 0 &&
-        cmd_is(s, "mv") == 0 && cmd_is(s, "cp") == 0 && cmd_is(s, "fill") == 0 &&
+        cmd_is(s, "mv") == 0 && cmd_is(s, "cp") == 0 && cmd_is(s, "ln") == 0 &&
+        cmd_is(s, "rm") == 0 && cmd_is(s, "fill") == 0 &&
         cmd_is(s, "trunc") == 0 && cat == 0 && ls == 0) {
         return 0;
     }
@@ -801,7 +828,7 @@ static int kbd_dollar_builtin(void)
     if (streq(s, "ps") != 0) {
         run_ps();
     } else if (streq(s, "help") != 0) {
-        puts_cur("help ls mem cat run put rm mv cp fill trunc sync mkdir rmdir cd pwd ps kill uptime | < > >>");
+        puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync mkdir rmdir cd pwd ps kill uptime | < > >>");
     } else if (streq(s, "sync") != 0) {
         run_sync();
     } else if (cmd_is(s, "mkdir") != 0) {
@@ -816,6 +843,10 @@ static int kbd_dollar_builtin(void)
         run_cat(s + 3);
     } else if (cmd_is(s, "cp") != 0) {
         run_cp(s + 2);
+    } else if (cmd_is(s, "ln") != 0) {
+        run_ln(s + 2);
+    } else if (cmd_is(s, "rm") != 0) {
+        run_rm(s + 2);
     } else {
         run_mv(s + 2);
     }
