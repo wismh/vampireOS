@@ -905,9 +905,10 @@ static uint64_t user_brk(uint64_t want)
     return want;
 }
 
-/* Anonymous one-page map at a chosen user VA (not the brk heap). rdi=hint,
- * rsi=length (1..4KiB maps one page); rax=mapped VA or -1. */
-static uint64_t user_mmap(uint64_t hint, uint64_t len)
+/* One-page map at a chosen user VA (not the brk heap). rdi=hint, rsi=length
+ * (1..4KiB maps one page); rdx=file fd copies that file into the page, else
+ * anonymous. rax=mapped VA or -1. */
+static uint64_t user_mmap(uint64_t hint, uint64_t len, int fd)
 {
     uint64_t cr3;
     uint64_t base;
@@ -915,6 +916,11 @@ static uint64_t user_mmap(uint64_t hint, uint64_t len)
     uint64_t heap_hi;
     uint64_t phys;
     uint64_t existing;
+    char path[FD_PATH_MAX];
+    const void *data;
+    unsigned flen;
+    unsigned i;
+    uint8_t *dst;
 
     cr3 = sched_current_cr3();
     base = sched_current_base();
@@ -938,6 +944,25 @@ static uint64_t user_mmap(uint64_t hint, uint64_t len)
     phys = alloc_page();
     if (phys == 0) {
         return (uint64_t)-1;
+    }
+    if (fd >= 0 && sched_fd_kind(fd) == FD_KIND_FILE) {
+        if (sched_fd_path(fd, path) != 0) {
+            pmm_free(phys);
+            return (uint64_t)-1;
+        }
+        if (enter_task_cwd() != 0 || fs_lookup(path, &data, &flen) != 0) {
+            leave_task_cwd();
+            pmm_free(phys);
+            return (uint64_t)-1;
+        }
+        if (flen > (unsigned)PAGE_4K) {
+            flen = (unsigned)PAGE_4K;
+        }
+        dst = (uint8_t *)(uintptr_t)phys_to_virt(phys);
+        for (i = 0; i < flen; i++) {
+            dst[i] = ((const uint8_t *)data)[i];
+        }
+        leave_task_cwd();
     }
     if (vmm_map_user(cr3, hint, phys) != 0) {
         pmm_free(phys);
@@ -1482,9 +1507,9 @@ void user_on_syscall(struct interrupt_frame *frame)
         vmm_set_cr3(sched_current_cr3());
         return;
     }
-    /* rdi=hint VA, rsi=length (one page). rax=mapped VA or -1. Anonymous. */
+    /* rdi=hint VA, rsi=length (one page), rdx=file fd or unused. rax=VA or -1. */
     if (frame->rax == SYS_MMAP) {
-        frame->rax = user_mmap(frame->rdi, frame->rsi);
+        frame->rax = user_mmap(frame->rdi, frame->rsi, (int)frame->rdx);
         vmm_set_cr3(sched_current_cr3());
         return;
     }
