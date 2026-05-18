@@ -26,6 +26,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
 fat2:
@@ -51,6 +52,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
 root:
@@ -394,6 +396,18 @@ root_extra2:
     times 14 db 0
     dw 43
     dd mmapfile_len
+    ; VFAT LFN munmaptest, 8.3 alias MUNMAP~1
+    db 0x41
+    db "m", 0, "u", 0, "n", 0, "m", 0, "a", 0
+    db 0x0F, 0, 0x23
+    db "p", 0, "t", 0, "e", 0, "s", 0, "t", 0, 0, 0
+    dw 0
+    db 0xFF, 0xFF, 0xFF, 0xFF
+    db "MUNMAP~1", "   "
+    db 0x20
+    times 14 db 0
+    dw 44
+    dd munmaptest_len
     times 512 - ($ - root_extra2) db 0
 
 mmapfile_data:
@@ -401,4 +415,9 @@ mmapfile_data:
 mmapfile_len equ $ - mmapfile_data
     times 512 - mmapfile_len db 0
 
-    times (FAT_DATA_CLUSTERS - 42) * 512 db 0
+munmaptest_data:
+    incbin "munmaptest.bin"
+munmaptest_len equ $ - munmaptest_data
+    times 512 - munmaptest_len db 0
+
+    times (FAT_DATA_CLUSTERS - 43) * 512 db 0

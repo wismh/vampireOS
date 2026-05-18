@@ -818,6 +818,7 @@ static int kbd_dollar_builtin(void)
     cat = cmd_is(s, "cat") != 0 && line_has_meta(s) == 0;
     ls = cmd_is(s, "ls") != 0 && line_has_meta(s) == 0;
     if (streq(s, "ps") == 0 && streq(s, "help") == 0 && streq(s, "sync") == 0 &&
+        streq(s, "mem") == 0 &&
         cmd_is(s, "mkdir") == 0 &&
         cmd_is(s, "mv") == 0 && cmd_is(s, "cp") == 0 && cmd_is(s, "ln") == 0 &&
         cmd_is(s, "rm") == 0 && cmd_is(s, "fill") == 0 &&
@@ -829,6 +830,8 @@ static int kbd_dollar_builtin(void)
         run_ps();
     } else if (streq(s, "help") != 0) {
         puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync mkdir rmdir cd pwd ps kill uptime | < > >>");
+    } else if (streq(s, "mem") != 0) {
+        put_uint((unsigned)pmm_free_count());
     } else if (streq(s, "sync") != 0) {
         run_sync();
     } else if (cmd_is(s, "mkdir") != 0) {

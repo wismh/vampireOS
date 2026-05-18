@@ -44,6 +44,7 @@
 #define SYS_CHDIR 20ull
 #define SYS_GETCWD 21ull
 #define SYS_SYNC 22ull
+#define SYS_MUNMAP 23ull
 #define PIT_TICKS_PER_SEC 100u
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
@@ -971,6 +972,40 @@ static uint64_t user_mmap(uint64_t hint, uint64_t len, int fd)
     return hint;
 }
 
+/* Unmap one mmap page (anonymous or file-backed). rdi=VA, rsi=length
+ * (1..4KiB unmaps one page). Leaves ELF, stack, and brk heap. rax=0 or -1. */
+static uint64_t user_munmap(uint64_t va, uint64_t len)
+{
+    uint64_t cr3;
+    uint64_t base;
+    uint64_t heap_lo;
+    uint64_t heap_hi;
+
+    cr3 = sched_current_cr3();
+    base = sched_current_base();
+    if (cr3 == 0 || cr3 == vmm_boot_cr3() || base == 0) {
+        return (uint64_t)-1;
+    }
+    if (va == 0 || (va & (PAGE_4K - 1ull)) != 0) {
+        return (uint64_t)-1;
+    }
+    if (len == 0 || len > PAGE_4K) {
+        return (uint64_t)-1;
+    }
+    if (va >= base && va < base + 2ull * PAGE_4K) {
+        return (uint64_t)-1;
+    }
+    heap_lo = base + 2ull * PAGE_4K;
+    heap_hi = heap_lo + USER_HEAP_PAGES * PAGE_4K;
+    if (va >= heap_lo && va < heap_hi) {
+        return (uint64_t)-1;
+    }
+    if (vmm_unmap_user(cr3, va) != 0) {
+        return (uint64_t)-1;
+    }
+    return 0;
+}
+
 /* Share user frames read-only; a write fault copies privately. New kstack. */
 static uint64_t user_fork(struct interrupt_frame *frame)
 {
@@ -1510,6 +1545,12 @@ void user_on_syscall(struct interrupt_frame *frame)
     /* rdi=hint VA, rsi=length (one page), rdx=file fd or unused. rax=VA or -1. */
     if (frame->rax == SYS_MMAP) {
         frame->rax = user_mmap(frame->rdi, frame->rsi, (int)frame->rdx);
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* rdi=VA, rsi=length (one page). Unmap a prior mmap. rax=0 or -1. */
+    if (frame->rax == SYS_MUNMAP) {
+        frame->rax = user_munmap(frame->rdi, frame->rsi);
         vmm_set_cr3(sched_current_cr3());
         return;
     }

@@ -51,6 +51,12 @@ void exception_handler(struct interrupt_frame *frame)
         if (vmm_handle_page_fault(frame->error, cr2) == 0) {
             return;
         }
+        /* User #PF that is not COW (unmapped mmap, etc.): kill, do not hang. */
+        if ((frame->cs & 3ull) == 3ull) {
+            frame->rdi = 0;
+            sched_exit(frame);
+            return;
+        }
     }
     vga_write_at(1, 0, "exception ");
     vga_write_dec_at(1, 10, (unsigned)frame->vector);
