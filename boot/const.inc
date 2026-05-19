@@ -37,3 +37,9 @@ HIGH_PD         equ 0x6000
 E820_BASE       equ 0x4000
 E820_MAX        equ 32
 E820_ENTRY_SIZE equ 24
+
+; Stage 2 writes this after a VBE linear mode set (zero magic = text VGA).
+FB_INFO         equ 0x4F00
+FB_MAGIC        equ 0x31424656
+VBE_INFO_BUF    equ 0x7000
+VBE_MODE_BUF    equ 0x7200
