@@ -26,6 +26,7 @@ start:
     jc disk_error
 
     call detect_memory
+    call set_vbe
 
     cli
 
@@ -83,6 +84,158 @@ detect_memory:
     mov dword [E820_BASE], 0
 .done:
     ret
+
+; Prefer 640x480x32, then 800x600x32, then 24 bpp. Leave FB_INFO magic 0 on fail.
+set_vbe:
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+
+    mov di, FB_INFO
+    mov cx, 12
+    xor ax, ax
+    rep stosw
+
+    mov di, VBE_INFO_BUF
+    mov cx, 256
+    xor ax, ax
+    rep stosw
+    mov di, VBE_INFO_BUF
+    mov dword [di], 'VBE2'
+    mov ax, 0x4F00
+    int 0x10
+    cmp ax, 0x004F
+    jne .done
+    cmp dword [VBE_INFO_BUF], 'VESA'
+    jne .done
+
+    mov word [want_w], 640
+    mov word [want_h], 480
+    mov byte [want_bpp], 32
+    call vbe_try
+    jnc .done
+    mov word [want_w], 800
+    mov word [want_h], 600
+    mov byte [want_bpp], 32
+    call vbe_try
+    jnc .done
+    mov word [want_w], 640
+    mov word [want_h], 480
+    mov byte [want_bpp], 24
+    call vbe_try
+    jnc .done
+    mov word [want_w], 800
+    mov word [want_h], 600
+    mov byte [want_bpp], 24
+    call vbe_try
+
+.done:
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    ret
+
+vbe_try:
+    mov ax, [VBE_INFO_BUF + 14]
+    mov [ml_off], ax
+    mov ax, [VBE_INFO_BUF + 16]
+    mov [ml_seg], ax
+
+.scan:
+    xor ax, ax
+    mov ds, ax
+    mov ax, [ml_seg]
+    mov es, ax
+    mov si, [ml_off]
+    mov cx, [es:si]
+    add word [ml_off], 2
+    cmp cx, 0xFFFF
+    je .fail
+    mov [cur_mode], cx
+
+    xor ax, ax
+    mov es, ax
+    mov di, VBE_MODE_BUF
+    mov ax, 0x4F01
+    int 0x10
+    cmp ax, 0x004F
+    jne .scan
+
+    mov ax, [VBE_MODE_BUF]
+    and ax, 0x0091
+    cmp ax, 0x0091
+    jne .scan
+
+    mov al, [VBE_MODE_BUF + 27]
+    cmp al, 4
+    je .geom
+    cmp al, 6
+    jne .scan
+
+.geom:
+    mov ax, [VBE_MODE_BUF + 18]
+    cmp ax, [want_w]
+    jne .scan
+    mov ax, [VBE_MODE_BUF + 20]
+    cmp ax, [want_h]
+    jne .scan
+    mov al, [VBE_MODE_BUF + 25]
+    cmp al, [want_bpp]
+    jne .scan
+
+    mov eax, [VBE_MODE_BUF + 40]
+    test eax, eax
+    jz .scan
+
+    mov bx, [cur_mode]
+    or bx, 0x4000
+    mov ax, 0x4F02
+    int 0x10
+    cmp ax, 0x004F
+    jne .fail
+
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov dword [FB_INFO], FB_MAGIC
+    movzx eax, word [want_w]
+    mov [FB_INFO + 4], eax
+    movzx eax, word [want_h]
+    mov [FB_INFO + 8], eax
+    movzx eax, word [VBE_MODE_BUF + 16]
+    movzx ebx, word [VBE_MODE_BUF + 50]
+    test bx, bx
+    jz .store_pitch
+    mov eax, ebx
+.store_pitch:
+    mov [FB_INFO + 12], eax
+    movzx eax, byte [want_bpp]
+    mov [FB_INFO + 16], eax
+    mov eax, [VBE_MODE_BUF + 40]
+    mov [FB_INFO + 20], eax
+    clc
+    ret
+
+.fail:
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    stc
+    ret
+
+want_w:
+    dw 0
+want_h:
+    dw 0
+want_bpp:
+    db 0
+    db 0
+cur_mode:
+    dw 0
+ml_off:
+    dw 0
+ml_seg:
+    dw 0
 
 disk_error:
     mov si, err_msg
