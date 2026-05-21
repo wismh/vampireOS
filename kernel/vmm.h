@@ -29,4 +29,6 @@ int vmm_drop_identity(int row);
 __attribute__((noreturn)) void vmm_switch_stack(void (*cont)(void));
 uint64_t phys_to_virt(uint64_t phys);
 uint64_t virt_to_phys(uint64_t virt);
+/* Map MMIO [phys, phys+size) as 2 MiB pages in the HHDM. 0 ok, -1 fail. */
+int vmm_map_mmio(uint64_t phys, uint64_t size);
 int vmm_print(int row);

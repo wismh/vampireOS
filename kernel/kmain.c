@@ -1,4 +1,5 @@
 #include "e820.h"
+#include "fb.h"
 #include "fs.h"
 #include "heap.h"
 #include "idt.h"
@@ -55,6 +56,7 @@ void kmain(const struct e820_map *map)
     row = pmm_print(row);
     vmm_map_usable(map);
     vmm_hhdm_init();
+    fb_init();
     boot_row = row;
     vmm_switch_stack(kmain_cont);
     for (;;) {
