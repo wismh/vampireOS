@@ -370,6 +370,63 @@ uint64_t virt_to_phys(uint64_t virt)
     return virt;
 }
 
+int vmm_map_mmio(uint64_t phys, uint64_t size)
+{
+    uint64_t start;
+    uint64_t end;
+    uint64_t addr;
+    uint64_t cr3 = PML4_PHYS;
+    volatile uint64_t *pml4;
+    volatile uint64_t *pdpt;
+    volatile uint64_t *pd;
+    uint64_t pdpt_e;
+    uint64_t pd_e;
+    uint64_t pdpt_i;
+    uint64_t pd_i;
+    uint64_t pd_phys;
+    uint64_t i;
+
+    if (!hhdm_ready || size == 0) {
+        return -1;
+    }
+    if (phys + size < phys) {
+        return -1;
+    }
+
+    start = align_down(phys, PAGE_2M);
+    end = align_up(phys + size, PAGE_2M);
+    pml4 = kmap(PML4_PHYS);
+    pdpt_e = pml4[HHDM_PML4_INDEX];
+    if ((pdpt_e & PDE_PRESENT) == 0 || (pdpt_e & PDE_LARGE) != 0) {
+        return -1;
+    }
+    pdpt = kmap(pdpt_e & ADDR_MASK);
+
+    for (addr = start; addr < end; addr += PAGE_2M) {
+        pdpt_i = (addr >> 30) & (PD_ENTRIES - 1);
+        pd_i = (addr >> 21) & (PD_ENTRIES - 1);
+        pd_e = pdpt[pdpt_i];
+        if ((pd_e & PDE_PRESENT) == 0) {
+            pd_phys = pmm_alloc();
+            if (pd_phys == 0) {
+                return -1;
+            }
+            pd = kmap(pd_phys);
+            for (i = 0; i < PD_ENTRIES; i++) {
+                pd[i] = 0;
+            }
+            pdpt[pdpt_i] = pd_phys | PTE_FLAGS;
+        } else if ((pd_e & PDE_LARGE) != 0) {
+            return -1;
+        }
+        pd = kmap(pdpt[pdpt_i] & ADDR_MASK);
+        pd[pd_i] = addr | PDE_HUGE;
+    }
+
+    __asm__ volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
+    return 0;
+}
+
 static int vmm_ensure_table(volatile uint64_t *table, uint64_t idx, uint64_t flags,
                             volatile uint64_t **out)
 {

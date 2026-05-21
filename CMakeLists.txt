@@ -537,6 +537,7 @@ add_custom_command(
 set(KERNEL_C_SOURCES
     "${KERNEL_DIR}/kmain.c"
     "${KERNEL_DIR}/vga.c"
+    "${KERNEL_DIR}/fb.c"
     "${KERNEL_DIR}/idt.c"
     "${KERNEL_DIR}/pic.c"
     "${KERNEL_DIR}/pit.c"
@@ -574,6 +575,7 @@ foreach(_src ${KERNEL_C_SOURCES})
         DEPENDS
             "${_src}"
             "${KERNEL_DIR}/vga.h"
+            "${KERNEL_DIR}/fb.h"
             "${KERNEL_DIR}/idt.h"
             "${KERNEL_DIR}/pic.h"
             "${KERNEL_DIR}/pit.h"
@@ -678,6 +680,7 @@ if(QEMU_EXECUTABLE)
     add_custom_target(run
         COMMAND ${_qemu_cmd}
             -drive "format=raw,file=${DISK_IMG},if=ide,cache=writethrough"
+            -vga std
             -m 128
             -no-reboot
             -no-shutdown
