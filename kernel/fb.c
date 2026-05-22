@@ -24,6 +24,7 @@ static uint32_t fb_w;
 static uint32_t fb_h;
 static uint32_t fb_pitch;
 static uint32_t fb_bpp;
+static uint32_t fb_phys;
 
 /* 8x8, ASCII 32..126, MSB is the leftmost pixel. */
 static const uint8_t font8x8[95][8] = {
@@ -226,6 +227,11 @@ void fb_init(void)
     uint32_t min_pitch;
 
     fb_mem = 0;
+    fb_w = 0;
+    fb_h = 0;
+    fb_pitch = 0;
+    fb_bpp = 0;
+    fb_phys = 0;
     info = (const struct fb_boot *)(uintptr_t)phys_to_virt(FB_BOOT_PHYS);
     if (info == 0 || info->magic != FB_BOOT_MAGIC) {
         return;
@@ -251,7 +257,23 @@ void fb_init(void)
     fb_h = info->height;
     fb_pitch = info->pitch;
     fb_bpp = info->bpp;
+    fb_phys = info->phys;
     fb_mem = (volatile uint8_t *)(uintptr_t)phys_to_virt(phys);
     fb_fill(FB_BG);
     fb_banner("Vampire OS");
+}
+
+int fb_query(uint32_t *width, uint32_t *height, uint32_t *pitch, uint32_t *phys)
+{
+    if (fb_mem == 0 || fb_w == 0 || fb_h == 0 || fb_phys == 0) {
+        return -1;
+    }
+    if (width == 0 || height == 0 || pitch == 0 || phys == 0) {
+        return -1;
+    }
+    *width = fb_w;
+    *height = fb_h;
+    *pitch = fb_pitch;
+    *phys = fb_phys;
+    return 0;
 }
