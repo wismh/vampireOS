@@ -26,7 +26,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
 fat2:
@@ -52,7 +52,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
 root:
@@ -408,6 +408,11 @@ root_extra2:
     times 14 db 0
     dw 44
     dd munmaptest_len
+    db "FBINFO  ", "   "
+    db 0x20
+    times 14 db 0
+    dw 45
+    dd fbinfo_len
     times 512 - ($ - root_extra2) db 0
 
 mmapfile_data:
@@ -420,4 +425,9 @@ munmaptest_data:
 munmaptest_len equ $ - munmaptest_data
     times 512 - munmaptest_len db 0
 
-    times (FAT_DATA_CLUSTERS - 43) * 512 db 0
+fbinfo_data:
+    incbin "fbinfo.bin"
+fbinfo_len equ $ - fbinfo_data
+    times 512 - fbinfo_len db 0
+
+    times (FAT_DATA_CLUSTERS - 44) * 512 db 0

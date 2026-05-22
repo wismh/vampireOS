@@ -1,5 +1,6 @@
 #include "user.h"
 #include "elf.h"
+#include "fb.h"
 #include "fs.h"
 #include "kbd.h"
 #include "pmm.h"
@@ -45,6 +46,7 @@
 #define SYS_GETCWD 21ull
 #define SYS_SYNC 22ull
 #define SYS_MUNMAP 23ull
+#define SYS_FBINFO 24ull
 #define PIT_TICKS_PER_SEC 100u
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
@@ -1062,6 +1064,7 @@ void user_on_syscall(struct interrupt_frame *frame)
     int kind;
     int pipefd[2];
     unsigned st[3];
+    unsigned fb[4];
     const void *data;
     unsigned len;
 
@@ -1551,6 +1554,22 @@ void user_on_syscall(struct interrupt_frame *frame)
     /* rdi=VA, rsi=length (one page). Unmap a prior mmap. rax=0 or -1. */
     if (frame->rax == SYS_MUNMAP) {
         frame->rax = user_munmap(frame->rdi, frame->rsi);
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* rdi=user {width, height, pitch, phys} packed ints; rax 0 or -1. */
+    if (frame->rax == SYS_FBINFO) {
+        if (fb_query(&fb[0], &fb[1], &fb[2], &fb[3]) != 0) {
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
+        if (copy_to_user(frame->rdi, fb, sizeof(fb)) != 0) {
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
+        frame->rax = 0;
         vmm_set_cr3(sched_current_cr3());
         return;
     }
