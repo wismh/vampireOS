@@ -98,6 +98,8 @@ set(MUNMAPTEST_ASM "${CMAKE_SOURCE_DIR}/user/munmaptest.asm")
 set(MUNMAPTEST_BIN "${CMAKE_BINARY_DIR}/munmaptest.bin")
 set(FBINFO_ASM "${CMAKE_SOURCE_DIR}/user/fbinfo.asm")
 set(FBINFO_BIN "${CMAKE_BINARY_DIR}/fbinfo.bin")
+set(FBTEST_ASM "${CMAKE_SOURCE_DIR}/user/fbtest.asm")
+set(FBTEST_BIN "${CMAKE_BINARY_DIR}/fbtest.bin")
 set(UPTIME_ASM "${CMAKE_SOURCE_DIR}/user/uptime.asm")
 set(UPTIME_BIN "${CMAKE_BINARY_DIR}/uptime.bin")
 set(CRT_ASM "${CMAKE_SOURCE_DIR}/user/crt.asm")
@@ -333,6 +335,14 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${FBTEST_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${FBTEST_BIN}" "${FBTEST_ASM}"
+    DEPENDS "${FBTEST_ASM}"
+    COMMENT "Assembling user ELF fbtest"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${UPTIME_BIN}"
     COMMAND "${NASM_EXECUTABLE}" -f bin -o "${UPTIME_BIN}" "${UPTIME_ASM}"
     DEPENDS "${UPTIME_ASM}"
@@ -539,7 +549,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${FBINFO_BIN}" "${UPTIME_BIN}" "${CRT_BIN}" "${HI_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${FBINFO_BIN}" "${FBTEST_BIN}" "${UPTIME_BIN}" "${CRT_BIN}" "${HI_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )

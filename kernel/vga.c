@@ -1,4 +1,5 @@
 #include "vga.h"
+#include "fb.h"
 #include "vmm.h"
 
 #define VGA_PHYS 0xB8000ull
@@ -71,6 +72,7 @@ void vga_putc(char c)
     if (cursor_row >= VGA_HEIGHT) {
         vga_scroll();
     }
+    fb_overlay_putc(c);
 }
 
 void vga_write_at(int row, int col, const char *msg)
