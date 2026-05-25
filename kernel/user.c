@@ -47,6 +47,7 @@
 #define SYS_SYNC 22ull
 #define SYS_MUNMAP 23ull
 #define SYS_FBINFO 24ull
+#define SYS_FBPIX 25ull
 #define PIT_TICKS_PER_SEC 100u
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
@@ -1065,6 +1066,7 @@ void user_on_syscall(struct interrupt_frame *frame)
     int pipefd[2];
     unsigned st[3];
     unsigned fb[4];
+    unsigned pix[5];
     const void *data;
     unsigned len;
 
@@ -1565,6 +1567,23 @@ void user_on_syscall(struct interrupt_frame *frame)
             return;
         }
         if (copy_to_user(frame->rdi, fb, sizeof(fb)) != 0) {
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
+        frame->rax = 0;
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* rdi=user {x, y, w, h, color} packed ints; fill on HHDM LFB. rax 0 or -1. */
+    if (frame->rax == SYS_FBPIX) {
+        if (copy_from_user_n(pix, frame->rdi, sizeof(pix)) != 0) {
+            frame->rax = (uint64_t)-1;
+            vmm_set_cr3(sched_current_cr3());
+            return;
+        }
+        vmm_set_cr3(vmm_boot_cr3());
+        if (fb_fill_rect(pix[0], pix[1], pix[2], pix[3], pix[4]) != 0) {
             frame->rax = (uint64_t)-1;
             vmm_set_cr3(sched_current_cr3());
             return;

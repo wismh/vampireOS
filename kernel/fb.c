@@ -25,6 +25,7 @@ static uint32_t fb_h;
 static uint32_t fb_pitch;
 static uint32_t fb_bpp;
 static uint32_t fb_phys;
+static int overlay_col;
 
 /* 8x8, ASCII 32..126, MSB is the leftmost pixel. */
 static const uint8_t font8x8[95][8] = {
@@ -259,6 +260,7 @@ void fb_init(void)
     fb_bpp = info->bpp;
     fb_phys = info->phys;
     fb_mem = (volatile uint8_t *)(uintptr_t)phys_to_virt(phys);
+    overlay_col = 0;
     fb_fill(FB_BG);
     fb_banner("Vampire OS");
 }
@@ -276,4 +278,136 @@ int fb_query(uint32_t *width, uint32_t *height, uint32_t *pitch, uint32_t *phys)
     *pitch = fb_pitch;
     *phys = fb_phys;
     return 0;
+}
+
+int fb_fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color)
+{
+    uint32_t x1;
+    uint32_t y1;
+    uint32_t xx;
+    uint32_t yy;
+
+    if (fb_mem == 0 || w == 0 || h == 0) {
+        return -1;
+    }
+    if (x >= fb_w || y >= fb_h) {
+        return -1;
+    }
+    x1 = x + w;
+    y1 = y + h;
+    if (x1 < x || x1 > fb_w) {
+        x1 = fb_w;
+    }
+    if (y1 < y || y1 > fb_h) {
+        y1 = fb_h;
+    }
+    if (fb_bpp == 32 && (fb_pitch & 3u) == 0) {
+        for (yy = y; yy < y1; yy++) {
+            volatile uint32_t *row =
+                (volatile uint32_t *)(fb_mem + (uint64_t)yy * fb_pitch);
+
+            for (xx = x; xx < x1; xx++) {
+                row[xx] = color;
+            }
+        }
+        return 0;
+    }
+    for (yy = y; yy < y1; yy++) {
+        for (xx = x; xx < x1; xx++) {
+            fb_pixel((int)xx, (int)yy, color);
+        }
+    }
+    return 0;
+}
+
+#define FB_OVERLAY_PAD 8
+
+static int fb_overlay_y(void)
+{
+    int y;
+
+    if (fb_mem == 0 || fb_h < 8u + FB_OVERLAY_PAD) {
+        return -1;
+    }
+    y = (int)fb_h - 8 - FB_OVERLAY_PAD;
+    return y;
+}
+
+static void fb_overlay_cell(int x, int y, char c)
+{
+    const uint8_t *row;
+    int gy;
+    int gx;
+    unsigned idx;
+
+    if (c < 32 || c > 126) {
+        c = ' ';
+    }
+    idx = (unsigned)(c - 32);
+    row = font8x8[idx];
+    for (gy = 0; gy < 8; gy++) {
+        uint8_t bits = row[gy];
+
+        for (gx = 0; gx < 8; gx++) {
+            uint32_t color = FB_BG;
+
+            if ((bits & (uint8_t)(0x80u >> gx)) != 0) {
+                color = FB_FG;
+            }
+            fb_pixel(x + gx, y + gy, color);
+        }
+    }
+}
+
+static void fb_overlay_clear_from(int col)
+{
+    int y = fb_overlay_y();
+    int x;
+
+    if (y < 0 || col < 0) {
+        return;
+    }
+    for (; col < 80; col++) {
+        x = col * 8;
+        if ((uint32_t)x + 8u > fb_w) {
+            break;
+        }
+        fb_overlay_cell(x, y, ' ');
+    }
+}
+
+void fb_overlay_putc(char c)
+{
+    int y;
+    int x;
+
+    y = fb_overlay_y();
+    if (y < 0) {
+        return;
+    }
+    if (c == '\n') {
+        overlay_col = 0;
+        fb_overlay_clear_from(0);
+        return;
+    }
+    if (c == '\b') {
+        if (overlay_col > 0) {
+            overlay_col--;
+            x = overlay_col * 8;
+            if ((uint32_t)x + 8u <= fb_w) {
+                fb_overlay_cell(x, y, ' ');
+            }
+        }
+        return;
+    }
+    if (c == '\t') {
+        overlay_col = (overlay_col + 4) & ~3;
+        return;
+    }
+    x = overlay_col * 8;
+    if ((uint32_t)x + 8u > fb_w) {
+        return;
+    }
+    fb_overlay_cell(x, y, c);
+    overlay_col++;
 }
