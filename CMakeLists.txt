@@ -100,6 +100,10 @@ set(FBINFO_ASM "${CMAKE_SOURCE_DIR}/user/fbinfo.asm")
 set(FBINFO_BIN "${CMAKE_BINARY_DIR}/fbinfo.bin")
 set(FBTEST_ASM "${CMAKE_SOURCE_DIR}/user/fbtest.asm")
 set(FBTEST_BIN "${CMAKE_BINARY_DIR}/fbtest.bin")
+set(FBHELLO_C "${CMAKE_SOURCE_DIR}/user/fbhello.c")
+set(FONT_C "${CMAKE_SOURCE_DIR}/user/font.c")
+set(FB_ASM "${CMAKE_SOURCE_DIR}/user/fb.asm")
+set(FBHELLO_BIN "${CMAKE_BINARY_DIR}/fbhello.bin")
 set(UPTIME_ASM "${CMAKE_SOURCE_DIR}/user/uptime.asm")
 set(UPTIME_BIN "${CMAKE_BINARY_DIR}/uptime.bin")
 set(CRT_ASM "${CMAKE_SOURCE_DIR}/user/crt.asm")
@@ -113,12 +117,15 @@ set(STRING_C "${CMAKE_SOURCE_DIR}/user/string.c")
 set(USER_LD "${CMAKE_SOURCE_DIR}/user/user.ld")
 set(CRT_OBJ "${CMAKE_BINARY_DIR}/crt.o")
 set(FD_OBJ "${CMAKE_BINARY_DIR}/fd.o")
+set(FB_OBJ "${CMAKE_BINARY_DIR}/userfb.o")
 set(CRTSTART_OBJ "${CMAKE_BINARY_DIR}/crtstart.o")
 set(CRT0_OBJ "${CMAKE_BINARY_DIR}/crt0.o")
 set(HI_OBJ "${CMAKE_BINARY_DIR}/hi.o")
 set(SH_OBJ "${CMAKE_BINARY_DIR}/sh.o")
 set(INIT_OBJ "${CMAKE_BINARY_DIR}/init.o")
 set(STRING_OBJ "${CMAKE_BINARY_DIR}/string.o")
+set(FBHELLO_OBJ "${CMAKE_BINARY_DIR}/fbhello.o")
+set(FONT_OBJ "${CMAKE_BINARY_DIR}/font.o")
 set(CRT_BIN "${CMAKE_BINARY_DIR}/crt.bin")
 set(HI_BIN "${CMAKE_BINARY_DIR}/hi.bin")
 set(SH_BIN "${CMAKE_BINARY_DIR}/sh.bin")
@@ -343,6 +350,79 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${FB_OBJ}"
+    COMMAND "${NASM_EXECUTABLE}" -f elf64 -o "${FB_OBJ}" "${FB_ASM}"
+    DEPENDS "${FB_ASM}"
+    COMMENT "Assembling fbinfo/fbpix stubs"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${FONT_OBJ}"
+    COMMAND "${CLANG_EXECUTABLE}"
+        --target=x86_64-unknown-none
+        -ffreestanding
+        -fno-stack-protector
+        -fno-pic
+        -fno-pie
+        -mno-red-zone
+        -mno-mmx
+        -mno-sse
+        -mno-sse2
+        -fno-asynchronous-unwind-tables
+        -fno-builtin
+        -Os
+        -c
+        -o "${FONT_OBJ}"
+        "${FONT_C}"
+    DEPENDS "${FONT_C}" "${CMAKE_SOURCE_DIR}/user/font.h"
+    COMMENT "Compiling user/font.c"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${FBHELLO_OBJ}"
+    COMMAND "${CLANG_EXECUTABLE}"
+        --target=x86_64-unknown-none
+        -ffreestanding
+        -fno-stack-protector
+        -fno-pic
+        -fno-pie
+        -mno-red-zone
+        -mno-mmx
+        -mno-sse
+        -mno-sse2
+        -fno-asynchronous-unwind-tables
+        -fno-builtin
+        -Os
+        -c
+        -o "${FBHELLO_OBJ}"
+        "${FBHELLO_C}"
+    DEPENDS "${FBHELLO_C}" "${CMAKE_SOURCE_DIR}/user/font.h"
+    COMMENT "Compiling user/fbhello.c"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${FBHELLO_BIN}"
+    COMMAND "${LLD_EXECUTABLE}"
+        -m elf_x86_64
+        -T "${USER_LD}"
+        -nostdlib
+        -n
+        --strip-all
+        -o "${FBHELLO_BIN}"
+        "${CRT0_OBJ}"
+        "${FBHELLO_OBJ}"
+        "${FONT_OBJ}"
+        "${CRT_OBJ}"
+        "${FB_OBJ}"
+    DEPENDS "${CRT0_OBJ}" "${FBHELLO_OBJ}" "${FONT_OBJ}" "${CRT_OBJ}" "${FB_OBJ}" "${USER_LD}"
+    COMMENT "Linking user ELF fbhello"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${UPTIME_BIN}"
     COMMAND "${NASM_EXECUTABLE}" -f bin -o "${UPTIME_BIN}" "${UPTIME_ASM}"
     DEPENDS "${UPTIME_ASM}"
@@ -549,7 +629,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${FBINFO_BIN}" "${FBTEST_BIN}" "${UPTIME_BIN}" "${CRT_BIN}" "${HI_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${FBINFO_BIN}" "${FBTEST_BIN}" "${FBHELLO_BIN}" "${UPTIME_BIN}" "${CRT_BIN}" "${HI_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )
