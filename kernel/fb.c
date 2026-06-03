@@ -321,15 +321,23 @@ int fb_fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color)
 }
 
 #define FB_OVERLAY_PAD 8
+#define FB_PROMPT_SCALE 2
+
+static int fb_prompt_cell(void)
+{
+    return 8 * FB_PROMPT_SCALE;
+}
 
 static int fb_overlay_y(void)
 {
+    int cell;
     int y;
 
-    if (fb_mem == 0 || fb_h < 8u + FB_OVERLAY_PAD) {
+    cell = fb_prompt_cell();
+    if (fb_mem == 0 || fb_h < (uint32_t)cell + FB_OVERLAY_PAD) {
         return -1;
     }
-    y = (int)fb_h - 8 - FB_OVERLAY_PAD;
+    y = (int)fb_h - cell - FB_OVERLAY_PAD;
     return y;
 }
 
@@ -338,6 +346,8 @@ static void fb_overlay_cell(int x, int y, char c)
     const uint8_t *row;
     int gy;
     int gx;
+    int sy;
+    int sx;
     unsigned idx;
 
     if (c < 32 || c > 126) {
@@ -354,7 +364,12 @@ static void fb_overlay_cell(int x, int y, char c)
             if ((bits & (uint8_t)(0x80u >> gx)) != 0) {
                 color = FB_FG;
             }
-            fb_pixel(x + gx, y + gy, color);
+            for (sy = 0; sy < FB_PROMPT_SCALE; sy++) {
+                for (sx = 0; sx < FB_PROMPT_SCALE; sx++) {
+                    fb_pixel(x + gx * FB_PROMPT_SCALE + sx,
+                             y + gy * FB_PROMPT_SCALE + sy, color);
+                }
+            }
         }
     }
 }
@@ -363,16 +378,18 @@ static void fb_overlay_clear_from(int col)
 {
     int y = fb_overlay_y();
     int x;
+    int cell = fb_prompt_cell();
 
     if (y < 0 || col < 0) {
         return;
     }
-    for (; col < 80; col++) {
-        x = col * 8;
-        if ((uint32_t)x + 8u > fb_w) {
+    for (;;) {
+        x = col * cell;
+        if ((uint32_t)x + (uint32_t)cell > fb_w) {
             break;
         }
         fb_overlay_cell(x, y, ' ');
+        col++;
     }
 }
 
@@ -380,6 +397,7 @@ void fb_overlay_putc(char c)
 {
     int y;
     int x;
+    int cell = fb_prompt_cell();
 
     y = fb_overlay_y();
     if (y < 0) {
@@ -393,8 +411,8 @@ void fb_overlay_putc(char c)
     if (c == '\b') {
         if (overlay_col > 0) {
             overlay_col--;
-            x = overlay_col * 8;
-            if ((uint32_t)x + 8u <= fb_w) {
+            x = overlay_col * cell;
+            if ((uint32_t)x + (uint32_t)cell <= fb_w) {
                 fb_overlay_cell(x, y, ' ');
             }
         }
@@ -404,10 +422,50 @@ void fb_overlay_putc(char c)
         overlay_col = (overlay_col + 4) & ~3;
         return;
     }
-    x = overlay_col * 8;
-    if ((uint32_t)x + 8u > fb_w) {
+    x = overlay_col * cell;
+    if ((uint32_t)x + (uint32_t)cell > fb_w) {
         return;
     }
     fb_overlay_cell(x, y, c);
     overlay_col++;
+}
+
+void fb_prompt_line(const char *prompt, const char *buf, unsigned len)
+{
+    int y;
+    int x;
+    int col;
+    unsigned i;
+    int cell = fb_prompt_cell();
+
+    y = fb_overlay_y();
+    if (y < 0) {
+        return;
+    }
+    fb_overlay_clear_from(0);
+    col = 0;
+    if (prompt != 0) {
+        while (prompt[col] != '\0') {
+            x = col * cell;
+            if ((uint32_t)x + (uint32_t)cell > fb_w) {
+                overlay_col = col;
+                return;
+            }
+            fb_overlay_cell(x, y, prompt[col]);
+            col++;
+        }
+    }
+    if (buf == 0) {
+        overlay_col = col;
+        return;
+    }
+    for (i = 0; i < len; i++) {
+        x = col * cell;
+        if ((uint32_t)x + (uint32_t)cell > fb_w) {
+            break;
+        }
+        fb_overlay_cell(x, y, buf[i]);
+        col++;
+    }
+    overlay_col = col;
 }
