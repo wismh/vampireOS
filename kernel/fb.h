@@ -9,3 +9,5 @@ int fb_query(uint32_t *width, uint32_t *height, uint32_t *pitch, uint32_t *phys)
 int fb_fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color);
 /* One bitmap-font row at the bottom of the LFB so `$` still types. */
 void fb_overlay_putc(char c);
+/* Redraw `$` / `kbd>` plus the current line buffer on that bottom row. */
+void fb_prompt_line(const char *prompt, const char *buf, unsigned len);

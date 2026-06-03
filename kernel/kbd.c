@@ -1,4 +1,5 @@
 #include "kbd.h"
+#include "fb.h"
 #include "fs.h"
 #include "heap.h"
 #include "idt.h"
@@ -101,9 +102,19 @@ static void put_uint(unsigned value)
     }
 }
 
+static void fb_line(int dollar)
+{
+    if (dollar != 0) {
+        fb_prompt_line("$", stdin_buf, stdin_len);
+        return;
+    }
+    fb_prompt_line("kbd>", line != 0 ? line : "", line_len);
+}
+
 static void prompt(void)
 {
     puts_cur("kbd>");
+    fb_line(0);
 }
 
 static int cmd_is(const char *line, const char *cmd)
@@ -745,6 +756,7 @@ void kbd_prompt(void)
 void kbd_stdin_prompt(void)
 {
     vga_putc('$');
+    fb_line(1);
 }
 
 int kbd_stdin_ready(void)
@@ -943,6 +955,7 @@ void kbd_handle(struct interrupt_frame *frame)
             if (stdin_len > 0) {
                 stdin_len--;
                 vga_putc('\b');
+                fb_line(1);
             }
             return;
         }
@@ -953,6 +966,7 @@ void kbd_handle(struct interrupt_frame *frame)
             stdin_buf[stdin_len++] = c;
         }
         vga_putc(c);
+        fb_line(1);
         return;
     }
 
@@ -969,6 +983,7 @@ void kbd_handle(struct interrupt_frame *frame)
         if (line_len > 0) {
             line_len--;
             vga_putc('\b');
+            fb_line(0);
         }
         return;
     }
@@ -979,4 +994,5 @@ void kbd_handle(struct interrupt_frame *frame)
         line[line_len++] = c;
     }
     vga_putc(c);
+    fb_line(0);
 }
