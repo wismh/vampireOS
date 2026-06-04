@@ -1,5 +1,6 @@
 #include "idt.h"
 #include "kbd.h"
+#include "mouse.h"
 #include "pic.h"
 #include "pit.h"
 #include "sched.h"
@@ -74,7 +75,7 @@ void irq_handler(struct interrupt_frame *frame)
         vga_write_at(1, 0, "ticks ");
         vga_write_dec_at(1, 6, ticks);
         sched_on_tick(frame);
-    } else if (irq == 1) {
+    } else if (irq == 1 || irq == 12) {
         kbd_handle(frame);
     }
 
@@ -113,6 +114,9 @@ void idt_init(void)
 
     pit_init(100);
     kbd_init();
+    mouse_init();
     pic_unmask(0);
     pic_unmask(1);
+    pic_unmask(2);
+    pic_unmask(12);
 }

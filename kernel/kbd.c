@@ -4,6 +4,7 @@
 #include "heap.h"
 #include "idt.h"
 #include "io.h"
+#include "mouse.h"
 #include "pmm.h"
 #include "sched.h"
 #include "user.h"
@@ -14,6 +15,7 @@
 #define KBD_DATA 0x60
 #define KBD_STATUS 0x64
 #define KBD_STATUS_OUT 0x01
+#define KBD_STATUS_AUX 0x20
 #define SCAN_RELEASE 0x80
 #define SCAN_EXT 0xE0
 #define SCAN_LSHIFT 0x2A
@@ -872,13 +874,10 @@ static int kbd_dollar_builtin(void)
     return 1;
 }
 
-void kbd_handle(struct interrupt_frame *frame)
+static void kbd_scancode(uint8_t sc)
 {
-    uint8_t sc = inb(KBD_DATA);
     uint8_t code;
     char c;
-
-    kbd_irq_frame = frame;
 
     if (sc == SCAN_EXT) {
         ext = 1;
@@ -995,4 +994,25 @@ void kbd_handle(struct interrupt_frame *frame)
     }
     vga_putc(c);
     fb_line(0);
+}
+
+void kbd_handle(struct interrupt_frame *frame)
+{
+    int i;
+
+    kbd_irq_frame = frame;
+    for (i = 0; i < 16; i++) {
+        uint8_t st = inb(KBD_STATUS);
+        uint8_t data;
+
+        if ((st & KBD_STATUS_OUT) == 0) {
+            break;
+        }
+        data = inb(KBD_DATA);
+        if ((st & KBD_STATUS_AUX) != 0) {
+            mouse_on_byte(data);
+        } else {
+            kbd_scancode(data);
+        }
+    }
 }

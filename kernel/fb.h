@@ -11,3 +11,7 @@ int fb_fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color)
 void fb_overlay_putc(char c);
 /* Redraw `$` / `kbd>` plus the current line buffer on that bottom row. */
 void fb_prompt_line(const char *prompt, const char *buf, unsigned len);
+/* XOR a small cross at (x, y) so the mouse pointer can move. */
+void fb_pointer(int x, int y);
+/* Opaque bitmap-font string on the LFB (click `x,y`, not the prompt row). */
+void fb_draw_text(int x, int y, const char *s);

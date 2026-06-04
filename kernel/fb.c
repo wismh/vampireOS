@@ -469,3 +469,65 @@ void fb_prompt_line(const char *prompt, const char *buf, unsigned len)
     }
     overlay_col = col;
 }
+
+static uint32_t fb_get(int x, int y)
+{
+    volatile uint8_t *p;
+    unsigned bytes;
+    uint32_t color;
+
+    if (fb_mem == 0 || x < 0 || y < 0 || (uint32_t)x >= fb_w || (uint32_t)y >= fb_h) {
+        return 0;
+    }
+    bytes = fb_bpp / 8u;
+    p = fb_mem + (uint32_t)y * fb_pitch + (uint32_t)x * bytes;
+    color = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16);
+    if (fb_bpp == 32) {
+        color |= (uint32_t)p[3] << 24;
+    }
+    return color;
+}
+
+static void fb_xor_pixel(int x, int y)
+{
+    fb_pixel(x, y, fb_get(x, y) ^ 0x00FFFFFFu);
+}
+
+void fb_pointer(int x, int y)
+{
+    int d;
+
+    if (fb_mem == 0) {
+        return;
+    }
+    fb_xor_pixel(x, y);
+    for (d = 1; d <= 2; d++) {
+        fb_xor_pixel(x + d, y);
+        fb_xor_pixel(x - d, y);
+        fb_xor_pixel(x, y + d);
+        fb_xor_pixel(x, y - d);
+    }
+}
+
+void fb_draw_text(int x, int y, const char *s)
+{
+    int col;
+    int cell = fb_prompt_cell();
+
+    if (fb_mem == 0 || s == 0 || y < 0) {
+        return;
+    }
+    col = 0;
+    while (s[col] != '\0') {
+        int px = x + col * cell;
+
+        if (px < 0 || (uint32_t)px + (uint32_t)cell > fb_w) {
+            break;
+        }
+        if ((uint32_t)y + (uint32_t)cell > fb_h) {
+            break;
+        }
+        fb_overlay_cell(px, y, s[col]);
+        col++;
+    }
+}
