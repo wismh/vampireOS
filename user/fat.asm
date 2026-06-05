@@ -28,7 +28,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0x0F, 0x03
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
 fat2:
@@ -56,7 +56,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0x0F, 0x03
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
 root:
@@ -427,6 +427,11 @@ root_extra2:
     times 14 db 0
     dw 47
     dd fbhello_len
+    db "FBCLEAR ", "   "
+    db 0x20
+    times 14 db 0
+    dw 49
+    dd fbclear_len
     times 512 - ($ - root_extra2) db 0
 
 mmapfile_data:
@@ -454,4 +459,9 @@ fbhello_data:
 fbhello_len equ $ - fbhello_data
     times 1024 - fbhello_len db 0
 
-    times (FAT_DATA_CLUSTERS - 47) * 512 db 0
+fbclear_data:
+    incbin "fbclear.bin"
+fbclear_len equ $ - fbclear_data
+    times 512 - fbclear_len db 0
+
+    times (FAT_DATA_CLUSTERS - 48) * 512 db 0

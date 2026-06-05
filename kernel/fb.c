@@ -341,6 +341,30 @@ static int fb_overlay_y(void)
     return y;
 }
 
+int fb_hits_overlay(uint32_t y, uint32_t h)
+{
+    int oy;
+    int cell;
+    uint32_t y1;
+
+    oy = fb_overlay_y();
+    cell = fb_prompt_cell();
+    if (oy < 0 || h == 0) {
+        return 0;
+    }
+    y1 = y + h;
+    if (y1 < y || y1 > fb_h) {
+        y1 = fb_h;
+    }
+    if (y >= (uint32_t)oy + (uint32_t)cell) {
+        return 0;
+    }
+    if (y1 <= (uint32_t)oy) {
+        return 0;
+    }
+    return 1;
+}
+
 static void fb_overlay_cell(int x, int y, char c)
 {
     const uint8_t *row;
