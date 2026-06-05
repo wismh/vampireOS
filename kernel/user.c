@@ -1588,6 +1588,10 @@ void user_on_syscall(struct interrupt_frame *frame)
             vmm_set_cr3(sched_current_cr3());
             return;
         }
+        /* Full-frame fill wipes the banner and the `$` row; put `$` back. */
+        if (fb_hits_overlay(pix[1], pix[3])) {
+            kbd_overlay_refresh();
+        }
         frame->rax = 0;
         vmm_set_cr3(sched_current_cr3());
         return;

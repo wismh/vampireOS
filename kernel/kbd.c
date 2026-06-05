@@ -761,6 +761,15 @@ void kbd_stdin_prompt(void)
     fb_line(1);
 }
 
+void kbd_overlay_refresh(void)
+{
+    if (sched_kbd_waiting()) {
+        fb_line(1);
+        return;
+    }
+    fb_line(0);
+}
+
 int kbd_stdin_ready(void)
 {
     return stdin_ready != 0;
