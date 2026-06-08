@@ -1,4 +1,6 @@
 #include "fb.h"
+#include "mouse.h"
+#include "pmm.h"
 #include "vmm.h"
 
 #include <stdint.h>
@@ -9,6 +11,7 @@
 #define FB_SCALE 4
 #define FB_BG 0x001A0A12u
 #define FB_FG 0x00F4E4C8u
+#define PAGE_SIZE 0x1000ull
 
 struct fb_boot {
     uint32_t magic;
@@ -19,6 +22,7 @@ struct fb_boot {
     uint32_t phys;
 } __attribute__((packed));
 
+static volatile uint8_t *fb_front;
 static volatile uint8_t *fb_mem;
 static uint32_t fb_w;
 static uint32_t fb_h;
@@ -220,6 +224,23 @@ static void fb_banner(const char *msg)
     }
 }
 
+static int fb_alloc_shadow(uint64_t bytes)
+{
+    uint64_t pages;
+    uint64_t phys;
+
+    if (bytes == 0) {
+        return -1;
+    }
+    pages = (bytes + PAGE_SIZE - 1ull) / PAGE_SIZE;
+    phys = pmm_alloc_span(pages);
+    if (phys == 0) {
+        return -1;
+    }
+    fb_mem = (volatile uint8_t *)(uintptr_t)phys_to_virt(phys);
+    return 0;
+}
+
 void fb_init(void)
 {
     const struct fb_boot *info;
@@ -227,6 +248,7 @@ void fb_init(void)
     uint64_t bytes;
     uint32_t min_pitch;
 
+    fb_front = 0;
     fb_mem = 0;
     fb_w = 0;
     fb_h = 0;
@@ -259,15 +281,21 @@ void fb_init(void)
     fb_pitch = info->pitch;
     fb_bpp = info->bpp;
     fb_phys = info->phys;
-    fb_mem = (volatile uint8_t *)(uintptr_t)phys_to_virt(phys);
+    fb_front = (volatile uint8_t *)(uintptr_t)phys_to_virt(phys);
     overlay_col = 0;
+    /* Shadow lives in PMM, not BSS: a 640×480×32 buffer would push
+     * KERNEL_SIZE past the 2 MiB identity window the bitmap sits in. */
+    if (fb_alloc_shadow(bytes) != 0) {
+        fb_mem = fb_front;
+    }
     fb_fill(FB_BG);
     fb_banner("Vampire OS");
+    (void)fb_present();
 }
 
 int fb_query(uint32_t *width, uint32_t *height, uint32_t *pitch, uint32_t *phys)
 {
-    if (fb_mem == 0 || fb_w == 0 || fb_h == 0 || fb_phys == 0) {
+    if (fb_front == 0 || fb_w == 0 || fb_h == 0 || fb_phys == 0) {
         return -1;
     }
     if (width == 0 || height == 0 || pitch == 0 || phys == 0) {
@@ -287,7 +315,7 @@ int fb_fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color)
     uint32_t xx;
     uint32_t yy;
 
-    if (fb_mem == 0 || w == 0 || h == 0) {
+    if (fb_front == 0 || fb_mem == 0 || w == 0 || h == 0) {
         return -1;
     }
     if (x >= fb_w || y >= fb_h) {
@@ -317,6 +345,53 @@ int fb_fill_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color)
             fb_pixel((int)xx, (int)yy, color);
         }
     }
+    return 0;
+}
+
+int fb_present(void)
+{
+    uint32_t y;
+    uint32_t x;
+    unsigned bytes;
+
+    if (fb_front == 0 || fb_w == 0 || fb_h == 0) {
+        return -1;
+    }
+    if (fb_mem == 0 || fb_mem == fb_front) {
+        mouse_repaint();
+        return 0;
+    }
+    bytes = fb_bpp / 8u;
+    if (fb_bpp == 32 && (fb_pitch & 3u) == 0) {
+        for (y = 0; y < fb_h; y++) {
+            volatile uint32_t *dst =
+                (volatile uint32_t *)(fb_front + (uint64_t)y * fb_pitch);
+            const uint32_t *src =
+                (const uint32_t *)(fb_mem + (uint64_t)y * fb_pitch);
+
+            for (x = 0; x < fb_w; x++) {
+                dst[x] = src[x];
+            }
+        }
+        mouse_repaint();
+        return 0;
+    }
+    for (y = 0; y < fb_h; y++) {
+        for (x = 0; x < fb_w; x++) {
+            volatile uint8_t *d =
+                fb_front + (uint64_t)y * fb_pitch + (uint64_t)x * bytes;
+            const volatile uint8_t *s =
+                fb_mem + (uint64_t)y * fb_pitch + (uint64_t)x * bytes;
+
+            d[0] = s[0];
+            d[1] = s[1];
+            d[2] = s[2];
+            if (fb_bpp == 32) {
+                d[3] = s[3];
+            }
+        }
+    }
+    mouse_repaint();
     return 0;
 }
 
@@ -494,17 +569,17 @@ void fb_prompt_line(const char *prompt, const char *buf, unsigned len)
     overlay_col = col;
 }
 
-static uint32_t fb_get(int x, int y)
+static uint32_t fb_front_get(int x, int y)
 {
     volatile uint8_t *p;
     unsigned bytes;
     uint32_t color;
 
-    if (fb_mem == 0 || x < 0 || y < 0 || (uint32_t)x >= fb_w || (uint32_t)y >= fb_h) {
+    if (fb_front == 0 || x < 0 || y < 0 || (uint32_t)x >= fb_w || (uint32_t)y >= fb_h) {
         return 0;
     }
     bytes = fb_bpp / 8u;
-    p = fb_mem + (uint32_t)y * fb_pitch + (uint32_t)x * bytes;
+    p = fb_front + (uint32_t)y * fb_pitch + (uint32_t)x * bytes;
     color = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16);
     if (fb_bpp == 32) {
         color |= (uint32_t)p[3] << 24;
@@ -512,16 +587,34 @@ static uint32_t fb_get(int x, int y)
     return color;
 }
 
+static void fb_front_pixel(int x, int y, uint32_t color)
+{
+    volatile uint8_t *p;
+    unsigned bytes;
+
+    if (fb_front == 0 || x < 0 || y < 0 || (uint32_t)x >= fb_w || (uint32_t)y >= fb_h) {
+        return;
+    }
+    bytes = fb_bpp / 8u;
+    p = fb_front + (uint32_t)y * fb_pitch + (uint32_t)x * bytes;
+    p[0] = (uint8_t)color;
+    p[1] = (uint8_t)(color >> 8);
+    p[2] = (uint8_t)(color >> 16);
+    if (fb_bpp == 32) {
+        p[3] = (uint8_t)(color >> 24);
+    }
+}
+
 static void fb_xor_pixel(int x, int y)
 {
-    fb_pixel(x, y, fb_get(x, y) ^ 0x00FFFFFFu);
+    fb_front_pixel(x, y, fb_front_get(x, y) ^ 0x00FFFFFFu);
 }
 
 void fb_pointer(int x, int y)
 {
     int d;
 
-    if (fb_mem == 0) {
+    if (fb_front == 0) {
         return;
     }
     fb_xor_pixel(x, y);
@@ -538,7 +631,7 @@ void fb_draw_text(int x, int y, const char *s)
     int col;
     int cell = fb_prompt_cell();
 
-    if (fb_mem == 0 || s == 0 || y < 0) {
+    if (fb_front == 0 || fb_mem == 0 || s == 0 || y < 0) {
         return;
     }
     col = 0;
@@ -554,4 +647,5 @@ void fb_draw_text(int x, int y, const char *s)
         fb_overlay_cell(px, y, s[col]);
         col++;
     }
+    (void)fb_present();
 }

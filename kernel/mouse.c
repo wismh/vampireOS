@@ -205,6 +205,13 @@ void mouse_init(void)
     move_pointer();
 }
 
+void mouse_repaint(void)
+{
+    if (ptr_on != 0) {
+        fb_pointer(ptr_x, ptr_y);
+    }
+}
+
 void mouse_on_byte(uint8_t data)
 {
     int dx;

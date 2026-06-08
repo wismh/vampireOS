@@ -108,9 +108,10 @@ static void fb_line(int dollar)
 {
     if (dollar != 0) {
         fb_prompt_line("$", stdin_buf, stdin_len);
-        return;
+    } else {
+        fb_prompt_line("kbd>", line != 0 ? line : "", line_len);
     }
-    fb_prompt_line("kbd>", line != 0 ? line : "", line_len);
+    (void)fb_present();
 }
 
 static void prompt(void)
@@ -763,11 +764,12 @@ void kbd_stdin_prompt(void)
 
 void kbd_overlay_refresh(void)
 {
+    /* Draw `$` onto the shadow only; SYS_FBPRESENT copies it with the fill. */
     if (sched_kbd_waiting()) {
-        fb_line(1);
+        fb_prompt_line("$", stdin_buf, stdin_len);
         return;
     }
-    fb_line(0);
+    fb_prompt_line("kbd>", line != 0 ? line : "", line_len);
 }
 
 int kbd_stdin_ready(void)

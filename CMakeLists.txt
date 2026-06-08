@@ -363,7 +363,7 @@ add_custom_command(
     OUTPUT "${FB_OBJ}"
     COMMAND "${NASM_EXECUTABLE}" -f elf64 -o "${FB_OBJ}" "${FB_ASM}"
     DEPENDS "${FB_ASM}"
-    COMMENT "Assembling fbinfo/fbpix stubs"
+    COMMENT "Assembling fbinfo/fbpix/fbpresent stubs"
     VERBATIM
 )
 

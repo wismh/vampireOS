@@ -1,4 +1,4 @@
-/* Tiny 8x8 ASCII subset (enough for `hello`). Each lit pixel is a SYS_FBPIX rect. */
+/* Tiny 8x8 ASCII subset (enough for `hello`). Each lit pixel is a SYS_FBPIX rect on the shadow. */
 #include "font.h"
 
 long fbpix(const unsigned *rect);

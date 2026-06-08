@@ -200,6 +200,39 @@ uint64_t pmm_alloc_above(uint64_t min_phys)
     return pmm_alloc_frame(align_up(min_phys, PAGE_SIZE) >> PAGE_SHIFT);
 }
 
+uint64_t pmm_alloc_span(uint64_t pages)
+{
+    uint64_t frame;
+    uint64_t i;
+    uint64_t start;
+    uint8_t *bits = bitmap_mem();
+
+    if (bits == 0 || pages == 0 || pages > frame_count) {
+        return 0;
+    }
+    start = align_up(IDENTITY_END, PAGE_SIZE) >> PAGE_SHIFT;
+    if (start >= frame_count) {
+        return 0;
+    }
+    for (frame = start; frame <= frame_count - pages; frame++) {
+        for (i = 0; i < pages; i++) {
+            uint8_t bit = (uint8_t)(1u << ((frame + i) & 7));
+
+            if ((bits[(frame + i) >> 3] & bit) != 0) {
+                break;
+            }
+        }
+        if (i != pages) {
+            continue;
+        }
+        for (i = 0; i < pages; i++) {
+            pmm_mark_used(frame + i);
+        }
+        return frame << PAGE_SHIFT;
+    }
+    return 0;
+}
+
 void pmm_free(uint64_t phys)
 {
     if (phys < reserved_end || (phys & (PAGE_SIZE - 1)) != 0) {
