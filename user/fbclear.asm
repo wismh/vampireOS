@@ -1,4 +1,4 @@
-; BASE 0x400000; SYS_FBINFO then SYS_FBPIX full-rect fill; write ok
+; BASE 0x400000; SYS_FBINFO then SYS_FBPIX full-rect fill; SYS_FBPRESENT; write ok
 bits 64
 org 0x400000
 
@@ -42,6 +42,10 @@ _start:
     mov dword [rect + 16], 0x001E6FA8
     mov eax, 25
     mov edi, rect
+    int 0x30
+    test rax, rax
+    js fail
+    mov eax, 26
     int 0x30
     test rax, rax
     js fail

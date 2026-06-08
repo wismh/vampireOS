@@ -48,6 +48,7 @@
 #define SYS_MUNMAP 23ull
 #define SYS_FBINFO 24ull
 #define SYS_FBPIX 25ull
+#define SYS_FBPRESENT 26ull
 #define PIT_TICKS_PER_SEC 100u
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
@@ -1575,7 +1576,7 @@ void user_on_syscall(struct interrupt_frame *frame)
         vmm_set_cr3(sched_current_cr3());
         return;
     }
-    /* rdi=user {x, y, w, h, color} packed ints; fill on HHDM LFB. rax 0 or -1. */
+    /* rdi=user {x, y, w, h, color} packed ints; fill on the shadow. rax 0 or -1. */
     if (frame->rax == SYS_FBPIX) {
         if (copy_from_user_n(pix, frame->rdi, sizeof(pix)) != 0) {
             frame->rax = (uint64_t)-1;
@@ -1593,6 +1594,13 @@ void user_on_syscall(struct interrupt_frame *frame)
             kbd_overlay_refresh();
         }
         frame->rax = 0;
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* Copy the PMM shadow onto the LFB. rax 0 or -1. */
+    if (frame->rax == SYS_FBPRESENT) {
+        vmm_set_cr3(vmm_boot_cr3());
+        frame->rax = (fb_present() != 0) ? (uint64_t)-1 : 0;
         vmm_set_cr3(sched_current_cr3());
         return;
     }
