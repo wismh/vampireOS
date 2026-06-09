@@ -662,6 +662,7 @@ set(KERNEL_C_SOURCES
     "${KERNEL_DIR}/fs.c"
     "${KERNEL_DIR}/elf.c"
     "${KERNEL_DIR}/ata.c"
+    "${KERNEL_DIR}/ahci.c"
 )
 set(KERNEL_C_OBJECTS "")
 foreach(_src ${KERNEL_C_SOURCES})
@@ -701,6 +702,7 @@ foreach(_src ${KERNEL_C_SOURCES})
             "${KERNEL_DIR}/fs.h"
             "${KERNEL_DIR}/elf.h"
             "${KERNEL_DIR}/ata.h"
+            "${KERNEL_DIR}/ahci.h"
             "${KERNEL_DIR}/io.h"
         COMMENT "Compiling ${_name}.c"
         VERBATIM
@@ -791,7 +793,10 @@ if(QEMU_EXECUTABLE)
     endif()
     add_custom_target(run
         COMMAND ${_qemu_cmd}
-            -drive "format=raw,file=${DISK_IMG},if=ide,cache=writethrough"
+            -drive "format=raw,file=${DISK_IMG},if=ide,cache=writethrough,file.locking=off"
+            -device ahci,id=ahci
+            -drive "id=ahci-hd,file=${DISK_IMG},if=none,format=raw,snapshot=on,file.locking=off"
+            -device ide-hd,drive=ahci-hd,bus=ahci.0
             -vga std
             -m 128
             -no-reboot
