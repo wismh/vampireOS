@@ -1,3 +1,4 @@
+#include "ahci.h"
 #include "e820.h"
 #include "fb.h"
 #include "fs.h"
@@ -23,6 +24,7 @@ static void kmain_cont(void)
     kheap_init();
     row = kheap_print(row);
     row = fs_init(row);
+    row = ahci_init(row);
     row = user_init(row);
     vga_set_cursor(row, 0);
     kbd_console_init();

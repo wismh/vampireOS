@@ -14,6 +14,8 @@
 #define PT_ENTRIES 512ull
 #define PDE_PRESENT 1ull
 #define PDE_WRITE 2ull
+#define PDE_PWT 8ull
+#define PDE_PCD 16ull
 #define PDE_LARGE 0x80ull
 #define PDE_HUGE (PDE_PRESENT | PDE_WRITE | PDE_LARGE)
 #define PTE_FLAGS (PDE_PRESENT | PDE_WRITE)
@@ -370,7 +372,7 @@ uint64_t virt_to_phys(uint64_t virt)
     return virt;
 }
 
-int vmm_map_mmio(uint64_t phys, uint64_t size)
+static int vmm_map_mmio_attr(uint64_t phys, uint64_t size, uint64_t attr)
 {
     uint64_t start;
     uint64_t end;
@@ -420,11 +422,21 @@ int vmm_map_mmio(uint64_t phys, uint64_t size)
             return -1;
         }
         pd = kmap(pdpt[pdpt_i] & ADDR_MASK);
-        pd[pd_i] = addr | PDE_HUGE;
+        pd[pd_i] = addr | attr;
     }
 
     __asm__ volatile ("mov %0, %%cr3" : : "r"(cr3) : "memory");
     return 0;
+}
+
+int vmm_map_mmio(uint64_t phys, uint64_t size)
+{
+    return vmm_map_mmio_attr(phys, size, PDE_HUGE);
+}
+
+int vmm_map_uncached(uint64_t phys, uint64_t size)
+{
+    return vmm_map_mmio_attr(phys, size, PDE_HUGE | PDE_PWT | PDE_PCD);
 }
 
 static int vmm_ensure_table(volatile uint64_t *table, uint64_t idx, uint64_t flags,
