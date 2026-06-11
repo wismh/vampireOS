@@ -52,6 +52,8 @@
 #define SIG_ATA 0x00000101u
 #define ATA_IDENTIFY 0xECu
 #define ATA_READ_DMA_EXT 0x25u
+#define ATA_WRITE_DMA_EXT 0x35u
+#define HDR_WRITE (1u << 6)
 
 #define FIS_H2D 0x27u
 #define FIS_CMD (1u << 7)
@@ -88,6 +90,9 @@ static volatile uint32_t *hba;
 static uint64_t dma_phys;
 static uint8_t *dma_virt;
 static unsigned used_port;
+static int live;
+static int wr_said;
+static int say_row;
 
 static uint32_t pci_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off)
 {
@@ -358,7 +363,19 @@ static int port_setup(unsigned p)
     return port_start(p);
 }
 
-static int port_issue(unsigned p, uint8_t ata_cmd, uint64_t lba, uint16_t count)
+static void copy_sec(void *dst, const void *src)
+{
+    uint8_t *d = (uint8_t *)dst;
+    const uint8_t *s = (const uint8_t *)src;
+    unsigned i;
+
+    for (i = 0; i < SEC_SIZE; i++) {
+        d[i] = s[i];
+    }
+}
+
+static int port_issue(unsigned p, uint8_t ata_cmd, uint64_t lba, uint16_t count,
+                      int write)
 {
     struct cmd_hdr *hdr;
     struct prdt_ent *prdt;
@@ -374,8 +391,10 @@ static int port_issue(unsigned p, uint8_t ata_cmd, uint64_t lba, uint16_t count)
     prdt = (struct prdt_ent *)(dma_virt + CT_OFF + 0x80);
     data = dma_virt + DATA_OFF;
 
-    for (i = 0; i < SEC_SIZE; i++) {
-        data[i] = 0;
+    if (write == 0) {
+        for (i = 0; i < SEC_SIZE; i++) {
+            data[i] = 0;
+        }
     }
     for (i = 0; i < 64u; i++) {
         cfis[i] = 0;
@@ -400,6 +419,9 @@ static int port_issue(unsigned p, uint8_t ata_cmd, uint64_t lba, uint16_t count)
     prdt->dbc = (SEC_SIZE - 1u) | PRDT_IOC;
 
     hdr->flags = CFL_H2D;
+    if (write != 0) {
+        hdr->flags |= HDR_WRITE;
+    }
     hdr->prdtl = 1;
     hdr->prdbc = 0;
     hdr->ctba = (uint32_t)(dma_phys + CT_OFF);
@@ -441,9 +463,66 @@ static char hex_digit(unsigned n)
 
 static int ahci_say(int row, const char *msg)
 {
+    say_row = row;
     vga_write_at(row, 0, msg);
     fb_draw_text(8, 8, msg);
     return row + 1;
+}
+
+static void ahci_say_wr(void)
+{
+    int row;
+
+    if (wr_said != 0) {
+        return;
+    }
+    wr_said = 1;
+    row = say_row;
+    if (row <= 0 || row >= VGA_HEIGHT) {
+        row = 2;
+    }
+    vga_write_at(row, 10, "ahci wr");
+    fb_draw_text(8, 24, "ahci wr");
+}
+
+int ahci_ready(void)
+{
+    return live;
+}
+
+int ahci_read(uint32_t lba, unsigned sectors, void *dst)
+{
+    uint8_t *buf = (uint8_t *)dst;
+    unsigned s;
+
+    if (live == 0 || dma_virt == 0 || dst == 0 || sectors == 0) {
+        return -1;
+    }
+    for (s = 0; s < sectors; s++) {
+        if (port_issue(used_port, ATA_READ_DMA_EXT, (uint64_t)lba + s, 1, 0) != 0) {
+            return -1;
+        }
+        copy_sec(buf + s * SEC_SIZE, dma_virt + DATA_OFF);
+    }
+    return 0;
+}
+
+int ahci_write(uint32_t lba, unsigned sectors, const void *src)
+{
+    const uint8_t *buf = (const uint8_t *)src;
+    unsigned s;
+
+    if (live == 0 || dma_virt == 0 || src == 0 || sectors == 0) {
+        return -1;
+    }
+    for (s = 0; s < sectors; s++) {
+        copy_sec(dma_virt + DATA_OFF, buf + s * SEC_SIZE);
+        if (port_issue(used_port, ATA_WRITE_DMA_EXT, (uint64_t)lba + s, 1, 1) != 0) {
+            return -1;
+        }
+    }
+    ahci_say_wr();
+    return 0;
 }
 
 int ahci_init(int row)
@@ -462,6 +541,9 @@ int ahci_init(int row)
     dma_phys = 0;
     dma_virt = 0;
     used_port = 0;
+    live = 0;
+    wr_said = 0;
+    say_row = 0;
 
     if (row >= VGA_HEIGHT - 1) {
         return row;
@@ -498,8 +580,8 @@ int ahci_init(int row)
     if (port_setup(used_port) != 0) {
         return ahci_say(row, "ahci fail");
     }
-    (void)port_issue(used_port, ATA_IDENTIFY, 0, 1);
-    if (port_issue(used_port, ATA_READ_DMA_EXT, 0, 1) != 0) {
+    (void)port_issue(used_port, ATA_IDENTIFY, 0, 1, 0);
+    if (port_issue(used_port, ATA_READ_DMA_EXT, 0, 1, 0) != 0) {
         return ahci_say(row, "ahci fail");
     }
     data = dma_virt + DATA_OFF;
@@ -513,5 +595,6 @@ int ahci_init(int row)
     msg[7] = hex_digit((unsigned)data[511] >> 4);
     msg[8] = hex_digit((unsigned)data[511]);
     msg[9] = '\0';
+    live = 1;
     return ahci_say(row, msg);
 }
