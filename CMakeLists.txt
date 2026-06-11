@@ -795,7 +795,7 @@ if(QEMU_EXECUTABLE)
         COMMAND ${_qemu_cmd}
             -drive "format=raw,file=${DISK_IMG},if=ide,cache=writethrough,file.locking=off"
             -device ahci,id=ahci
-            -drive "id=ahci-hd,file=${DISK_IMG},if=none,format=raw,snapshot=on,file.locking=off"
+            -drive "id=ahci-hd,file=${DISK_IMG},if=none,format=raw,cache=writethrough,file.locking=off"
             -device ide-hd,drive=ahci-hd,bus=ahci.0
             -vga std
             -m 128

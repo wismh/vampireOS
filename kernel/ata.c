@@ -1,4 +1,5 @@
 #include "ata.h"
+#include "ahci.h"
 #include "io.h"
 
 #define ATA_DATA 0x1F0
@@ -95,6 +96,9 @@ int ata_read(uint32_t lba, unsigned sectors, void *dst)
     if (dst == 0) {
         return -1;
     }
+    if (ahci_ready() != 0) {
+        return ahci_read(lba, sectors, dst);
+    }
     if (ata_issue(lba, sectors, ATA_READ) != 0) {
         return -1;
     }
@@ -118,6 +122,9 @@ int ata_write(uint32_t lba, unsigned sectors, const void *src)
 
     if (src == 0) {
         return -1;
+    }
+    if (ahci_ready() != 0) {
+        return ahci_write(lba, sectors, src);
     }
     if (ata_issue(lba, sectors, ATA_WRITE) != 0) {
         return -1;

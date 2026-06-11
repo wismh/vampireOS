@@ -23,8 +23,8 @@ static void kmain_cont(void)
     row = vmm_print(row);
     kheap_init();
     row = kheap_print(row);
-    row = fs_init(row);
     row = ahci_init(row);
+    row = fs_init(row);
     row = user_init(row);
     vga_set_cursor(row, 0);
     kbd_console_init();
