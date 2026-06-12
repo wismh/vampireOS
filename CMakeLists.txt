@@ -663,6 +663,7 @@ set(KERNEL_C_SOURCES
     "${KERNEL_DIR}/elf.c"
     "${KERNEL_DIR}/ata.c"
     "${KERNEL_DIR}/ahci.c"
+    "${KERNEL_DIR}/virtio.c"
 )
 set(KERNEL_C_OBJECTS "")
 foreach(_src ${KERNEL_C_SOURCES})
@@ -703,6 +704,7 @@ foreach(_src ${KERNEL_C_SOURCES})
             "${KERNEL_DIR}/elf.h"
             "${KERNEL_DIR}/ata.h"
             "${KERNEL_DIR}/ahci.h"
+            "${KERNEL_DIR}/virtio.h"
             "${KERNEL_DIR}/io.h"
         COMMENT "Compiling ${_name}.c"
         VERBATIM
@@ -797,6 +799,8 @@ if(QEMU_EXECUTABLE)
             -device ahci,id=ahci
             -drive "id=ahci-hd,file=${DISK_IMG},if=none,format=raw,cache=writethrough,file.locking=off"
             -device ide-hd,drive=ahci-hd,bus=ahci.0
+            -drive "id=virtio-hd,file=${DISK_IMG},if=none,format=raw,cache=writethrough,file.locking=off"
+            -device virtio-blk-pci,drive=virtio-hd
             -vga std
             -m 128
             -no-reboot
