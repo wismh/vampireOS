@@ -536,3 +536,160 @@ static int legacy_init(uint8_t bus, uint8_t dev, uint8_t fn)
     return 0;
 }
 
+static void copy_sec(void *dst, const void *src)
+{
+    uint8_t *d = (uint8_t *)dst;
+    const uint8_t *s = (const uint8_t *)src;
+    unsigned i;
+
+    for (i = 0; i < SEC_SIZE; i++) {
+        d[i] = s[i];
+    }
+}
+
+static int vq_read_one(uint64_t lba, void *dst)
+{
+    struct virtq_desc *d;
+    struct virtio_blk_req *req;
+    uint8_t *data;
+    uint8_t *st;
+    unsigned i;
+
+    if (dma_virt == 0 || qsz < 3u) {
+        return -1;
+    }
+    d = vq_desc();
+    req = (struct virtio_blk_req *)(dma_virt + req_off);
+    data = dma_virt + data_off;
+    st = dma_virt + st_off;
+    req->type = VIRTIO_BLK_T_IN;
+    req->reserved = 0;
+    req->sector = lba;
+    *st = 0xFFu;
+    for (i = 0; i < SEC_SIZE; i++) {
+        data[i] = 0;
+    }
+
+    d[0].addr = dma_phys + req_off;
+    d[0].len = (uint32_t)sizeof(struct virtio_blk_req);
+    d[0].flags = VIRTQ_DESC_F_NEXT;
+    d[0].next = 1;
+    d[1].addr = dma_phys + data_off;
+    d[1].len = SEC_SIZE;
+    d[1].flags = VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE;
+    d[1].next = 2;
+    d[2].addr = dma_phys + st_off;
+    d[2].len = 1;
+    d[2].flags = VIRTQ_DESC_F_WRITE;
+    d[2].next = 0;
+
+    vq_avail_ring()[avail_idx % qsz] = 0;
+    __asm__ volatile ("mfence" ::: "memory");
+    avail_idx++;
+    *vq_avail_idx() = avail_idx;
+    __asm__ volatile ("mfence" ::: "memory");
+    notify_q();
+    if (wait_used() != 0) {
+        return -1;
+    }
+    __asm__ volatile ("mfence" ::: "memory");
+    if (*st != VIRTIO_BLK_S_OK) {
+        return -1;
+    }
+    if (dst != 0) {
+        copy_sec(dst, data);
+    }
+    return 0;
+}
+
+static char hex_digit(unsigned n)
+{
+    n &= 0xFu;
+    if (n < 10u) {
+        return (char)('0' + n);
+    }
+    return (char)('a' + (n - 10u));
+}
+
+static int virt_say(int row, const char *msg)
+{
+    vga_write_at(row, 0, msg);
+    fb_draw_text(8, 40, msg);
+    return row + 1;
+}
+
+int virtio_ready(void)
+{
+    return live;
+}
+
+int virtio_read(uint32_t lba, unsigned sectors, void *dst)
+{
+    uint8_t *buf = (uint8_t *)dst;
+    unsigned s;
+
+    if (live == 0 || dma_virt == 0 || dst == 0 || sectors == 0) {
+        return -1;
+    }
+    for (s = 0; s < sectors; s++) {
+        if (vq_read_one((uint64_t)lba + s, buf + s * SEC_SIZE) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int virtio_init(int row)
+{
+    uint8_t bus;
+    uint8_t dev;
+    uint8_t fn;
+    const uint8_t *data;
+    char msg[12];
+
+    io_base = 0;
+    common = 0;
+    notify = 0;
+    notify_mult = 0;
+    qsz = 0;
+    q_notify_off = 0;
+    dma_phys = 0;
+    dma_virt = 0;
+    modern = 0;
+    live = 0;
+    avail_idx = 0;
+    used_seen = 0;
+
+    if (row >= VGA_HEIGHT - 1) {
+        return row;
+    }
+    if (pci_find_blk(&bus, &dev, &fn) != 0) {
+        return virt_say(row, "virt none");
+    }
+    pci_enable(bus, dev, fn);
+    if (modern_init(bus, dev, fn) != 0) {
+        common = 0;
+        notify = 0;
+        dma_phys = 0;
+        dma_virt = 0;
+        if (legacy_init(bus, dev, fn) != 0) {
+            return virt_say(row, "virt fail");
+        }
+    }
+    if (vq_read_one(0, 0) != 0) {
+        return virt_say(row, "virt fail");
+    }
+    data = dma_virt + data_off;
+    msg[0] = 'v';
+    msg[1] = 'i';
+    msg[2] = 'r';
+    msg[3] = 't';
+    msg[4] = ' ';
+    msg[5] = hex_digit((unsigned)data[510] >> 4);
+    msg[6] = hex_digit((unsigned)data[510]);
+    msg[7] = hex_digit((unsigned)data[511] >> 4);
+    msg[8] = hex_digit((unsigned)data[511]);
+    msg[9] = '\0';
+    live = 1;
+    return virt_say(row, msg);
+}
