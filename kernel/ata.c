@@ -96,6 +96,7 @@ int ata_read(uint32_t lba, unsigned sectors, void *dst)
     if (dst == 0) {
         return -1;
     }
+    /* FAT stays on AHCI/ATA this slice. VirtIO → AHCI → ATA is vos-118. */
     if (ahci_ready() != 0) {
         return ahci_read(lba, sectors, dst);
     }

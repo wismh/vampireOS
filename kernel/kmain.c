@@ -9,6 +9,7 @@
 #include "sched.h"
 #include "user.h"
 #include "vga.h"
+#include "virtio.h"
 #include "vmm.h"
 
 static int boot_row;
@@ -23,6 +24,7 @@ static void kmain_cont(void)
     row = vmm_print(row);
     kheap_init();
     row = kheap_print(row);
+    row = virtio_init(row);
     row = ahci_init(row);
     row = fs_init(row);
     row = user_init(row);
