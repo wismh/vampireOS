@@ -1,6 +1,7 @@
 #include "ata.h"
 #include "ahci.h"
 #include "io.h"
+#include "virtio.h"
 
 #define ATA_DATA 0x1F0
 #define ATA_SECCOUNT 0x1F2
@@ -96,7 +97,9 @@ int ata_read(uint32_t lba, unsigned sectors, void *dst)
     if (dst == 0) {
         return -1;
     }
-    /* FAT stays on AHCI/ATA this slice. VirtIO → AHCI → ATA is vos-118. */
+    if (virtio_ready() != 0) {
+        return virtio_read(lba, sectors, dst);
+    }
     if (ahci_ready() != 0) {
         return ahci_read(lba, sectors, dst);
     }
@@ -123,6 +126,9 @@ int ata_write(uint32_t lba, unsigned sectors, const void *src)
 
     if (src == 0) {
         return -1;
+    }
+    if (virtio_ready() != 0) {
+        return virtio_write(lba, sectors, src);
     }
     if (ahci_ready() != 0) {
         return ahci_write(lba, sectors, src);

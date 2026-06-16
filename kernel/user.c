@@ -504,7 +504,7 @@ int user_init(int row)
     enter_rip = USER_BASE;
     user_row = row;
     if (row >= VGA_HEIGHT - 6) {
-        return row;
+        row = VGA_HEIGHT - 6;
     }
 
     if (!gdt_ready) {
