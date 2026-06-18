@@ -1,4 +1,5 @@
 #include "kbd.h"
+#include "bio.h"
 #include "fb.h"
 #include "fs.h"
 #include "heap.h"
@@ -284,6 +285,20 @@ static void run_sync(void)
     if (fs_sync() != 0) {
         vga_putc('?');
     }
+}
+
+static void run_devs(void)
+{
+    char buf[32];
+    int n;
+
+    n = bdev_list(buf, 32u);
+    if (n <= 0) {
+        vga_putc('?');
+        return;
+    }
+    puts_cur(buf);
+    fb_draw_text(8, 72, buf);
 }
 
 static void run_rm(const char *arg)
@@ -681,7 +696,7 @@ static void run_line(void)
         return;
     }
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync mkdir rmdir cd pwd ps kill uptime | < > >>");
+        puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync devs mkdir rmdir cd pwd ps kill uptime | < > >>");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "uptime")) {
@@ -717,6 +732,8 @@ static void run_line(void)
         run_trunc(cmd + 5);
     } else if (streq(cmd, "sync")) {
         run_sync();
+    } else if (streq(cmd, "devs")) {
+        run_devs();
     } else if (cmd_is(cmd, "mkdir")) {
         run_mkdir(cmd + 5);
     } else if (cmd_is(cmd, "cd")) {
@@ -801,7 +818,7 @@ int kbd_stdin_take(void *dst, unsigned max)
     return (int)n;
 }
 
-/* `ps` / `help` / `run` / `mkdir` / `mv` / `cp` / `ln` / `rm` / `fill` / `trunc` / `sync` / plain `cat` / `ls` are kernel-only; run them at `$` without waking `sh`. */
+/* `ps` / `help` / `run` / `mkdir` / `mv` / `cp` / `ln` / `rm` / `fill` / `trunc` / `sync` / `devs` / plain `cat` / `ls` are kernel-only; run them at `$` without waking `sh`. */
 static int line_has_meta(const char *s)
 {
     while (*s != '\0') {
@@ -843,6 +860,7 @@ static int kbd_dollar_builtin(void)
     cat = cmd_is(s, "cat") != 0 && line_has_meta(s) == 0;
     ls = cmd_is(s, "ls") != 0 && line_has_meta(s) == 0;
     if (streq(s, "ps") == 0 && streq(s, "help") == 0 && streq(s, "sync") == 0 &&
+        streq(s, "devs") == 0 &&
         streq(s, "mem") == 0 &&
         cmd_is(s, "mkdir") == 0 &&
         cmd_is(s, "mv") == 0 && cmd_is(s, "cp") == 0 && cmd_is(s, "ln") == 0 &&
@@ -854,11 +872,13 @@ static int kbd_dollar_builtin(void)
     if (streq(s, "ps") != 0) {
         run_ps();
     } else if (streq(s, "help") != 0) {
-        puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync mkdir rmdir cd pwd ps kill uptime | < > >>");
+        puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync devs mkdir rmdir cd pwd ps kill uptime | < > >>");
     } else if (streq(s, "mem") != 0) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(s, "sync") != 0) {
         run_sync();
+    } else if (streq(s, "devs") != 0) {
+        run_devs();
     } else if (cmd_is(s, "mkdir") != 0) {
         run_mkdir(s + 5);
     } else if (cmd_is(s, "fill") != 0) {

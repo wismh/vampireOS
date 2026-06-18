@@ -1,5 +1,6 @@
 #include "fs.h"
 #include "ata.h"
+#include "bio.h"
 #include "pmm.h"
 #include "vga.h"
 #include "vmm.h"
@@ -256,7 +257,7 @@ static int chdir_one(const char *name)
         if (g_cwd < 2u) {
             return 0;
         }
-        if (ata_read(dir_lba(), 1u, g_sec) != 0) {
+        if (bread(dir_lba(), 1u, g_sec) != 0) {
             return -1;
         }
         g_cwd = rd_u16(g_sec + 58);
@@ -502,10 +503,10 @@ static int fat_flush(void)
     if (g_fat == 0 || g_fatsz == 0) {
         return -1;
     }
-    if (ata_write(g_rsvd, g_fatsz, g_fat) != 0) {
+    if (bwrite(g_rsvd, g_fatsz, g_fat) != 0) {
         return -1;
     }
-    return ata_write(g_rsvd + g_fatsz, g_fatsz, g_fat);
+    return bwrite(g_rsvd + g_fatsz, g_fatsz, g_fat);
 }
 
 static unsigned fat_alloc(void)
@@ -546,14 +547,14 @@ static int dir_load(void)
         return -1;
     }
     if (g_cwd < 2u) {
-        if (ata_read(g_first_root, 1u, g_dir) != 0) {
+        if (bread(g_first_root, 1u, g_dir) != 0) {
             return -1;
         }
         off = SEC;
         hops = 1;
         cl = g_fat != 0 ? fat12_ent(g_fat, 1u) : 0;
         while (cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
-            if (ata_read(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
+            if (bread(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
                 return -1;
             }
             off += SEC;
@@ -567,7 +568,7 @@ static int dir_load(void)
     hops = 0;
     off = 0;
     while (cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
-        if (ata_read(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
+        if (bread(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
             return -1;
         }
         off += SEC;
@@ -588,14 +589,14 @@ static int dir_store(void)
         return -1;
     }
     if (g_cwd < 2u) {
-        if (ata_write(g_first_root, 1u, g_dir) != 0) {
+        if (bwrite(g_first_root, 1u, g_dir) != 0) {
             return -1;
         }
         off = SEC;
         hops = 1;
         cl = g_fat != 0 ? fat12_ent(g_fat, 1u) : 0;
         while (off < g_dir_bytes && cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
-            if (ata_write(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
+            if (bwrite(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
                 return -1;
             }
             off += SEC;
@@ -608,7 +609,7 @@ static int dir_store(void)
     hops = 0;
     off = 0;
     while (off < g_dir_bytes && cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
-        if (ata_write(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
+        if (bwrite(g_first_data + (cl - 2u), 1u, g_dir + off) != 0) {
             return -1;
         }
         off += SEC;
@@ -994,7 +995,7 @@ static int store_chain(unsigned start, const uint8_t *src, unsigned len)
             g_sec[k] = 0;
         }
         copy_bytes(g_sec, src + off, n);
-        if (ata_write(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
+        if (bwrite(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
             return -1;
         }
         off += n;
@@ -1216,7 +1217,7 @@ static int load_file(uint8_t *dst, unsigned start, unsigned size)
         if (cl < 2u || cl >= FAT12_EOF || hops >= CHAIN_MAX || g_fat == 0 || g_sec == 0) {
             return -1;
         }
-        if (ata_read(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
+        if (bread(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
             return -1;
         }
         n = left < SEC ? left : SEC;
@@ -1355,7 +1356,7 @@ int fs_init(int row)
         return row + 1;
     }
 
-    if (ata_read(0u, 1u, bpb) != 0) {
+    if (bread(0u, 1u, bpb) != 0) {
         vga_write_at(row, 0, "fat fail");
         return row + 1;
     }
@@ -1391,7 +1392,7 @@ int fs_init(int row)
     g_first_root = rsvd + nfats * fatsz;
     g_first_data = g_first_root + root_secs;
     g_cwd = 0;
-    if (ata_read(rsvd, fatsz, g_fat) != 0 || scan_dir() != 0) {
+    if (bread(rsvd, fatsz, g_fat) != 0 || scan_dir() != 0) {
         vga_write_at(row, 0, "fat fail");
         return row + 1;
     }
@@ -1904,7 +1905,7 @@ int fs_mkdir(const char *name)
     }
     g_sec[43] = 0x10;
     wr_u16(g_sec + 58, parent);
-    if (ata_write(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
+    if (bwrite(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
         fat12_set(g_fat, cl, 0);
         (void)fat_flush();
         (void)leave_parent();
@@ -1946,7 +1947,7 @@ static int dir_empty(unsigned cl)
         return 0;
     }
     while (cl >= 2u && cl < FAT12_EOF && hops < CHAIN_MAX) {
-        if (ata_read(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
+        if (bread(g_first_data + (cl - 2u), 1u, g_sec) != 0) {
             return 0;
         }
         for (i = 0; i < SEC / 32u; i++) {

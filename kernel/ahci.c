@@ -1,4 +1,5 @@
 #include "ahci.h"
+#include "bio.h"
 #include "fb.h"
 #include "io.h"
 #include "pmm.h"
@@ -596,5 +597,6 @@ int ahci_init(int row)
     msg[8] = hex_digit((unsigned)data[511]);
     msg[9] = '\0';
     live = 1;
+    (void)bdev_register("ahci", ahci_read, ahci_write);
     return ahci_say(row, msg);
 }

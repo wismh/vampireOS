@@ -1,7 +1,6 @@
 #include "ata.h"
-#include "ahci.h"
+#include "bio.h"
 #include "io.h"
-#include "virtio.h"
 
 #define ATA_DATA 0x1F0
 #define ATA_SECCOUNT 0x1F2
@@ -97,12 +96,6 @@ int ata_read(uint32_t lba, unsigned sectors, void *dst)
     if (dst == 0) {
         return -1;
     }
-    if (virtio_ready() != 0) {
-        return virtio_read(lba, sectors, dst);
-    }
-    if (ahci_ready() != 0) {
-        return ahci_read(lba, sectors, dst);
-    }
     if (ata_issue(lba, sectors, ATA_READ) != 0) {
         return -1;
     }
@@ -127,12 +120,6 @@ int ata_write(uint32_t lba, unsigned sectors, const void *src)
     if (src == 0) {
         return -1;
     }
-    if (virtio_ready() != 0) {
-        return virtio_write(lba, sectors, src);
-    }
-    if (ahci_ready() != 0) {
-        return ahci_write(lba, sectors, src);
-    }
     if (ata_issue(lba, sectors, ATA_WRITE) != 0) {
         return -1;
     }
@@ -149,6 +136,21 @@ int ata_write(uint32_t lba, unsigned sectors, const void *src)
         return -1;
     }
     return 0;
+}
+
+int ata_init(int row)
+{
+    uint8_t st;
+
+    st = inb(ATA_CMD);
+    if (st == 0xFF) {
+        return row;
+    }
+    if (ata_wait() < 0) {
+        return row;
+    }
+    (void)bdev_register("ata", ata_read, ata_write);
+    return row;
 }
 
 int ata_flush(void)
