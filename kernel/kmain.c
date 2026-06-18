@@ -1,4 +1,5 @@
 #include "ahci.h"
+#include "ata.h"
 #include "e820.h"
 #include "fb.h"
 #include "fs.h"
@@ -26,6 +27,7 @@ static void kmain_cont(void)
     row = kheap_print(row);
     row = virtio_init(row);
     row = ahci_init(row);
+    row = ata_init(row);
     row = fs_init(row);
     row = user_init(row);
     vga_set_cursor(row, 0);

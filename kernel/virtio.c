@@ -1,4 +1,5 @@
 #include "virtio.h"
+#include "bio.h"
 #include "fb.h"
 #include "io.h"
 #include "pmm.h"
@@ -780,5 +781,6 @@ int virtio_init(int row)
     msg[8] = hex_digit((unsigned)data[511]);
     msg[9] = '\0';
     live = 1;
+    (void)bdev_register("virt", virtio_read, virtio_write);
     return virt_say(row, msg);
 }
