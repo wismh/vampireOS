@@ -9,3 +9,6 @@ int bdev_register(const char *name,
     int (*write)(uint32_t lba, unsigned sectors, const void *src));
 /* Pack probed names into dst (space-separated). Returns bytes, or -1. */
 int bdev_list(char *dst, unsigned max);
+/* Read MBR LBA 0 and set the FAT partition start. 0 ok, -1 no table. */
+int bio_init(void);
+uint32_t bio_part_lba(void);

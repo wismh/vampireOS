@@ -145,6 +145,7 @@ static void run_ls(const char *arg)
 {
     unsigned here;
     char path_here[80];
+    char names[80];
     const char *pwd;
     unsigned k;
     int i;
@@ -173,6 +174,9 @@ static void run_ls(const char *arg)
             vga_putc('/');
         }
     }
+    if (fs_readdir(names, 80u) > 0) {
+        fb_draw_text(8, 104, names);
+    }
     if (*arg != '\0') {
         (void)fs_setcwd(here);
         (void)fs_setpwd(path_here);
@@ -184,6 +188,7 @@ static void run_cat(const char *arg)
     const void *data;
     unsigned len;
     unsigned i;
+    char buf[40];
 
     arg = skip_ws(arg);
     if (*arg == '\0' || fs_lookup(arg, &data, &len) != 0) {
@@ -192,6 +197,13 @@ static void run_cat(const char *arg)
     }
     for (i = 0; i < len; i++) {
         vga_putc(((const char *)data)[i]);
+    }
+    if (len > 0 && len < 40u) {
+        for (i = 0; i < len; i++) {
+            buf[i] = ((const char *)data)[i];
+        }
+        buf[len] = '\0';
+        fb_draw_text(8, 56, buf);
     }
 }
 

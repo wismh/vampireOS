@@ -10,6 +10,48 @@ struct bdev {
 
 static struct bdev table[BDEV_MAX];
 static unsigned n_devs;
+static uint32_t part_lba;
+
+static uint32_t rd32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+int bio_init(void)
+{
+    uint8_t mbr[512];
+    unsigned i;
+    uint8_t type;
+    uint32_t start;
+    uint32_t count;
+
+    part_lba = 0;
+    if (n_devs == 0 || table[0].read == 0) {
+        return -1;
+    }
+    if (table[0].read(0, 1u, mbr) != 0) {
+        return -1;
+    }
+    if (mbr[510] != 0x55 || mbr[511] != 0xAA) {
+        return -1;
+    }
+    for (i = 0; i < 4u; i++) {
+        type = mbr[0x1BE + i * 16u + 4u];
+        start = rd32(mbr + 0x1BE + i * 16u + 8u);
+        count = rd32(mbr + 0x1BE + i * 16u + 12u);
+        if (type == 0x01 && start != 0 && count != 0) {
+            part_lba = start;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+uint32_t bio_part_lba(void)
+{
+    return part_lba;
+}
 
 int bdev_register(const char *name,
     int (*read)(uint32_t lba, unsigned sectors, void *dst),
@@ -30,7 +72,7 @@ int bread(uint32_t lba, unsigned sectors, void *dst)
     if (n_devs == 0 || table[0].read == 0) {
         return -1;
     }
-    return table[0].read(lba, sectors, dst);
+    return table[0].read(lba + part_lba, sectors, dst);
 }
 
 int bwrite(uint32_t lba, unsigned sectors, const void *src)
@@ -38,7 +80,7 @@ int bwrite(uint32_t lba, unsigned sectors, const void *src)
     if (n_devs == 0 || table[0].write == 0) {
         return -1;
     }
-    return table[0].write(lba, sectors, src);
+    return table[0].write(lba + part_lba, sectors, src);
 }
 
 int bdev_list(char *dst, unsigned max)
