@@ -3,6 +3,33 @@
 bits 16
 org 0
 
+; Volume boot sector at PART_LBA. Reserved count is 1, so FAT1 follows.
+vbr:
+    jmp short vbr_end
+    nop
+    db "VAMPIRE "
+    dw 512
+    db FAT_SPC
+    dw FAT_RESERVED
+    db FAT_COUNT
+    dw FAT_ROOT_ENT
+    dw FAT_TOTAL_SECS
+    db FAT_MEDIA
+    dw FAT_SEC_PER_FAT
+    dw 32
+    dw 2
+    dd PART_LBA
+    dd 0
+    db 0x80
+    db 0
+    db 0x29
+    dd 0x19910000
+    db "VAMPIRE OS "
+    db "FAT12   "
+vbr_end:
+    times 510 - ($ - vbr) db 0
+    dw 0xAA55
+
 fat1:
     db 0xF8, 0x2F, 0x01
     db 0xFF, 0xFF, 0xFF

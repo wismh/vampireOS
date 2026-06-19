@@ -1,5 +1,6 @@
 #include "ahci.h"
 #include "ata.h"
+#include "bio.h"
 #include "e820.h"
 #include "fb.h"
 #include "fs.h"
@@ -19,6 +20,10 @@ __attribute__((noreturn))
 static void kmain_cont(void)
 {
     int row = boot_row;
+    char pmsg[16];
+    unsigned v;
+    unsigned n;
+    unsigned d;
 
     idt_init();
     row = vmm_drop_identity(row);
@@ -28,6 +33,32 @@ static void kmain_cont(void)
     row = virtio_init(row);
     row = ahci_init(row);
     row = ata_init(row);
+    if (bio_init() != 0) {
+        vga_write_at(row, 0, "part fail");
+        fb_draw_text(8, 88, "part fail");
+    } else {
+        v = bio_part_lba();
+        vga_write_at(row, 0, "part");
+        vga_write_dec_at(row, 5, v);
+        pmsg[0] = 'p';
+        pmsg[1] = 'a';
+        pmsg[2] = 'r';
+        pmsg[3] = 't';
+        pmsg[4] = ' ';
+        n = 0;
+        d = 1;
+        while (d <= v / 10u) {
+            d *= 10u;
+        }
+        while (d > 0) {
+            pmsg[5 + n] = (char)('0' + (v / d) % 10u);
+            n++;
+            d /= 10u;
+        }
+        pmsg[5 + n] = '\0';
+        fb_draw_text(8, 88, pmsg);
+    }
+    row++;
     row = fs_init(row);
     row = user_init(row);
     vga_set_cursor(row, 0);

@@ -18,8 +18,14 @@ KERNEL_LBA2     equ KERNEL_LBA + KERNEL_READ1
 KERNEL_VMA      equ 0xFFFFFFFF80000000
 KERNEL_VIRT     equ KERNEL_VMA + KERNEL_PHYS
 
+; Type 0x01 FAT12. Start sits after MBR + stage 2 + kernel so the VBR/BPB
+; is not LBA 0. Image packer concatenates those then the volume; keep this
+; equal to 1 + STAGE2_SECTORS + KERNEL_SECTORS.
+PART_TYPE       equ 0x01
+PART_LBA        equ KERNEL_LBA + KERNEL_SECTORS
+
 FAT_SPC         equ 1
-FAT_RESERVED    equ 1 + STAGE2_SECTORS + KERNEL_SECTORS
+FAT_RESERVED    equ 1
 FAT_COUNT       equ 2
 FAT_SEC_PER_FAT equ 4
 FAT_ROOT_ENT    equ 16

@@ -5,25 +5,6 @@ org 0x7C00
 
 jmp short start
 nop
-db "VAMPIRE "
-dw 512
-db FAT_SPC
-dw FAT_RESERVED
-db FAT_COUNT
-dw FAT_ROOT_ENT
-dw FAT_TOTAL_SECS
-db FAT_MEDIA
-dw FAT_SEC_PER_FAT
-dw 32
-dw 2
-dd 0
-dd 0
-db 0x80
-db 0
-db 0x29
-dd 0x19910000
-db "VAMPIRE OS "
-db "FAT12   "
 
 start:
     xor ax, ax
@@ -74,5 +55,12 @@ dap:
     dw STAGE2_SEGMENT
     dq STAGE2_LBA
 
-    times 510 - ($ - $$) db 0
+    times 446 - ($ - $$) db 0
+    db 0x80
+    db 0, 0, 1
+    db PART_TYPE
+    db 0, 0, 0
+    dd PART_LBA
+    dd FAT_TOTAL_SECS
+    times 16 * 3 db 0
     dw 0xAA55
