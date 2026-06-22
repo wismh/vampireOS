@@ -37,6 +37,7 @@
 #define VIRTIO_BLK_T_IN 0u
 #define VIRTIO_BLK_T_OUT 1u
 #define VIRTIO_BLK_S_OK 0u
+#define VIRTIO_BLK_S_IOERR 1u
 
 #define LEG_HOST_FEATURES 0u
 #define LEG_GUEST_FEATURES 4u
@@ -87,7 +88,9 @@ struct virtio_blk_req {
 static uint16_t io_base;
 static volatile uint8_t *common;
 static volatile uint8_t *notify;
+static volatile uint8_t *devcfg;
 static uint32_t notify_mult;
+static uint32_t blk_secs;
 static uint16_t qsz;
 static uint16_t q_notify_off;
 static uint64_t dma_phys;
@@ -272,6 +275,7 @@ static int pci_caps(uint8_t bus, uint8_t dev, uint8_t fn)
 
     common = 0;
     notify = 0;
+    devcfg = 0;
     notify_mult = 0;
     st = pci_read32(bus, dev, fn, 0x04);
     if (((st >> 16) & PCI_STATUS_CAPS) == 0) {
@@ -292,8 +296,9 @@ static int pci_caps(uint8_t bus, uint8_t dev, uint8_t fn)
             } else if (type == VIRTIO_PCI_CAP_NOTIFY) {
                 notify = map_bar(bus, dev, fn, bar, off);
                 notify_mult = pci_read32(bus, dev, fn, (uint8_t)(cap + 16u));
-            } else if (type == VIRTIO_PCI_CAP_ISR
-                       || type == VIRTIO_PCI_CAP_DEVICE) {
+            } else if (type == VIRTIO_PCI_CAP_DEVICE) {
+                devcfg = map_bar(bus, dev, fn, bar, off);
+            } else if (type == VIRTIO_PCI_CAP_ISR) {
                 (void)map_bar(bus, dev, fn, bar, off);
             }
         }
@@ -605,7 +610,7 @@ static int vq_read_one(uint64_t lba, void *dst)
     if (vq_kick() != 0) {
         return -1;
     }
-    if (*st != VIRTIO_BLK_S_OK) {
+    if (*st == VIRTIO_BLK_S_IOERR || *st != VIRTIO_BLK_S_OK) {
         return -1;
     }
     if (dst != 0) {
@@ -650,7 +655,7 @@ static int vq_write_one(uint64_t lba, const void *src)
     if (vq_kick() != 0) {
         return -1;
     }
-    if (*st != VIRTIO_BLK_S_OK) {
+    if (*st == VIRTIO_BLK_S_IOERR || *st != VIRTIO_BLK_S_OK) {
         return -1;
     }
     return 0;
@@ -694,12 +699,50 @@ int virtio_ready(void)
     return live;
 }
 
+static int virt_past(uint32_t lba, unsigned sectors)
+{
+    if (sectors == 0) {
+        return 1;
+    }
+    if (blk_secs == 0) {
+        return 0;
+    }
+    if (lba >= blk_secs || sectors > blk_secs - lba) {
+        return 1;
+    }
+    return 0;
+}
+
+static uint32_t virt_capacity(void)
+{
+    uint32_t lo;
+    uint32_t hi;
+
+    if (modern != 0 && devcfg != 0) {
+        lo = mmio_r32(devcfg, 0);
+        hi = mmio_r32(devcfg, 4);
+        if (hi != 0) {
+            return 0xFFFFFFFFu;
+        }
+        return lo;
+    }
+    if (io_base != 0) {
+        lo = inl((uint16_t)(io_base + 20u));
+        hi = inl((uint16_t)(io_base + 24u));
+        if (hi != 0) {
+            return 0xFFFFFFFFu;
+        }
+        return lo;
+    }
+    return 0;
+}
+
 int virtio_read(uint32_t lba, unsigned sectors, void *dst)
 {
     uint8_t *buf = (uint8_t *)dst;
     unsigned s;
 
-    if (live == 0 || dma_virt == 0 || dst == 0 || sectors == 0) {
+    if (live == 0 || dma_virt == 0 || dst == 0 || virt_past(lba, sectors)) {
         return -1;
     }
     for (s = 0; s < sectors; s++) {
@@ -715,7 +758,7 @@ int virtio_write(uint32_t lba, unsigned sectors, const void *src)
     const uint8_t *buf = (const uint8_t *)src;
     unsigned s;
 
-    if (live == 0 || dma_virt == 0 || src == 0 || sectors == 0) {
+    if (live == 0 || dma_virt == 0 || src == 0 || virt_past(lba, sectors)) {
         return -1;
     }
     for (s = 0; s < sectors; s++) {
@@ -738,7 +781,9 @@ int virtio_init(int row)
     io_base = 0;
     common = 0;
     notify = 0;
+    devcfg = 0;
     notify_mult = 0;
+    blk_secs = 0;
     qsz = 0;
     q_notify_off = 0;
     dma_phys = 0;
@@ -760,12 +805,14 @@ int virtio_init(int row)
     if (modern_init(bus, dev, fn) != 0) {
         common = 0;
         notify = 0;
+        devcfg = 0;
         dma_phys = 0;
         dma_virt = 0;
         if (legacy_init(bus, dev, fn) != 0) {
             return virt_say(row, "virt fail");
         }
     }
+    blk_secs = virt_capacity();
     if (vq_read_one(0, 0) != 0) {
         return virt_say(row, "virt fail");
     }
@@ -782,5 +829,8 @@ int virtio_init(int row)
     msg[9] = '\0';
     live = 1;
     (void)bdev_register("virt", virtio_read, virtio_write);
+    if (blk_secs != 0) {
+        bdev_set_sectors(blk_secs);
+    }
     return virt_say(row, msg);
 }

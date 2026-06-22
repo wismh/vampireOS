@@ -193,6 +193,7 @@ static void run_cat(const char *arg)
     arg = skip_ws(arg);
     if (*arg == '\0' || fs_lookup(arg, &data, &len) != 0) {
         vga_putc('?');
+        fb_draw_text(8, 56, "?    ");
         return;
     }
     for (i = 0; i < len; i++) {

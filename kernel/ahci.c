@@ -91,6 +91,7 @@ static volatile uint32_t *hba;
 static uint64_t dma_phys;
 static uint8_t *dma_virt;
 static unsigned used_port;
+static uint32_t blk_secs;
 static int live;
 static int wr_said;
 static int say_row;
@@ -364,6 +365,47 @@ static int port_setup(unsigned p)
     return port_start(p);
 }
 
+static int wait_ci(unsigned p)
+{
+    unsigned i;
+    uint32_t ci;
+    uint32_t is;
+    uint32_t tfd;
+
+    for (i = 0; i < WAIT_MAX; i++) {
+        ci = port_read(p, PORT_CI);
+        is = port_read(p, PORT_IS);
+        tfd = port_read(p, PORT_TFD);
+        if ((is & IS_TFES) != 0 || (tfd & TFD_ERR) != 0) {
+            port_write(p, PORT_IS, 0xFFFFFFFFu);
+            port_write(p, PORT_SERR, 0xFFFFFFFFu);
+            return -1;
+        }
+        if ((ci & 1u) == 0) {
+            return 0;
+        }
+        __asm__ volatile ("pause");
+    }
+    port_write(p, PORT_IS, 0xFFFFFFFFu);
+    port_write(p, PORT_SERR, 0xFFFFFFFFu);
+    return -1;
+}
+
+static uint32_t ident_sectors(const uint8_t *id)
+{
+    uint32_t lba48;
+    uint32_t lba28;
+
+    lba48 = (uint32_t)id[200] | ((uint32_t)id[201] << 8) |
+            ((uint32_t)id[202] << 16) | ((uint32_t)id[203] << 24);
+    lba28 = (uint32_t)id[120] | ((uint32_t)id[121] << 8) |
+            ((uint32_t)id[122] << 16) | ((uint32_t)id[123] << 24);
+    if (lba48 != 0) {
+        return lba48;
+    }
+    return lba28;
+}
+
 static void copy_sec(void *dst, const void *src)
 {
     uint8_t *d = (uint8_t *)dst;
@@ -439,7 +481,7 @@ static int port_issue(unsigned p, uint8_t ata_cmd, uint64_t lba, uint16_t count,
     __asm__ volatile ("mfence" ::: "memory");
     port_write(p, PORT_CI, 1u);
 
-    if (wait_clear(p, PORT_CI, 1u) != 0) {
+    if (wait_ci(p) != 0) {
         return -1;
     }
     is = port_read(p, PORT_IS);
@@ -447,6 +489,8 @@ static int port_issue(unsigned p, uint8_t ata_cmd, uint64_t lba, uint16_t count,
     ci = port_read(p, PORT_CI);
     (void)ci;
     if ((is & IS_TFES) != 0 || (tfd & TFD_ERR) != 0) {
+        port_write(p, PORT_IS, 0xFFFFFFFFu);
+        port_write(p, PORT_SERR, 0xFFFFFFFFu);
         return -1;
     }
     __asm__ volatile ("mfence" ::: "memory");
@@ -491,12 +535,29 @@ int ahci_ready(void)
     return live;
 }
 
+static int ahci_past(uint32_t lba, unsigned sectors)
+{
+    uint32_t ssts;
+
+    if (sectors == 0) {
+        return 1;
+    }
+    ssts = port_read(used_port, PORT_SSTS);
+    if ((ssts & SSTS_DET) != SSTS_DET_PRESENT) {
+        return 1;
+    }
+    if (blk_secs != 0 && (lba >= blk_secs || sectors > blk_secs - lba)) {
+        return 1;
+    }
+    return 0;
+}
+
 int ahci_read(uint32_t lba, unsigned sectors, void *dst)
 {
     uint8_t *buf = (uint8_t *)dst;
     unsigned s;
 
-    if (live == 0 || dma_virt == 0 || dst == 0 || sectors == 0) {
+    if (live == 0 || dma_virt == 0 || dst == 0 || ahci_past(lba, sectors)) {
         return -1;
     }
     for (s = 0; s < sectors; s++) {
@@ -513,7 +574,7 @@ int ahci_write(uint32_t lba, unsigned sectors, const void *src)
     const uint8_t *buf = (const uint8_t *)src;
     unsigned s;
 
-    if (live == 0 || dma_virt == 0 || src == 0 || sectors == 0) {
+    if (live == 0 || dma_virt == 0 || src == 0 || ahci_past(lba, sectors)) {
         return -1;
     }
     for (s = 0; s < sectors; s++) {
@@ -542,6 +603,7 @@ int ahci_init(int row)
     dma_phys = 0;
     dma_virt = 0;
     used_port = 0;
+    blk_secs = 0;
     live = 0;
     wr_said = 0;
     say_row = 0;
@@ -581,7 +643,9 @@ int ahci_init(int row)
     if (port_setup(used_port) != 0) {
         return ahci_say(row, "ahci fail");
     }
-    (void)port_issue(used_port, ATA_IDENTIFY, 0, 1, 0);
+    if (port_issue(used_port, ATA_IDENTIFY, 0, 1, 0) == 0) {
+        blk_secs = ident_sectors(dma_virt + DATA_OFF);
+    }
     if (port_issue(used_port, ATA_READ_DMA_EXT, 0, 1, 0) != 0) {
         return ahci_say(row, "ahci fail");
     }
@@ -598,5 +662,8 @@ int ahci_init(int row)
     msg[9] = '\0';
     live = 1;
     (void)bdev_register("ahci", ahci_read, ahci_write);
+    if (blk_secs != 0) {
+        bdev_set_sectors(blk_secs);
+    }
     return ahci_say(row, msg);
 }

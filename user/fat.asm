@@ -459,6 +459,13 @@ root_extra2:
     times 14 db 0
     dw 49
     dd fbclear_len
+    ; Cluster 0x0F00 is past the 1024-cluster volume (and past the 1307-sector
+    ; image). `$ cat bad` must bread that LBA, fail, print `?`, and return `$`.
+    db "BAD     ", "   "
+    db 0x20
+    times 14 db 0
+    dw 0x0F00
+    dd 5
     times 512 - ($ - root_extra2) db 0
 
 mmapfile_data:

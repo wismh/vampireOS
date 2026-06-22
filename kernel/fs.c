@@ -1303,14 +1303,14 @@ static int scan_dir(void)
         if (dst == 0) {
             return -1;
         }
-        if (sz != 0 && load_file(dst, cl, sz) != 0) {
-            drop_page(dst);
-            return -1;
-        }
         files[file_count].data = dst;
         files[file_count].len = sz;
         files[file_count].is_dir = 0;
         file_count++;
+        if (sz != 0 && load_file(dst, cl, sz) != 0) {
+            /* Unreadable cluster: keep the name so cat/open return -1. */
+            continue;
+        }
     }
     return 0;
 }

@@ -6,11 +6,31 @@ struct bdev {
     const char *name;
     int (*read)(uint32_t lba, unsigned sectors, void *dst);
     int (*write)(uint32_t lba, unsigned sectors, const void *src);
+    uint32_t sectors;
 };
 
 static struct bdev table[BDEV_MAX];
 static unsigned n_devs;
 static uint32_t part_lba;
+
+static int past_end(uint32_t lba, unsigned sectors)
+{
+    uint32_t abs;
+    uint32_t lim;
+
+    if (sectors == 0 || n_devs == 0) {
+        return 1;
+    }
+    abs = lba + part_lba;
+    lim = table[0].sectors;
+    if (lim == 0) {
+        return 0;
+    }
+    if (abs < lba || abs >= lim || sectors > lim - abs) {
+        return 1;
+    }
+    return 0;
+}
 
 static uint32_t rd32(const uint8_t *p)
 {
@@ -63,13 +83,22 @@ int bdev_register(const char *name,
     table[n_devs].name = name;
     table[n_devs].read = read;
     table[n_devs].write = write;
+    table[n_devs].sectors = 0;
     n_devs++;
     return 0;
 }
 
+void bdev_set_sectors(uint32_t sectors)
+{
+    if (n_devs == 0) {
+        return;
+    }
+    table[n_devs - 1u].sectors = sectors;
+}
+
 int bread(uint32_t lba, unsigned sectors, void *dst)
 {
-    if (n_devs == 0 || table[0].read == 0) {
+    if (n_devs == 0 || table[0].read == 0 || dst == 0 || past_end(lba, sectors)) {
         return -1;
     }
     return table[0].read(lba + part_lba, sectors, dst);
@@ -77,7 +106,7 @@ int bread(uint32_t lba, unsigned sectors, void *dst)
 
 int bwrite(uint32_t lba, unsigned sectors, const void *src)
 {
-    if (n_devs == 0 || table[0].write == 0) {
+    if (n_devs == 0 || table[0].write == 0 || src == 0 || past_end(lba, sectors)) {
         return -1;
     }
     return table[0].write(lba + part_lba, sectors, src);
