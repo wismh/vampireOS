@@ -10,13 +10,17 @@
 #define ATA_DRIVE 0x1F6
 #define ATA_CMD 0x1F7
 #define ATA_ALT 0x3F6
+#define ATA_ERRPORT 0x1F1
 #define ATA_READ 0x20
 #define ATA_WRITE 0x30
+#define ATA_IDENTIFY 0xEC
 #define ATA_FLUSH 0xE7
 #define ATA_BSY 0x80
 #define ATA_DRQ 0x08
 #define ATA_ERR 0x01
 #define ATA_DF 0x20
+
+static uint32_t blk_secs;
 
 static void ata_delay(void)
 {
@@ -71,12 +75,14 @@ static int ata_wait_drq(void)
 
     ata_delay();
     st = ata_wait();
-    if (st < 0 || (st & (ATA_ERR | ATA_DF)) != 0) {
+    if (st < 0 || st == 0xFF || (st & (ATA_ERR | ATA_DF)) != 0) {
+        (void)inb(ATA_ERRPORT);
         return -1;
     }
     while ((st & ATA_DRQ) == 0) {
         st = inb(ATA_CMD);
-        if ((st & (ATA_ERR | ATA_DF)) != 0) {
+        if (st == 0xFF || (st & (ATA_ERR | ATA_DF)) != 0) {
+            (void)inb(ATA_ERRPORT);
             return -1;
         }
         w++;
@@ -87,13 +93,48 @@ static int ata_wait_drq(void)
     return 0;
 }
 
+static int ata_past(uint32_t lba, unsigned sectors)
+{
+    if (sectors == 0) {
+        return 1;
+    }
+    if (blk_secs != 0 && (lba >= blk_secs || sectors > blk_secs - lba)) {
+        return 1;
+    }
+    return 0;
+}
+
+static uint32_t ata_ident_secs(void)
+{
+    uint16_t id[256];
+    unsigned w;
+    uint32_t lba48;
+    uint32_t lba28;
+
+    if (ata_issue(0, 1u, ATA_IDENTIFY) != 0) {
+        return 0;
+    }
+    if (ata_wait_drq() != 0) {
+        return 0;
+    }
+    for (w = 0; w < 256u; w++) {
+        id[w] = inw(ATA_DATA);
+    }
+    lba48 = (uint32_t)id[100] | ((uint32_t)id[101] << 16);
+    lba28 = (uint32_t)id[60] | ((uint32_t)id[61] << 16);
+    if (lba48 != 0) {
+        return lba48;
+    }
+    return lba28;
+}
+
 int ata_read(uint32_t lba, unsigned sectors, void *dst)
 {
     uint16_t *buf = (uint16_t *)dst;
     unsigned s;
     unsigned w;
 
-    if (dst == 0) {
+    if (dst == 0 || ata_past(lba, sectors)) {
         return -1;
     }
     if (ata_issue(lba, sectors, ATA_READ) != 0) {
@@ -117,7 +158,7 @@ int ata_write(uint32_t lba, unsigned sectors, const void *src)
     unsigned w;
     int st;
 
-    if (src == 0) {
+    if (src == 0 || ata_past(lba, sectors)) {
         return -1;
     }
     if (ata_issue(lba, sectors, ATA_WRITE) != 0) {
@@ -133,6 +174,7 @@ int ata_write(uint32_t lba, unsigned sectors, const void *src)
     }
     st = ata_wait();
     if (st < 0 || (st & (ATA_ERR | ATA_DF)) != 0) {
+        (void)inb(ATA_ERRPORT);
         return -1;
     }
     return 0;
@@ -142,6 +184,7 @@ int ata_init(int row)
 {
     uint8_t st;
 
+    blk_secs = 0;
     st = inb(ATA_CMD);
     if (st == 0xFF) {
         return row;
@@ -149,7 +192,11 @@ int ata_init(int row)
     if (ata_wait() < 0) {
         return row;
     }
+    blk_secs = ata_ident_secs();
     (void)bdev_register("ata", ata_read, ata_write);
+    if (blk_secs != 0) {
+        bdev_set_sectors(blk_secs);
+    }
     return row;
 }
 
