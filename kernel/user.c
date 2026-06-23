@@ -1610,7 +1610,7 @@ void user_on_syscall(struct interrupt_frame *frame)
         vmm_set_cr3(sched_current_cr3());
         return;
     }
-    /* Rewrite FAT copies and the cwd dirent, then ATA FLUSH CACHE (E7h). */
+    /* Rewrite FAT copies and the cwd dirent, then flush the active block device. */
     if (frame->rax == SYS_SYNC) {
         frame->rax = (fs_sync() != 0) ? (uint64_t)-1 : 0;
         vmm_set_cr3(sched_current_cr3());

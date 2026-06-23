@@ -36,8 +36,10 @@
 #define VIRTQ_AVAIL_F_NO_INTERRUPT 1u
 #define VIRTIO_BLK_T_IN 0u
 #define VIRTIO_BLK_T_OUT 1u
+#define VIRTIO_BLK_T_FLUSH 4u
 #define VIRTIO_BLK_S_OK 0u
 #define VIRTIO_BLK_S_IOERR 1u
+#define VIRTIO_BLK_F_FLUSH 0u
 
 #define LEG_HOST_FEATURES 0u
 #define LEG_GUEST_FEATURES 4u
@@ -106,7 +108,9 @@ static uint16_t used_seen;
 static int modern;
 static int live;
 static int wr_said;
+static int flush_said;
 static int say_row;
+static int have_flush;
 
 static uint32_t pci_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off)
 {
@@ -440,6 +444,7 @@ static int vq_kick(void)
 static int modern_features(void)
 {
     uint32_t hi;
+    uint32_t lo;
     uint8_t st;
 
     mmio_w8(common, CFG_STATUS, 0);
@@ -456,8 +461,11 @@ static int modern_features(void)
     if ((hi & (1u << (VIRTIO_F_VERSION_1 - 32u))) == 0) {
         return -1;
     }
+    mmio_w32(common, CFG_DFSELECT, 0);
+    lo = mmio_r32(common, CFG_DF);
+    have_flush = ((lo & (1u << VIRTIO_BLK_F_FLUSH)) != 0) ? 1 : 0;
     mmio_w32(common, CFG_GFSELECT, 0);
-    mmio_w32(common, CFG_GF, 0);
+    mmio_w32(common, CFG_GF, have_flush != 0 ? (1u << VIRTIO_BLK_F_FLUSH) : 0);
     mmio_w32(common, CFG_GFSELECT, 1u);
     mmio_w32(common, CFG_GF, 1u << (VIRTIO_F_VERSION_1 - 32u));
     st = mmio_r8(common, CFG_STATUS);
@@ -519,6 +527,7 @@ static int modern_init(uint8_t bus, uint8_t dev, uint8_t fn)
 static int legacy_init(uint8_t bus, uint8_t dev, uint8_t fn)
 {
     uint32_t bar0;
+    uint32_t host;
     uint16_t size;
     unsigned i;
 
@@ -540,8 +549,10 @@ static int legacy_init(uint8_t bus, uint8_t dev, uint8_t fn)
     outb((uint16_t)(io_base + LEG_STATUS), VIRTIO_STATUS_ACK);
     outb((uint16_t)(io_base + LEG_STATUS),
          (uint8_t)(VIRTIO_STATUS_ACK | VIRTIO_STATUS_DRIVER));
-    (void)inl((uint16_t)(io_base + LEG_HOST_FEATURES));
-    outl((uint16_t)(io_base + LEG_GUEST_FEATURES), 0);
+    host = inl((uint16_t)(io_base + LEG_HOST_FEATURES));
+    have_flush = ((host & (1u << VIRTIO_BLK_F_FLUSH)) != 0) ? 1 : 0;
+    outl((uint16_t)(io_base + LEG_GUEST_FEATURES),
+         have_flush != 0 ? (1u << VIRTIO_BLK_F_FLUSH) : 0);
     outw((uint16_t)(io_base + LEG_QUEUE_SEL), 0);
     size = inw((uint16_t)(io_base + LEG_QUEUE_NUM));
     if (vq_layout(size) != 0) {
@@ -661,6 +672,41 @@ static int vq_write_one(uint64_t lba, const void *src)
     return 0;
 }
 
+static int vq_flush(void)
+{
+    struct virtq_desc *d;
+    struct virtio_blk_req *req;
+    uint8_t *st;
+
+    if (dma_virt == 0 || qsz < 2u) {
+        return -1;
+    }
+    d = vq_desc();
+    req = (struct virtio_blk_req *)(dma_virt + req_off);
+    st = dma_virt + st_off;
+    req->type = VIRTIO_BLK_T_FLUSH;
+    req->reserved = 0;
+    req->sector = 0;
+    *st = 0xFFu;
+
+    d[0].addr = dma_phys + req_off;
+    d[0].len = (uint32_t)sizeof(struct virtio_blk_req);
+    d[0].flags = VIRTQ_DESC_F_NEXT;
+    d[0].next = 1;
+    d[1].addr = dma_phys + st_off;
+    d[1].len = 1;
+    d[1].flags = VIRTQ_DESC_F_WRITE;
+    d[1].next = 0;
+
+    if (vq_kick() != 0) {
+        return -1;
+    }
+    if (*st == VIRTIO_BLK_S_IOERR || *st != VIRTIO_BLK_S_OK) {
+        return -1;
+    }
+    return 0;
+}
+
 static char hex_digit(unsigned n)
 {
     n &= 0xFu;
@@ -692,6 +738,22 @@ static void virt_say_wr(void)
     }
     vga_write_at(row, 10, "virt wr");
     fb_draw_text(8, 56, "virt wr");
+}
+
+static void virt_say_flush(void)
+{
+    int row;
+
+    if (flush_said != 0) {
+        return;
+    }
+    flush_said = 1;
+    row = say_row;
+    if (row <= 0 || row >= VGA_HEIGHT) {
+        row = 2;
+    }
+    vga_write_at(row, 18, "virt flush");
+    fb_draw_text(128, 56, "virt flush");
 }
 
 int virtio_ready(void)
@@ -770,6 +832,18 @@ int virtio_write(uint32_t lba, unsigned sectors, const void *src)
     return 0;
 }
 
+static int virtio_flush(void)
+{
+    if (live == 0 || dma_virt == 0) {
+        return -1;
+    }
+    if (vq_flush() != 0) {
+        return -1;
+    }
+    virt_say_flush();
+    return 0;
+}
+
 int virtio_init(int row)
 {
     uint8_t bus;
@@ -791,7 +865,9 @@ int virtio_init(int row)
     modern = 0;
     live = 0;
     wr_said = 0;
+    flush_said = 0;
     say_row = 0;
+    have_flush = 0;
     avail_idx = 0;
     used_seen = 0;
 
@@ -829,6 +905,7 @@ int virtio_init(int row)
     msg[9] = '\0';
     live = 1;
     (void)bdev_register("virt", virtio_read, virtio_write);
+    bdev_set_flush(virtio_flush);
     if (blk_secs != 0) {
         bdev_set_sectors(blk_secs);
     }

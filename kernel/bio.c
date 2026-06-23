@@ -6,6 +6,7 @@ struct bdev {
     const char *name;
     int (*read)(uint32_t lba, unsigned sectors, void *dst);
     int (*write)(uint32_t lba, unsigned sectors, const void *src);
+    int (*flush)(void);
     uint32_t sectors;
 };
 
@@ -83,6 +84,7 @@ int bdev_register(const char *name,
     table[n_devs].name = name;
     table[n_devs].read = read;
     table[n_devs].write = write;
+    table[n_devs].flush = 0;
     table[n_devs].sectors = 0;
     n_devs++;
     return 0;
@@ -94,6 +96,22 @@ void bdev_set_sectors(uint32_t sectors)
         return;
     }
     table[n_devs - 1u].sectors = sectors;
+}
+
+void bdev_set_flush(int (*flush)(void))
+{
+    if (n_devs == 0) {
+        return;
+    }
+    table[n_devs - 1u].flush = flush;
+}
+
+int bflush(void)
+{
+    if (n_devs == 0 || table[0].flush == 0) {
+        return -1;
+    }
+    return table[0].flush();
 }
 
 int bread(uint32_t lba, unsigned sectors, void *dst)

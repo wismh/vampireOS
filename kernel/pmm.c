@@ -8,7 +8,9 @@
 #define PAGE_SIZE (1u << PAGE_SHIFT)
 /* Must match boot/const.inc and the 2 MiB identity map in stage 2. */
 #define KERNEL_PHYS 0x100000ull
-#define KERNEL_SIZE (256ull * 512ull)
+/* Disk pad is still KERNEL_SECTORS 256; .bss can sit a few hundred bytes
+ * past that. Reserve 264 sectors of RAM so the PMM bitmap starts after .bss. */
+#define KERNEL_SIZE (264ull * 512ull)
 #define IDENTITY_END 0x200000ull
 
 static uint64_t bitmap_phys;

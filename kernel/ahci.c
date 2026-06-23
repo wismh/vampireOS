@@ -54,6 +54,7 @@
 #define ATA_IDENTIFY 0xECu
 #define ATA_READ_DMA_EXT 0x25u
 #define ATA_WRITE_DMA_EXT 0x35u
+#define ATA_FLUSH_CACHE 0xE7u
 #define HDR_WRITE (1u << 6)
 
 #define FIS_H2D 0x27u
@@ -94,6 +95,7 @@ static unsigned used_port;
 static uint32_t blk_secs;
 static int live;
 static int wr_said;
+static int flush_said;
 static int say_row;
 
 static uint32_t pci_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off)
@@ -418,7 +420,7 @@ static void copy_sec(void *dst, const void *src)
 }
 
 static int port_issue(unsigned p, uint8_t ata_cmd, uint64_t lba, uint16_t count,
-                      int write)
+                      int write, uint16_t prdtl)
 {
     struct cmd_hdr *hdr;
     struct prdt_ent *prdt;
@@ -434,7 +436,7 @@ static int port_issue(unsigned p, uint8_t ata_cmd, uint64_t lba, uint16_t count,
     prdt = (struct prdt_ent *)(dma_virt + CT_OFF + 0x80);
     data = dma_virt + DATA_OFF;
 
-    if (write == 0) {
+    if (write == 0 && prdtl != 0) {
         for (i = 0; i < SEC_SIZE; i++) {
             data[i] = 0;
         }
@@ -456,16 +458,18 @@ static int port_issue(unsigned p, uint8_t ata_cmd, uint64_t lba, uint16_t count,
     cfis[12] = (uint8_t)count;
     cfis[13] = (uint8_t)(count >> 8);
 
-    prdt->dba = (uint32_t)(dma_phys + DATA_OFF);
-    prdt->dbau = (uint32_t)((dma_phys + DATA_OFF) >> 32);
-    prdt->reserved = 0;
-    prdt->dbc = (SEC_SIZE - 1u) | PRDT_IOC;
+    if (prdtl != 0) {
+        prdt->dba = (uint32_t)(dma_phys + DATA_OFF);
+        prdt->dbau = (uint32_t)((dma_phys + DATA_OFF) >> 32);
+        prdt->reserved = 0;
+        prdt->dbc = (SEC_SIZE - 1u) | PRDT_IOC;
+    }
 
     hdr->flags = CFL_H2D;
     if (write != 0) {
         hdr->flags |= HDR_WRITE;
     }
-    hdr->prdtl = 1;
+    hdr->prdtl = prdtl;
     hdr->prdbc = 0;
     hdr->ctba = (uint32_t)(dma_phys + CT_OFF);
     hdr->ctbau = (uint32_t)((dma_phys + CT_OFF) >> 32);
@@ -530,6 +534,22 @@ static void ahci_say_wr(void)
     fb_draw_text(8, 24, "ahci wr");
 }
 
+static void ahci_say_flush(void)
+{
+    int row;
+
+    if (flush_said != 0) {
+        return;
+    }
+    flush_said = 1;
+    row = say_row;
+    if (row <= 0 || row >= VGA_HEIGHT) {
+        row = 2;
+    }
+    vga_write_at(row, 18, "ahci flush");
+    fb_draw_text(128, 24, "ahci flush");
+}
+
 int ahci_ready(void)
 {
     return live;
@@ -561,7 +581,7 @@ int ahci_read(uint32_t lba, unsigned sectors, void *dst)
         return -1;
     }
     for (s = 0; s < sectors; s++) {
-        if (port_issue(used_port, ATA_READ_DMA_EXT, (uint64_t)lba + s, 1, 0) != 0) {
+        if (port_issue(used_port, ATA_READ_DMA_EXT, (uint64_t)lba + s, 1, 0, 1) != 0) {
             return -1;
         }
         copy_sec(buf + s * SEC_SIZE, dma_virt + DATA_OFF);
@@ -579,11 +599,23 @@ int ahci_write(uint32_t lba, unsigned sectors, const void *src)
     }
     for (s = 0; s < sectors; s++) {
         copy_sec(dma_virt + DATA_OFF, buf + s * SEC_SIZE);
-        if (port_issue(used_port, ATA_WRITE_DMA_EXT, (uint64_t)lba + s, 1, 1) != 0) {
+        if (port_issue(used_port, ATA_WRITE_DMA_EXT, (uint64_t)lba + s, 1, 1, 1) != 0) {
             return -1;
         }
     }
     ahci_say_wr();
+    return 0;
+}
+
+static int ahci_flush(void)
+{
+    if (live == 0 || dma_virt == 0) {
+        return -1;
+    }
+    if (port_issue(used_port, ATA_FLUSH_CACHE, 0, 0, 0, 0) != 0) {
+        return -1;
+    }
+    ahci_say_flush();
     return 0;
 }
 
@@ -606,6 +638,7 @@ int ahci_init(int row)
     blk_secs = 0;
     live = 0;
     wr_said = 0;
+    flush_said = 0;
     say_row = 0;
 
     if (row >= VGA_HEIGHT - 1) {
@@ -643,10 +676,10 @@ int ahci_init(int row)
     if (port_setup(used_port) != 0) {
         return ahci_say(row, "ahci fail");
     }
-    if (port_issue(used_port, ATA_IDENTIFY, 0, 1, 0) == 0) {
+    if (port_issue(used_port, ATA_IDENTIFY, 0, 1, 0, 1) == 0) {
         blk_secs = ident_sectors(dma_virt + DATA_OFF);
     }
-    if (port_issue(used_port, ATA_READ_DMA_EXT, 0, 1, 0) != 0) {
+    if (port_issue(used_port, ATA_READ_DMA_EXT, 0, 1, 0, 1) != 0) {
         return ahci_say(row, "ahci fail");
     }
     data = dma_virt + DATA_OFF;
@@ -662,6 +695,7 @@ int ahci_init(int row)
     msg[9] = '\0';
     live = 1;
     (void)bdev_register("ahci", ahci_read, ahci_write);
+    bdev_set_flush(ahci_flush);
     if (blk_secs != 0) {
         bdev_set_sectors(blk_secs);
     }

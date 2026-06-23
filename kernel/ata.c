@@ -194,6 +194,7 @@ int ata_init(int row)
     }
     blk_secs = ata_ident_secs();
     (void)bdev_register("ata", ata_read, ata_write);
+    bdev_set_flush(ata_flush);
     if (blk_secs != 0) {
         bdev_set_sectors(blk_secs);
     }
