@@ -1,5 +1,4 @@
 #include "fs.h"
-#include "ata.h"
 #include "bio.h"
 #include "pmm.h"
 #include "vga.h"
@@ -1588,7 +1587,7 @@ int fs_sync(void)
     if (dir_store() != 0) {
         return -1;
     }
-    return ata_flush();
+    return bflush();
 }
 
 int fs_truncate(const char *name, unsigned len)
