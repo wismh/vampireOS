@@ -428,28 +428,103 @@ static void run_ps(void)
     int i;
     int n;
     int first;
+    int y;
+    unsigned k;
+    unsigned p;
     const char *st;
     const char *nm;
+    char fb[320];
 
     n = sched_slots();
     first = 1;
+    k = 0;
     for (i = 0; i < n; i++) {
+        char id[10];
+        int t;
+        unsigned v;
+
         st = sched_slot_state_name(i);
         if (st == 0) {
             continue;
         }
         if (first == 0) {
             vga_putc(' ');
+            if (k + 1u < sizeof(fb)) {
+                fb[k++] = ' ';
+            }
         }
         first = 0;
         put_uint((unsigned)i);
+        v = (unsigned)i;
+        t = 0;
+        if (v == 0) {
+            id[t++] = '0';
+        } else {
+            while (v > 0 && t < 10) {
+                id[t++] = (char)('0' + (v % 10));
+                v /= 10;
+            }
+        }
+        while (t > 0 && k + 1u < sizeof(fb)) {
+            t--;
+            fb[k++] = id[t];
+        }
         vga_putc(' ');
+        if (k + 1u < sizeof(fb)) {
+            fb[k++] = ' ';
+        }
         nm = sched_slot_name(i);
         if (nm != 0) {
             puts_cur(nm);
             vga_putc(' ');
+            while (*nm != '\0' && k + 1u < sizeof(fb)) {
+                fb[k++] = *nm;
+                nm++;
+            }
+            if (k + 1u < sizeof(fb)) {
+                fb[k++] = ' ';
+            }
         }
         puts_cur(st);
+        while (*st != '\0' && k + 1u < sizeof(fb)) {
+            fb[k++] = *st;
+            st++;
+        }
+    }
+    if (k >= sizeof(fb)) {
+        k = sizeof(fb) - 1u;
+    }
+    fb[k] = '\0';
+    /* VBE scanout hides 80×25; wrap the same listing onto LFB rows. */
+    y = 120;
+    p = 0;
+    while (p < k) {
+        char line[40];
+        int L = 0;
+
+        while (p < k && L < 38) {
+            line[L++] = fb[p++];
+        }
+        if (p < k) {
+            int back = L;
+
+            while (back > 8 && line[back - 1] != ' ') {
+                back--;
+            }
+            if (back > 8 && back < L) {
+                p -= (unsigned)(L - back);
+                L = back;
+            }
+        }
+        while (L > 0 && line[L - 1] == ' ') {
+            L--;
+        }
+        line[L] = '\0';
+        fb_draw_text(8, y, line);
+        y += 16;
+        if (y > 220) {
+            break;
+        }
     }
 }
 
