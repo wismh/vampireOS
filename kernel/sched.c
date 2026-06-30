@@ -9,7 +9,7 @@
 
 #include <stdint.h>
 
-#define TASK_MAX 8
+#define TASK_MAX 16
 #define TASK_DEAD 0
 #define TASK_READY 1
 #define TASK_SLEEP 2
@@ -557,6 +557,10 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->wait_pid = 0;
     t->name[0] = '\0';
     t->state = TASK_READY;
+    /* Extra slots share the last text row so 16 tasks do not walk off 80×25. */
+    if (row < 0 || row >= VGA_HEIGHT) {
+        row = VGA_HEIGHT - 1;
+    }
     t->row = row;
     t->writes = 0;
     t->wake_tick = 0;

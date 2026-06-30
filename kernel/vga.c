@@ -78,9 +78,13 @@ void vga_putc(char c)
 void vga_write_at(int row, int col, const char *msg)
 {
     int i;
-    int pos = row * VGA_WIDTH + col;
+    int pos;
 
-    for (i = 0; msg[i] != '\0'; i++) {
+    if (row < 0 || row >= VGA_HEIGHT || col < 0 || col >= VGA_WIDTH || msg == 0) {
+        return;
+    }
+    pos = row * VGA_WIDTH + col;
+    for (i = 0; msg[i] != '\0' && col + i < VGA_WIDTH; i++) {
         vga_buf()[pos + i] = (uint16_t)(uint8_t)msg[i] | (VGA_ATTR_WHITE << 8);
     }
 }
@@ -88,12 +92,19 @@ void vga_write_at(int row, int col, const char *msg)
 void vga_write_hex64_at(int row, int col, uint64_t value)
 {
     int i;
-    int pos = row * VGA_WIDTH + col;
+    int pos;
 
+    if (row < 0 || row >= VGA_HEIGHT || col < 0 || col >= VGA_WIDTH) {
+        return;
+    }
+    pos = row * VGA_WIDTH + col;
     for (i = 15; i >= 0; i--) {
         unsigned nibble = (unsigned)((value >> (i * 4)) & 0xF);
         char c = (char)(nibble < 10 ? '0' + nibble : 'a' + (nibble - 10));
 
+        if (col + (15 - i) >= VGA_WIDTH) {
+            break;
+        }
         vga_buf()[pos + (15 - i)] = (uint16_t)(uint8_t)c | (VGA_ATTR_WHITE << 8);
     }
 }
@@ -113,12 +124,16 @@ void vga_write_dec_at(int row, int col, unsigned value)
         }
     }
 
+    if (row < 0 || row >= VGA_HEIGHT || col < 0 || col >= VGA_WIDTH) {
+        return;
+    }
     {
         int pos = row * VGA_WIDTH + col;
 
-        while (n > 0) {
+        while (n > 0 && col < VGA_WIDTH) {
             n--;
             vga_buf()[pos++] = (uint16_t)(uint8_t)buf[n] | (VGA_ATTR_WHITE << 8);
+            col++;
         }
     }
 }
