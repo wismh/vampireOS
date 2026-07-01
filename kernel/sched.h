@@ -99,3 +99,5 @@ int sched_slots(void);
 const char *sched_slot_state_name(int id);
 /* Stored name for a live slot, or 0 if none. */
 const char *sched_slot_name(int id);
+/* PIT ticks spent as current (wraps). 0 if DEAD or unused. */
+unsigned sched_slot_ticks(int id);

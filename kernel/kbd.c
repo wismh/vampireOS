@@ -433,7 +433,7 @@ static void run_ps(void)
     unsigned p;
     const char *st;
     const char *nm;
-    char fb[320];
+    char fb[480];
 
     n = sched_slots();
     first = 1;
@@ -489,6 +489,25 @@ static void run_ps(void)
         while (*st != '\0' && k + 1u < sizeof(fb)) {
             fb[k++] = *st;
             st++;
+        }
+        vga_putc(' ');
+        if (k + 1u < sizeof(fb)) {
+            fb[k++] = ' ';
+        }
+        v = sched_slot_ticks(i);
+        put_uint(v);
+        t = 0;
+        if (v == 0) {
+            id[t++] = '0';
+        } else {
+            while (v > 0 && t < 10) {
+                id[t++] = (char)('0' + (v % 10));
+                v /= 10;
+            }
+        }
+        while (t > 0 && k + 1u < sizeof(fb)) {
+            t--;
+            fb[k++] = id[t];
         }
     }
     if (k >= sizeof(fb)) {
