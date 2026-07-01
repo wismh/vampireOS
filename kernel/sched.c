@@ -76,6 +76,7 @@ struct task {
     int row;
     unsigned writes;
     unsigned wake_tick;
+    unsigned cpu_ticks; /* PIT ticks while this slot was current. Wraps. */
     uint8_t exit_code;
     uint8_t reaped; /* 1 after wait collected this DEAD child. */
     uint8_t seen_status;
@@ -393,6 +394,7 @@ void sched_init(void)
         tasks[i].state = TASK_DEAD;
         tasks[i].writes = 0;
         tasks[i].wake_tick = 0;
+        tasks[i].cpu_ticks = 0;
         tasks[i].exit_code = 0;
         tasks[i].reaped = 0;
         tasks[i].seen_status = 0;
@@ -564,6 +566,7 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->row = row;
     t->writes = 0;
     t->wake_tick = 0;
+    t->cpu_ticks = 0;
     t->exit_code = 0;
     t->reaped = 0;
     t->seen_status = 0;
@@ -670,6 +673,7 @@ int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3)
     t->row = row;
     t->writes = 0;
     t->wake_tick = 0;
+    t->cpu_ticks = 0;
     t->exit_code = 0;
     t->reaped = 0;
     t->seen_status = 0;
@@ -1230,6 +1234,17 @@ const char *sched_slot_name(int id)
     return tasks[id].name;
 }
 
+unsigned sched_slot_ticks(int id)
+{
+    if (id < 0 || id >= task_count) {
+        return 0;
+    }
+    if (tasks[id].state == TASK_DEAD) {
+        return 0;
+    }
+    return tasks[id].cpu_ticks;
+}
+
 unsigned sched_note_write(void)
 {
     if (task_count == 0) {
@@ -1327,6 +1342,10 @@ static void switch_to_next(struct interrupt_frame *frame)
 
 void sched_on_tick(struct interrupt_frame *frame)
 {
+    /* Charge this PIT slice to whoever owns the CPU (or last blocked). */
+    if (task_count != 0 && tasks[current].state != TASK_DEAD) {
+        tasks[current].cpu_ticks++;
+    }
     wake_sleepers();
     if (frame == 0 || (frame->cs & 3ull) != 3ull) {
         return;
