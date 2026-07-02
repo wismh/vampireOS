@@ -71,12 +71,14 @@ void sched_sleep(struct interrupt_frame *frame, uint64_t ticks);
 /* rdi=0 reaps any child; rdi=pid reaps that child. rax=8-bit code or -1. */
 void sched_wait(struct interrupt_frame *frame);
 void sched_exit(struct interrupt_frame *frame);
-/* rdi=pid, rsi=8-bit status. Marks that slot DEAD so wait can reap it. */
+/* rdi=pid, rsi=8-bit status. Posts SIGTERM; the slot exits on return to user. */
 void sched_kill(struct interrupt_frame *frame);
 /* Same as SYS_KILL without a frame; 0 ok, -1 fail. Does not kill current RUN. */
 int sched_kill_slot(int pid, uint8_t code);
-/* Kernel `kill`: if pid is the current READY task, exit through frame. */
+/* Kernel `kill`: pending SIGTERM on a live slot. Stuck (no CR3) is DEAD now. */
 int sched_kill_at(int pid, uint8_t code, struct interrupt_frame *frame);
+/* If current has a fatal pending bit and frame is ring 3, exit with that status. */
+void sched_deliver_pending(struct interrupt_frame *frame);
 /* Kernel `run` / pipeline: last spawned ELF is the Ctrl+C target. */
 void sched_note_fg(void);
 /* Drop the Ctrl+C target so boot init is not killed. */

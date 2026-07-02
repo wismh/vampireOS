@@ -1,4 +1,4 @@
-; BASE 0x400000; SYS_SLEEP a long time so kill can mark this slot DEAD
+; BASE 0x400000; SYS_SLEEP a long time so kill can post SIGTERM and wake us
 bits 64
 org 0x400000
 

@@ -50,6 +50,7 @@ void exception_handler(struct interrupt_frame *frame)
     if (frame != 0 && frame->vector == 14) {
         __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
         if (vmm_handle_page_fault(frame->error, cr2) == 0) {
+            sched_deliver_pending(frame);
             return;
         }
         /* User #PF that is not COW (unmapped mmap, etc.): kill, do not hang. */
@@ -80,6 +81,7 @@ void irq_handler(struct interrupt_frame *frame)
     }
 
     pic_eoi(irq);
+    sched_deliver_pending(frame);
 }
 
 unsigned idt_ticks(void)
@@ -90,6 +92,7 @@ unsigned idt_ticks(void)
 void syscall_handler(struct interrupt_frame *frame)
 {
     user_on_syscall(frame);
+    sched_deliver_pending(frame);
 }
 
 void idt_init(void)
