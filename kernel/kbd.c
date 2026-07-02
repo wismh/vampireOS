@@ -925,7 +925,7 @@ int kbd_stdin_take(void *dst, unsigned max)
     return (int)n;
 }
 
-/* `ps` / `help` / `run` / `mkdir` / `mv` / `cp` / `ln` / `rm` / `fill` / `trunc` / `sync` / `devs` / plain `cat` / `ls` are kernel-only; run them at `$` without waking `sh`. */
+/* `ps` / `help` / `run` / `kill` / `mkdir` / `mv` / `cp` / `ln` / `rm` / `fill` / `trunc` / `sync` / `devs` / plain `cat` / `ls` are kernel-only; run them at `$` without waking `sh`. */
 static int line_has_meta(const char *s)
 {
     while (*s != '\0') {
@@ -972,12 +972,15 @@ static int kbd_dollar_builtin(void)
         cmd_is(s, "mkdir") == 0 &&
         cmd_is(s, "mv") == 0 && cmd_is(s, "cp") == 0 && cmd_is(s, "ln") == 0 &&
         cmd_is(s, "rm") == 0 && cmd_is(s, "fill") == 0 &&
-        cmd_is(s, "trunc") == 0 && cmd_is(s, "run") == 0 && cat == 0 && ls == 0) {
+        cmd_is(s, "trunc") == 0 && cmd_is(s, "run") == 0 &&
+        cmd_is(s, "kill") == 0 && cat == 0 && ls == 0) {
         return 0;
     }
     vga_putc('\n');
     if (streq(s, "ps") != 0) {
         run_ps();
+    } else if (cmd_is(s, "kill") != 0) {
+        run_kill(s + 4);
     } else if (streq(s, "help") != 0) {
         puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync devs mkdir rmdir cd pwd ps kill uptime | < > >>");
     } else if (streq(s, "mem") != 0) {

@@ -16,6 +16,7 @@
 #define TASK_WAIT 3
 #define TASK_PIPE 4
 #define TASK_KBD 5
+#define SIGTERM 1u
 #define USER_CS 0x2B
 #define USER_DS 0x23
 #define PAGE_4K 0x1000ull
@@ -81,6 +82,7 @@ struct task {
     uint8_t reaped; /* 1 after wait collected this DEAD child. */
     uint8_t seen_status;
     uint8_t shown_status;
+    uint8_t pending; /* bit 0 = SIGTERM; consumed on return to user. */
     int pipe_wait;
     struct fd_entry fds[FD_MAX];
 };
@@ -93,6 +95,8 @@ static int last_added;
 static int fg_slot;
 
 static void idle_until_ready(struct interrupt_frame *frame);
+static int task_fatal_pending(int idx);
+static void wake_blocked(int idx);
 
 static void save_task(struct task *t, const struct interrupt_frame *f)
 {
@@ -399,6 +403,7 @@ void sched_init(void)
         tasks[i].reaped = 0;
         tasks[i].seen_status = 0;
         tasks[i].shown_status = 0;
+        tasks[i].pending = 0;
         tasks[i].pipe_wait = -1;
         tasks[i].kstack_top = 0;
         tasks[i].user_base = 0;
@@ -571,6 +576,7 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->reaped = 0;
     t->seen_status = 0;
     t->shown_status = 0;
+    t->pending = 0;
     t->pipe_wait = -1;
     clear_fds(t);
     bind_console_std(t);
@@ -678,6 +684,7 @@ int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3)
     t->reaped = 0;
     t->seen_status = 0;
     t->shown_status = 0;
+    t->pending = 0;
     t->pipe_wait = -1;
     clear_fds(t);
     inherit_fds(t, parent);
@@ -1059,9 +1066,19 @@ void sched_block_pipe(struct interrupt_frame *frame, int pipe_id)
     if (frame == 0 || task_count == 0) {
         return;
     }
+    if (task_fatal_pending(current) != 0) {
+        sched_deliver_pending(frame);
+        return;
+    }
     save_task(&tasks[current], frame);
     tasks[current].state = TASK_PIPE;
     tasks[current].pipe_wait = pipe_id;
+    if (task_fatal_pending(current) != 0) {
+        tasks[current].state = TASK_READY;
+        tasks[current].pipe_wait = -1;
+        sched_deliver_pending(frame);
+        return;
+    }
     next = pick_next(current);
     if (next < 0) {
         idle_until_ready(frame);
@@ -1078,6 +1095,10 @@ void sched_block_kbd(struct interrupt_frame *frame)
     if (frame == 0 || task_count == 0) {
         return;
     }
+    if (task_fatal_pending(current) != 0) {
+        sched_deliver_pending(frame);
+        return;
+    }
     /* Line may have arrived after SYS_READ saw empty; stay READY and retry. */
     __asm__ volatile ("cli" ::: "memory");
     if (kbd_stdin_ready()) {
@@ -1087,6 +1108,12 @@ void sched_block_kbd(struct interrupt_frame *frame)
     save_task(&tasks[current], frame);
     tasks[current].state = TASK_KBD;
     tasks[current].pipe_wait = -1;
+    if (task_fatal_pending(current) != 0) {
+        tasks[current].state = TASK_READY;
+        __asm__ volatile ("sti" ::: "memory");
+        sched_deliver_pending(frame);
+        return;
+    }
     kbd_stdin_prompt();
     next = pick_next(current);
     if (next < 0) {
@@ -1254,13 +1281,41 @@ unsigned sched_note_write(void)
     return tasks[current].writes;
 }
 
+static int task_fatal_pending(int idx)
+{
+    if (idx < 0 || idx >= task_count) {
+        return 0;
+    }
+    if (tasks[idx].state == TASK_DEAD) {
+        return 0;
+    }
+    return (tasks[idx].pending & SIGTERM) != 0;
+}
+
+static void wake_blocked(int idx)
+{
+    struct task *t;
+
+    if (idx < 0 || idx >= task_count) {
+        return;
+    }
+    t = &tasks[idx];
+    if (t->state == TASK_SLEEP || t->state == TASK_WAIT ||
+        t->state == TASK_PIPE || t->state == TASK_KBD) {
+        t->state = TASK_READY;
+        t->pipe_wait = -1;
+        t->wake_tick = 0;
+    }
+}
+
 static void wake_sleepers(void)
 {
     int i;
     unsigned now = idt_ticks();
 
     for (i = 0; i < task_count; i++) {
-        if (tasks[i].state == TASK_SLEEP && tasks[i].wake_tick <= now) {
+        if (tasks[i].state == TASK_SLEEP &&
+            (tasks[i].wake_tick <= now || (tasks[i].pending & SIGTERM) != 0)) {
             tasks[i].state = TASK_READY;
         }
     }
@@ -1366,6 +1421,10 @@ void sched_sleep(struct interrupt_frame *frame, uint64_t n)
     if (frame == 0) {
         return;
     }
+    if (task_fatal_pending(current) != 0) {
+        sched_deliver_pending(frame);
+        return;
+    }
     if (n == 0) {
         sched_yield(frame);
         return;
@@ -1374,6 +1433,12 @@ void sched_sleep(struct interrupt_frame *frame, uint64_t n)
     save_task(&tasks[current], frame);
     tasks[current].state = TASK_SLEEP;
     tasks[current].wake_tick = now + (unsigned)n;
+    if (task_fatal_pending(current) != 0) {
+        tasks[current].state = TASK_READY;
+        tasks[current].wake_tick = 0;
+        sched_deliver_pending(frame);
+        return;
+    }
     next = pick_next(current);
     if (next < 0) {
         idle_until_ready(frame);
@@ -1391,6 +1456,10 @@ void sched_wait(struct interrupt_frame *frame)
     uint8_t code;
 
     if (frame == 0) {
+        return;
+    }
+    if (task_fatal_pending(current) != 0) {
+        sched_deliver_pending(frame);
         return;
     }
     want = (int)frame->rdi;
@@ -1412,6 +1481,12 @@ void sched_wait(struct interrupt_frame *frame)
     save_task(&tasks[current], frame);
     tasks[current].state = TASK_WAIT;
     tasks[current].wait_pid = want;
+    if (task_fatal_pending(current) != 0) {
+        tasks[current].state = TASK_READY;
+        tasks[current].wait_pid = 0;
+        sched_deliver_pending(frame);
+        return;
+    }
     next = pick_next(current);
     if (next < 0) {
         idle_until_ready(frame);
@@ -1436,6 +1511,7 @@ static void kill_task(int idx, uint8_t code)
     clear_fds(t);
     t->exit_code = code;
     t->reaped = 0;
+    t->pending = 0;
     t->state = TASK_DEAD;
     t->pipe_wait = -1;
     if (idx == fg_slot) {
@@ -1488,19 +1564,41 @@ int sched_kill_at(int pid, uint8_t code, struct interrupt_frame *frame)
     if (tasks[pid].state == TASK_DEAD) {
         return -1;
     }
-    /* READY current is in user mode. With a user IRQ frame, exit through it
-     * so iretq does not land in unmapped pages. Without a frame (Ctrl+C),
-     * refuse — the timer will run someone else. */
-    if (pid == current && tasks[pid].state == TASK_READY) {
-        if (frame == 0 || (frame->cs & 3ull) != 3ull) {
-            return -1;
-        }
-        frame->rdi = (uint64_t)code;
-        sched_exit(frame);
+    /* No user map: cannot return to ring 3 to consume the bit. */
+    if (tasks[pid].cr3 == 0) {
+        kill_task(pid, code);
         return 0;
     }
-    kill_task(pid, code);
+    tasks[pid].pending |= SIGTERM;
+    tasks[pid].exit_code = code;
+    wake_blocked(pid);
+    /* Same IRQ/syscall frame: run the target next so return-to-user delivers. */
+    if (pid != current && frame != 0 && (frame->cs & 3ull) == 3ull &&
+        tasks[pid].state == TASK_READY) {
+        save_task(&tasks[current], frame);
+        set_current(pid);
+        load_task(frame, &tasks[current]);
+    }
     return 0;
+}
+
+void sched_deliver_pending(struct interrupt_frame *frame)
+{
+    uint8_t code;
+
+    if (frame == 0 || task_count == 0) {
+        return;
+    }
+    if ((frame->cs & 3ull) != 3ull) {
+        return;
+    }
+    if (task_fatal_pending(current) == 0) {
+        return;
+    }
+    code = tasks[current].exit_code;
+    tasks[current].pending = 0;
+    frame->rdi = (uint64_t)code;
+    sched_exit(frame);
 }
 
 void sched_kill(struct interrupt_frame *frame)
@@ -1513,12 +1611,7 @@ void sched_kill(struct interrupt_frame *frame)
     }
     pid = (int)frame->rdi;
     code = (uint8_t)(frame->rsi & 0xffull);
-    if (pid == current) {
-        frame->rdi = (uint64_t)code;
-        sched_exit(frame);
-        return;
-    }
-    if (sched_kill_slot(pid, code) != 0) {
+    if (sched_kill_at(pid, code, frame) != 0) {
         frame->rax = (uint64_t)-1;
         return;
     }
@@ -1563,6 +1656,7 @@ void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t r
     t->writes = 0;
     t->wake_tick = 0;
     t->pipe_wait = -1;
+    t->pending = 0;
     /* Keep fds so `sh` can dup2 then exec (`hi > out`). */
     load_task(frame, t);
 }
