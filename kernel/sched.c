@@ -16,7 +16,8 @@
 #define TASK_WAIT 3
 #define TASK_PIPE 4
 #define TASK_KBD 5
-#define SIGTERM 1u
+#define PEND_TERM 1u
+#define PEND_INT 2u
 #define USER_CS 0x2B
 #define USER_DS 0x23
 #define PAGE_4K 0x1000ull
@@ -82,7 +83,9 @@ struct task {
     uint8_t reaped; /* 1 after wait collected this DEAD child. */
     uint8_t seen_status;
     uint8_t shown_status;
-    uint8_t pending; /* bit 0 = SIGTERM; consumed on return to user. */
+    uint8_t pending; /* bit 0 = SIGTERM, bit 1 = SIGINT; consumed on return to user. */
+    uint64_t handler_int; /* SIGINT VA; 0 = terminate. SA_RESETHAND after one run. */
+    uint64_t handler_term;
     int pipe_wait;
     struct fd_entry fds[FD_MAX];
 };
@@ -95,6 +98,7 @@ static int last_added;
 static int fg_slot;
 
 static void idle_until_ready(struct interrupt_frame *frame);
+static int task_has_pending(int idx);
 static int task_fatal_pending(int idx);
 static void wake_blocked(int idx);
 
@@ -404,6 +408,8 @@ void sched_init(void)
         tasks[i].seen_status = 0;
         tasks[i].shown_status = 0;
         tasks[i].pending = 0;
+        tasks[i].handler_int = 0;
+        tasks[i].handler_term = 0;
         tasks[i].pipe_wait = -1;
         tasks[i].kstack_top = 0;
         tasks[i].user_base = 0;
@@ -577,6 +583,8 @@ int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
     t->seen_status = 0;
     t->shown_status = 0;
     t->pending = 0;
+    t->handler_int = 0;
+    t->handler_term = 0;
     t->pipe_wait = -1;
     clear_fds(t);
     bind_console_std(t);
@@ -685,6 +693,8 @@ int sched_fork(struct interrupt_frame *frame, uint64_t kstack_top, uint64_t cr3)
     t->seen_status = 0;
     t->shown_status = 0;
     t->pending = 0;
+    t->handler_int = parent->handler_int;
+    t->handler_term = parent->handler_term;
     t->pipe_wait = -1;
     clear_fds(t);
     inherit_fds(t, parent);
@@ -1066,14 +1076,14 @@ void sched_block_pipe(struct interrupt_frame *frame, int pipe_id)
     if (frame == 0 || task_count == 0) {
         return;
     }
-    if (task_fatal_pending(current) != 0) {
+    if (task_has_pending(current) != 0) {
         sched_deliver_pending(frame);
         return;
     }
     save_task(&tasks[current], frame);
     tasks[current].state = TASK_PIPE;
     tasks[current].pipe_wait = pipe_id;
-    if (task_fatal_pending(current) != 0) {
+    if (task_has_pending(current) != 0) {
         tasks[current].state = TASK_READY;
         tasks[current].pipe_wait = -1;
         sched_deliver_pending(frame);
@@ -1095,7 +1105,7 @@ void sched_block_kbd(struct interrupt_frame *frame)
     if (frame == 0 || task_count == 0) {
         return;
     }
-    if (task_fatal_pending(current) != 0) {
+    if (task_has_pending(current) != 0) {
         sched_deliver_pending(frame);
         return;
     }
@@ -1108,7 +1118,7 @@ void sched_block_kbd(struct interrupt_frame *frame)
     save_task(&tasks[current], frame);
     tasks[current].state = TASK_KBD;
     tasks[current].pipe_wait = -1;
-    if (task_fatal_pending(current) != 0) {
+    if (task_has_pending(current) != 0) {
         tasks[current].state = TASK_READY;
         __asm__ volatile ("sti" ::: "memory");
         sched_deliver_pending(frame);
@@ -1281,7 +1291,46 @@ unsigned sched_note_write(void)
     return tasks[current].writes;
 }
 
-static int task_fatal_pending(int idx)
+static unsigned sig_bit(int signo)
+{
+    if (signo == SIGINT) {
+        return PEND_INT;
+    }
+    if (signo == SIGTERM) {
+        return PEND_TERM;
+    }
+    return 0;
+}
+
+static uint64_t *sig_handler_slot(struct task *t, int signo)
+{
+    if (t == 0) {
+        return 0;
+    }
+    if (signo == SIGINT) {
+        return &t->handler_int;
+    }
+    if (signo == SIGTERM) {
+        return &t->handler_term;
+    }
+    return 0;
+}
+
+static int pending_signo(int idx)
+{
+    if (idx < 0 || idx >= task_count) {
+        return 0;
+    }
+    if (tasks[idx].pending & PEND_INT) {
+        return SIGINT;
+    }
+    if (tasks[idx].pending & PEND_TERM) {
+        return SIGTERM;
+    }
+    return 0;
+}
+
+static int task_has_pending(int idx)
 {
     if (idx < 0 || idx >= task_count) {
         return 0;
@@ -1289,7 +1338,45 @@ static int task_fatal_pending(int idx)
     if (tasks[idx].state == TASK_DEAD) {
         return 0;
     }
-    return (tasks[idx].pending & SIGTERM) != 0;
+    return tasks[idx].pending != 0;
+}
+
+static int task_fatal_pending(int idx)
+{
+    int sig;
+    uint64_t *slot;
+
+    if (task_has_pending(idx) == 0) {
+        return 0;
+    }
+    sig = pending_signo(idx);
+    slot = sig_handler_slot(&tasks[idx], sig);
+    return slot == 0 || *slot == 0;
+}
+
+static int push_user_u64(uint64_t cr3, uint64_t va, uint64_t value)
+{
+    uint64_t phys;
+    volatile uint8_t *page;
+    unsigned i;
+
+    if (cr3 == 0) {
+        return -1;
+    }
+    if ((va & (PAGE_4K - 1)) > PAGE_4K - 8ull) {
+        return -1;
+    }
+    if (vmm_cow_break(cr3, va) != 0) {
+        return -1;
+    }
+    if (vmm_translate_user(cr3, va, &phys) != 0) {
+        return -1;
+    }
+    page = (volatile uint8_t *)(uintptr_t)phys_to_virt(phys & ~(PAGE_4K - 1));
+    for (i = 0; i < 8u; i++) {
+        page[(va + i) & (PAGE_4K - 1)] = (uint8_t)(value >> (i * 8));
+    }
+    return 0;
 }
 
 static void wake_blocked(int idx)
@@ -1315,7 +1402,7 @@ static void wake_sleepers(void)
 
     for (i = 0; i < task_count; i++) {
         if (tasks[i].state == TASK_SLEEP &&
-            (tasks[i].wake_tick <= now || (tasks[i].pending & SIGTERM) != 0)) {
+            (tasks[i].wake_tick <= now || tasks[i].pending != 0)) {
             tasks[i].state = TASK_READY;
         }
     }
@@ -1421,7 +1508,7 @@ void sched_sleep(struct interrupt_frame *frame, uint64_t n)
     if (frame == 0) {
         return;
     }
-    if (task_fatal_pending(current) != 0) {
+    if (task_has_pending(current) != 0) {
         sched_deliver_pending(frame);
         return;
     }
@@ -1433,7 +1520,7 @@ void sched_sleep(struct interrupt_frame *frame, uint64_t n)
     save_task(&tasks[current], frame);
     tasks[current].state = TASK_SLEEP;
     tasks[current].wake_tick = now + (unsigned)n;
-    if (task_fatal_pending(current) != 0) {
+    if (task_has_pending(current) != 0) {
         tasks[current].state = TASK_READY;
         tasks[current].wake_tick = 0;
         sched_deliver_pending(frame);
@@ -1458,7 +1545,7 @@ void sched_wait(struct interrupt_frame *frame)
     if (frame == 0) {
         return;
     }
-    if (task_fatal_pending(current) != 0) {
+    if (task_has_pending(current) != 0) {
         sched_deliver_pending(frame);
         return;
     }
@@ -1481,7 +1568,7 @@ void sched_wait(struct interrupt_frame *frame)
     save_task(&tasks[current], frame);
     tasks[current].state = TASK_WAIT;
     tasks[current].wait_pid = want;
-    if (task_fatal_pending(current) != 0) {
+    if (task_has_pending(current) != 0) {
         tasks[current].state = TASK_READY;
         tasks[current].wait_pid = 0;
         sched_deliver_pending(frame);
@@ -1512,6 +1599,8 @@ static void kill_task(int idx, uint8_t code)
     t->exit_code = code;
     t->reaped = 0;
     t->pending = 0;
+    t->handler_int = 0;
+    t->handler_term = 0;
     t->state = TASK_DEAD;
     t->pipe_wait = -1;
     if (idx == fg_slot) {
@@ -1551,6 +1640,11 @@ int sched_kill_fg(uint8_t code)
     return sched_kill_slot(fg_slot, code);
 }
 
+int sched_signal_fg(int signo, uint8_t code, struct interrupt_frame *frame)
+{
+    return sched_signal_at(fg_slot, signo, code, frame);
+}
+
 int sched_kill_slot(int pid, uint8_t code)
 {
     return sched_kill_at(pid, code, 0);
@@ -1558,6 +1652,17 @@ int sched_kill_slot(int pid, uint8_t code)
 
 int sched_kill_at(int pid, uint8_t code, struct interrupt_frame *frame)
 {
+    return sched_signal_at(pid, SIGTERM, code, frame);
+}
+
+int sched_signal_at(int pid, int signo, uint8_t code, struct interrupt_frame *frame)
+{
+    unsigned bit;
+
+    bit = sig_bit(signo);
+    if (bit == 0) {
+        return -1;
+    }
     if (pid < 0 || pid >= task_count) {
         return -1;
     }
@@ -1569,7 +1674,7 @@ int sched_kill_at(int pid, uint8_t code, struct interrupt_frame *frame)
         kill_task(pid, code);
         return 0;
     }
-    tasks[pid].pending |= SIGTERM;
+    tasks[pid].pending |= (uint8_t)bit;
     tasks[pid].exit_code = code;
     wake_blocked(pid);
     /* Same IRQ/syscall frame: run the target next so return-to-user delivers. */
@@ -1582,8 +1687,40 @@ int sched_kill_at(int pid, uint8_t code, struct interrupt_frame *frame)
     return 0;
 }
 
+void sched_sigaction(struct interrupt_frame *frame)
+{
+    int sig;
+    uint64_t handler;
+    uint64_t *slot;
+    uint64_t phys;
+
+    if (frame == 0 || task_count == 0) {
+        return;
+    }
+    sig = (int)frame->rdi;
+    handler = frame->rsi;
+    slot = sig_handler_slot(&tasks[current], sig);
+    if (slot == 0) {
+        frame->rax = (uint64_t)-1;
+        return;
+    }
+    if (handler != 0) {
+        if (vmm_translate_user(tasks[current].cr3, handler, &phys) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+    }
+    *slot = handler;
+    frame->rax = 0;
+}
+
 void sched_deliver_pending(struct interrupt_frame *frame)
 {
+    int sig;
+    uint64_t *slot;
+    uint64_t handler;
+    uint64_t rsp;
+    uint64_t rip;
     uint8_t code;
 
     if (frame == 0 || task_count == 0) {
@@ -1592,13 +1729,35 @@ void sched_deliver_pending(struct interrupt_frame *frame)
     if ((frame->cs & 3ull) != 3ull) {
         return;
     }
-    if (task_fatal_pending(current) == 0) {
+    sig = pending_signo(current);
+    if (sig == 0) {
         return;
     }
-    code = tasks[current].exit_code;
-    tasks[current].pending = 0;
-    frame->rdi = (uint64_t)code;
-    sched_exit(frame);
+    slot = sig_handler_slot(&tasks[current], sig);
+    handler = (slot != 0) ? *slot : 0;
+    tasks[current].pending &= (uint8_t)~sig_bit(sig);
+    if (handler == 0) {
+        code = tasks[current].exit_code;
+        tasks[current].pending = 0;
+        frame->rdi = (uint64_t)code;
+        sched_exit(frame);
+        return;
+    }
+    /* SA_RESETHAND: one shot so Ctrl+C does not loop the handler. */
+    *slot = 0;
+    rip = frame->rip;
+    rsp = frame->rsp;
+    if (rsp < 8ull ||
+        push_user_u64(tasks[current].cr3, rsp - 8ull, rip) != 0) {
+        code = tasks[current].exit_code;
+        tasks[current].pending = 0;
+        frame->rdi = (uint64_t)code;
+        sched_exit(frame);
+        return;
+    }
+    frame->rsp = rsp - 8ull;
+    frame->rip = handler;
+    frame->rdi = (uint64_t)sig;
 }
 
 void sched_kill(struct interrupt_frame *frame)
@@ -1657,6 +1816,8 @@ void sched_reset_current(struct interrupt_frame *frame, uint64_t rip, uint64_t r
     t->wake_tick = 0;
     t->pipe_wait = -1;
     t->pending = 0;
+    t->handler_int = 0;
+    t->handler_term = 0;
     /* Keep fds so `sh` can dup2 then exec (`hi > out`). */
     load_task(frame, t);
 }
