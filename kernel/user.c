@@ -49,6 +49,7 @@
 #define SYS_FBINFO 24ull
 #define SYS_FBPIX 25ull
 #define SYS_FBPRESENT 26ull
+#define SYS_SIGACTION 27ull
 #define PIT_TICKS_PER_SEC 100u
 #define USER_HEAP_PAGES 16ull
 #define USER_STR_MAX 80ull
@@ -1182,6 +1183,7 @@ void user_on_syscall(struct interrupt_frame *frame)
                     vga_write_at(row, 0, buf);
                     vga_write_at(row, (int)want, "          ");
                     vga_write_dec_at(row, (int)want + 1, n);
+                    fb_draw_text(8, 16 + row * 16, buf);
                 }
                 frame->rax = (uint64_t)want;
                 vmm_set_cr3(sched_current_cr3());
@@ -1206,6 +1208,7 @@ void user_on_syscall(struct interrupt_frame *frame)
             vga_write_at(row, 0, buf);
             vga_write_at(row, (int)slen, "          ");
             vga_write_dec_at(row, (int)slen + 1, n);
+            fb_draw_text(8, 16 + row * 16, buf);
         }
         vmm_set_cr3(sched_current_cr3());
         return;
@@ -1601,6 +1604,12 @@ void user_on_syscall(struct interrupt_frame *frame)
     if (frame->rax == SYS_FBPRESENT) {
         vmm_set_cr3(vmm_boot_cr3());
         frame->rax = (fb_present() != 0) ? (uint64_t)-1 : 0;
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* rdi=signo (SIGINT 2 / SIGTERM 15), rsi=handler VA or 0. rax 0 or -1. */
+    if (frame->rax == SYS_SIGACTION) {
+        sched_sigaction(frame);
         vmm_set_cr3(sched_current_cr3());
         return;
     }

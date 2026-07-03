@@ -56,6 +56,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0x0F, 0x03
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
 fat2:
@@ -84,6 +85,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0x0F, 0x03
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
 root:
@@ -459,6 +461,11 @@ root_extra2:
     times 14 db 0
     dw 49
     dd fbclear_len
+    db "CATCH   ", "   "
+    db 0x20
+    times 14 db 0
+    dw 50
+    dd catch_len
     ; Cluster 0x0F00 is past the 1024-cluster volume (and past the 1307-sector
     ; image). `$ cat bad` must bread that LBA, fail, print `?`, and return `$`.
     db "BAD     ", "   "
@@ -498,4 +505,9 @@ fbclear_data:
 fbclear_len equ $ - fbclear_data
     times 512 - fbclear_len db 0
 
-    times (FAT_DATA_CLUSTERS - 48) * 512 db 0
+catch_data:
+    incbin "catch.bin"
+catch_len equ $ - catch_data
+    times 512 - catch_len db 0
+
+    times (FAT_DATA_CLUSTERS - 49) * 512 db 0

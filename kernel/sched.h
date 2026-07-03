@@ -13,6 +13,8 @@
 #define FD_KIND_PIPE_W 3
 #define FD_KIND_CONSOLE_R 4
 #define FD_KIND_CONSOLE_W 5
+#define SIGINT 2
+#define SIGTERM 15
 
 void sched_init(void);
 int sched_add_user(uint64_t rip, uint64_t rsp, uint64_t kstack_top, int row,
@@ -77,13 +79,19 @@ void sched_kill(struct interrupt_frame *frame);
 int sched_kill_slot(int pid, uint8_t code);
 /* Kernel `kill`: pending SIGTERM on a live slot. Stuck (no CR3) is DEAD now. */
 int sched_kill_at(int pid, uint8_t code, struct interrupt_frame *frame);
-/* If current has a fatal pending bit and frame is ring 3, exit with that status. */
+/* Post signo (SIGINT/SIGTERM) on a live slot; wake it. 0 ok, -1 fail. */
+int sched_signal_at(int pid, int signo, uint8_t code, struct interrupt_frame *frame);
+/* Ctrl+C: pending SIGINT on the last `run` ELF. 0 ok, -1 none/fail. */
+int sched_signal_fg(int signo, uint8_t code, struct interrupt_frame *frame);
+/* rdi=signo, rsi=handler VA (0 = default terminate). rax 0 or -1. */
+void sched_sigaction(struct interrupt_frame *frame);
+/* If current has a pending bit and frame is ring 3, run the handler or exit. */
 void sched_deliver_pending(struct interrupt_frame *frame);
 /* Kernel `run` / pipeline: last spawned ELF is the Ctrl+C target. */
 void sched_note_fg(void);
 /* Drop the Ctrl+C target so boot init is not killed. */
 void sched_clear_fg(void);
-/* Kill that foreground slot via sched_kill_slot. 0 ok, -1 none/fail. */
+/* Kill that foreground slot via sched_kill_slot (SIGTERM). 0 ok, -1 none/fail. */
 int sched_kill_fg(uint8_t code);
 /* Name the last sched_add_user / fork slot (run). */
 void sched_set_name(const char *name);

@@ -88,6 +88,8 @@ set(STAT_ASM "${CMAKE_SOURCE_DIR}/user/stat.asm")
 set(STAT_BIN "${CMAKE_BINARY_DIR}/stat.bin")
 set(SLEEPER_ASM "${CMAKE_SOURCE_DIR}/user/sleeper.asm")
 set(SLEEPER_BIN "${CMAKE_BINARY_DIR}/sleeper.bin")
+set(CATCH_ASM "${CMAKE_SOURCE_DIR}/user/catch.asm")
+set(CATCH_BIN "${CMAKE_BINARY_DIR}/catch.bin")
 set(KILL_ASM "${CMAKE_SOURCE_DIR}/user/kill.asm")
 set(KILL_BIN "${CMAKE_BINARY_DIR}/kill.bin")
 set(MMAPTEST_ASM "${CMAKE_SOURCE_DIR}/user/mmaptest.asm")
@@ -300,6 +302,14 @@ add_custom_command(
     COMMAND "${NASM_EXECUTABLE}" -f bin -o "${SLEEPER_BIN}" "${SLEEPER_ASM}"
     DEPENDS "${SLEEPER_ASM}"
     COMMENT "Assembling user ELF sleeper"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${CATCH_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${CATCH_BIN}" "${CATCH_ASM}"
+    DEPENDS "${CATCH_ASM}"
+    COMMENT "Assembling user ELF catch"
     VERBATIM
 )
 
@@ -639,7 +649,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${FBINFO_BIN}" "${FBTEST_BIN}" "${FBCLEAR_BIN}" "${FBHELLO_BIN}" "${UPTIME_BIN}" "${CRT_BIN}" "${HI_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${CATCH_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${FBINFO_BIN}" "${FBTEST_BIN}" "${FBCLEAR_BIN}" "${FBHELLO_BIN}" "${UPTIME_BIN}" "${CRT_BIN}" "${HI_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )

@@ -1061,7 +1061,7 @@ static void kbd_scancode(uint8_t sc)
 
     code = sc & 0x7F;
     if (ctrl && code == SCAN_C) {
-        (void)sched_kill_fg(0);
+        (void)sched_signal_fg(SIGINT, 0, kbd_irq_frame);
         return;
     }
     c = shift ? map_shift[code] : map[code];
