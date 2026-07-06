@@ -52,6 +52,7 @@
 #define SYS_SIGACTION 27ull
 #define PIT_TICKS_PER_SEC 100u
 #define USER_HEAP_PAGES 16ull
+#define USER_MMAP_PAGES 16ull
 #define USER_STR_MAX 80ull
 #define FILE_MAX 0x1000ull
 #define FD_STDIN 0
@@ -911,9 +912,9 @@ static uint64_t user_brk(uint64_t want)
     return want;
 }
 
-/* One-page map at a chosen user VA (not the brk heap). rdi=hint, rsi=length
- * (1..4KiB maps one page); rdx=file fd copies that file into the page, else
- * anonymous. rax=mapped VA or -1. */
+/* Map N pages at a chosen user VA (not the brk heap). rdi=hint, rsi=length
+ * (round up to 4 KiB, at most USER_MMAP_PAGES); rdx=file fd copies that file
+ * into the mapping, else anonymous. Overlap or OOM is -1. rax=VA or -1. */
 static uint64_t user_mmap(uint64_t hint, uint64_t len, int fd)
 {
     uint64_t cr3;
@@ -922,11 +923,18 @@ static uint64_t user_mmap(uint64_t hint, uint64_t len, int fd)
     uint64_t heap_hi;
     uint64_t phys;
     uint64_t existing;
+    uint64_t npages;
+    uint64_t mapped;
+    uint64_t va;
+    uint64_t end;
+    uint64_t off;
     char path[FD_PATH_MAX];
     const void *data;
     unsigned flen;
+    unsigned n;
     unsigned i;
     uint8_t *dst;
+    int file_backed;
 
     cr3 = sched_current_cr3();
     base = sched_current_base();
@@ -936,55 +944,95 @@ static uint64_t user_mmap(uint64_t hint, uint64_t len, int fd)
     if (hint == 0 || (hint & (PAGE_4K - 1ull)) != 0) {
         return (uint64_t)-1;
     }
-    if (len == 0 || len > PAGE_4K) {
+    if (len == 0 || len > USER_MMAP_PAGES * PAGE_4K) {
+        return (uint64_t)-1;
+    }
+    npages = page_up(len) / PAGE_4K;
+    if (npages == 0 || npages > USER_MMAP_PAGES) {
+        return (uint64_t)-1;
+    }
+    end = hint + npages * PAGE_4K;
+    if (end < hint) {
         return (uint64_t)-1;
     }
     heap_lo = base + 2ull * PAGE_4K;
     heap_hi = heap_lo + USER_HEAP_PAGES * PAGE_4K;
-    if (hint >= heap_lo && hint < heap_hi) {
-        return (uint64_t)-1;
+    for (va = hint; va < end; va += PAGE_4K) {
+        if (va >= heap_lo && va < heap_hi) {
+            return (uint64_t)-1;
+        }
+        if (vmm_translate_user(cr3, va, &existing) == 0) {
+            return (uint64_t)-1;
+        }
     }
-    if (vmm_translate_user(cr3, hint, &existing) == 0) {
-        return (uint64_t)-1;
-    }
-    phys = alloc_page();
-    if (phys == 0) {
-        return (uint64_t)-1;
-    }
+
+    file_backed = 0;
+    data = 0;
+    flen = 0;
     if (fd >= 0 && sched_fd_kind(fd) == FD_KIND_FILE) {
         if (sched_fd_path(fd, path) != 0) {
-            pmm_free(phys);
             return (uint64_t)-1;
         }
         if (enter_task_cwd() != 0 || fs_lookup(path, &data, &flen) != 0) {
             leave_task_cwd();
-            pmm_free(phys);
             return (uint64_t)-1;
         }
-        if (flen > (unsigned)PAGE_4K) {
-            flen = (unsigned)PAGE_4K;
+        file_backed = 1;
+    }
+
+    mapped = 0;
+    while (mapped < npages) {
+        va = hint + mapped * PAGE_4K;
+        phys = alloc_page();
+        if (phys == 0) {
+            break;
         }
-        dst = (uint8_t *)(uintptr_t)phys_to_virt(phys);
-        for (i = 0; i < flen; i++) {
-            dst[i] = ((const uint8_t *)data)[i];
+        if (file_backed) {
+            off = mapped * PAGE_4K;
+            dst = (uint8_t *)(uintptr_t)phys_to_virt(phys);
+            n = 0;
+            if (off < (uint64_t)flen) {
+                n = flen - (unsigned)off;
+                if (n > (unsigned)PAGE_4K) {
+                    n = (unsigned)PAGE_4K;
+                }
+            }
+            for (i = 0; i < n; i++) {
+                dst[i] = ((const uint8_t *)data)[off + i];
+            }
         }
+        if (vmm_map_user(cr3, va, phys) != 0) {
+            pmm_free(phys);
+            break;
+        }
+        mapped++;
+    }
+    if (file_backed) {
         leave_task_cwd();
     }
-    if (vmm_map_user(cr3, hint, phys) != 0) {
-        pmm_free(phys);
+    if (mapped != npages) {
+        while (mapped > 0) {
+            mapped--;
+            (void)vmm_unmap_user(cr3, hint + mapped * PAGE_4K);
+        }
         return (uint64_t)-1;
     }
     return hint;
 }
 
-/* Unmap one mmap page (anonymous or file-backed). rdi=VA, rsi=length
- * (1..4KiB unmaps one page). Leaves ELF, stack, and brk heap. rax=0 or -1. */
+/* Unmap N mmap pages (anonymous or file-backed). rdi=VA, rsi=length (round
+ * up to 4 KiB). Leaves ELF, stack, and brk heap. rax=0 or -1. */
 static uint64_t user_munmap(uint64_t va, uint64_t len)
 {
     uint64_t cr3;
     uint64_t base;
     uint64_t heap_lo;
     uint64_t heap_hi;
+    uint64_t npages;
+    uint64_t i;
+    uint64_t page;
+    uint64_t existing;
+    uint64_t end;
 
     cr3 = sched_current_cr3();
     base = sched_current_base();
@@ -994,19 +1042,35 @@ static uint64_t user_munmap(uint64_t va, uint64_t len)
     if (va == 0 || (va & (PAGE_4K - 1ull)) != 0) {
         return (uint64_t)-1;
     }
-    if (len == 0 || len > PAGE_4K) {
+    if (len == 0 || len > USER_MMAP_PAGES * PAGE_4K) {
         return (uint64_t)-1;
     }
-    if (va >= base && va < base + 2ull * PAGE_4K) {
+    npages = page_up(len) / PAGE_4K;
+    if (npages == 0 || npages > USER_MMAP_PAGES) {
+        return (uint64_t)-1;
+    }
+    end = va + npages * PAGE_4K;
+    if (end < va) {
         return (uint64_t)-1;
     }
     heap_lo = base + 2ull * PAGE_4K;
     heap_hi = heap_lo + USER_HEAP_PAGES * PAGE_4K;
-    if (va >= heap_lo && va < heap_hi) {
-        return (uint64_t)-1;
+    for (i = 0; i < npages; i++) {
+        page = va + i * PAGE_4K;
+        if (page >= base && page < base + 2ull * PAGE_4K) {
+            return (uint64_t)-1;
+        }
+        if (page >= heap_lo && page < heap_hi) {
+            return (uint64_t)-1;
+        }
+        if (vmm_translate_user(cr3, page, &existing) != 0) {
+            return (uint64_t)-1;
+        }
     }
-    if (vmm_unmap_user(cr3, va) != 0) {
-        return (uint64_t)-1;
+    for (i = 0; i < npages; i++) {
+        if (vmm_unmap_user(cr3, va + i * PAGE_4K) != 0) {
+            return (uint64_t)-1;
+        }
     }
     return 0;
 }
@@ -1551,13 +1615,13 @@ void user_on_syscall(struct interrupt_frame *frame)
         vmm_set_cr3(sched_current_cr3());
         return;
     }
-    /* rdi=hint VA, rsi=length (one page), rdx=file fd or unused. rax=VA or -1. */
+    /* rdi=hint VA, rsi=length (round up to pages), rdx=file fd or unused. */
     if (frame->rax == SYS_MMAP) {
         frame->rax = user_mmap(frame->rdi, frame->rsi, (int)frame->rdx);
         vmm_set_cr3(sched_current_cr3());
         return;
     }
-    /* rdi=VA, rsi=length (one page). Unmap a prior mmap. rax=0 or -1. */
+    /* rdi=VA, rsi=length (round up to pages). Unmap a prior mmap. rax=0 or -1. */
     if (frame->rax == SYS_MUNMAP) {
         frame->rax = user_munmap(frame->rdi, frame->rsi);
         vmm_set_cr3(sched_current_cr3());
