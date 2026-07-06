@@ -8,10 +8,9 @@
 #define PAGE_SIZE (1u << PAGE_SHIFT)
 /* Must match boot/const.inc and the 2 MiB identity map in stage 2. */
 #define KERNEL_PHYS 0x100000ull
-/* Disk pad is still KERNEL_SECTORS 256; the 16-slot table plus per-task
- * tick counters grow .bss past 272 sectors. Reserve 280 so the bitmap
- * starts after .bss. */
-#define KERNEL_SIZE (280ull * 512ull)
+/* Disk pad is still KERNEL_SECTORS 256; mmap N-page code grows .text so
+ * .bss sits past 280 sectors. Reserve 288 so the bitmap starts after .bss. */
+#define KERNEL_SIZE (288ull * 512ull)
 #define IDENTITY_END 0x200000ull
 
 static uint64_t bitmap_phys;

@@ -1,4 +1,4 @@
-; BASE 0x400000; SYS_MMAP one page at 0x500000 (not brk), store a byte, write it
+; BASE 0x400000; SYS_MMAP 3 pages at 0x500000, store on last, write it
 bits 64
 org 0x400000
 
@@ -32,16 +32,18 @@ phdr:
 _start:
     mov eax, 18
     mov rdi, 0x500000
-    mov rsi, 0x1000
+    mov rsi, 0x3000
+    xor edx, edx
     int 0x30
     cmp rax, 0x500000
     jne fail
-    mov byte [rax], "m"
-    mov byte [rax + 1], "m"
-    mov byte [rax + 2], "a"
-    mov byte [rax + 3], "p"
-    mov byte [rax + 4], 0
-    mov rdi, rax
+    lea rbx, [rax + 0x2000]
+    mov byte [rbx], "m"
+    mov byte [rbx + 1], "m"
+    mov byte [rbx + 2], "a"
+    mov byte [rbx + 3], "p"
+    mov byte [rbx + 4], 0
+    mov rdi, rbx
     mov eax, 1
     int 0x30
 .hang:
