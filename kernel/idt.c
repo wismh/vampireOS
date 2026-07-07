@@ -53,7 +53,7 @@ void exception_handler(struct interrupt_frame *frame)
             sched_deliver_pending(frame);
             return;
         }
-        /* User #PF that is not COW (unmapped mmap, etc.): kill, do not hang. */
+        /* User #PF that is not COW (unmapped mmap, RO mprotect, etc.): kill. */
         if ((frame->cs & 3ull) == 3ull) {
             frame->rdi = 0;
             sched_exit(frame);

@@ -21,6 +21,8 @@ void vmm_teardown_user(uint64_t cr3);
 int vmm_copy_user(uint64_t dst_cr3, uint64_t src_cr3);
 /* Make virt privately writable in cr3 (copy if still shared). 0 ok, -1 fail. */
 int vmm_cow_break(uint64_t cr3, uint64_t virt);
+/* User PTE prot: wr=0 RO, wr=1 intended RW (shared pages stay COW-RO). */
+int vmm_protect_user(uint64_t cr3, uint64_t virt, int wr);
 /* Write #PF on a shared user page: copy, map writable, resume. 0 handled. */
 int vmm_handle_page_fault(uint64_t error, uint64_t cr2);
 /* Walk task PML4: present+user PTEs only; phys includes page offset. */

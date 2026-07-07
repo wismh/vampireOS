@@ -20,7 +20,10 @@
 #define PDE_HUGE (PDE_PRESENT | PDE_WRITE | PDE_LARGE)
 #define PTE_FLAGS (PDE_PRESENT | PDE_WRITE)
 #define PTE_USER 4ull
-#define PTE_USER_FLAGS (PTE_FLAGS | PTE_USER)
+/* Software bit 9: this PTE is intended writable (mprotect / mmap / brk).
+ * Fork clears R/W but keeps this so a write #PF still COWs. */
+#define PTE_WANT_WRITE 0x200ull
+#define PTE_USER_FLAGS (PTE_FLAGS | PTE_USER | PTE_WANT_WRITE)
 #define PTE_USER_RO (PDE_PRESENT | PTE_USER)
 #define ADDR_MASK ~0xFFFull
 #define PROBE_MARK 0x56414D50u
@@ -674,6 +677,7 @@ int vmm_copy_user(uint64_t dst_cr3, uint64_t src_cr3)
     uint64_t e;
     uint64_t leaf;
     uint64_t va;
+    uint64_t flags;
 
     if (dst_cr3 == 0 || src_cr3 == 0 || dst_cr3 == src_cr3 ||
         dst_cr3 == PML4_PHYS || src_cr3 == PML4_PHYS || !hhdm_ready) {
@@ -712,11 +716,16 @@ int vmm_copy_user(uint64_t dst_cr3, uint64_t src_cr3)
                     if (cow_share_frame(leaf) != 0) {
                         return -1;
                     }
-                    if (vmm_map_user_flags(dst_cr3, va, leaf, PTE_USER_RO) != 0) {
+                    /* Keep intended-write so mprotect RO stays RO after fork. */
+                    flags = PTE_USER_RO;
+                    if ((e & (PDE_WRITE | PTE_WANT_WRITE)) != 0) {
+                        flags |= PTE_WANT_WRITE;
+                    }
+                    if (vmm_map_user_flags(dst_cr3, va, leaf, flags) != 0) {
                         cow_unshare(leaf);
                         return -1;
                     }
-                    pt[pt_i] = leaf | PTE_USER_RO;
+                    pt[pt_i] = leaf | flags;
                 }
             }
         }
@@ -786,6 +795,10 @@ int vmm_cow_break(uint64_t cr3, uint64_t virt)
         return -1;
     }
     e = *pte;
+    /* mprotect RO: write is a real fault, not COW. */
+    if ((e & PTE_WANT_WRITE) == 0) {
+        return -1;
+    }
     leaf = e & ADDR_MASK;
     if (cow_refs(leaf) <= 1) {
         *pte = leaf | PTE_USER_FLAGS;
@@ -804,6 +817,40 @@ int vmm_cow_break(uint64_t cr3, uint64_t virt)
     *pte = neu | PTE_USER_FLAGS;
     (void)cow_put(leaf);
     vmm_flush_if_current(cr3);
+    return 0;
+}
+
+int vmm_protect_user(uint64_t cr3, uint64_t virt, int wr)
+{
+    volatile uint64_t *pte;
+    uint64_t e;
+    uint64_t leaf;
+    uint64_t flags;
+    uint64_t cur;
+
+    virt &= ADDR_MASK;
+    if (vmm_leaf_pte(cr3, virt, &pte) != 0) {
+        return -1;
+    }
+    e = *pte;
+    leaf = e & ADDR_MASK;
+    flags = PDE_PRESENT | PTE_USER;
+    if (wr != 0) {
+        flags |= PTE_WANT_WRITE;
+        if (cow_refs(leaf) <= 1) {
+            flags |= PDE_WRITE;
+        }
+    }
+    *pte = leaf | flags;
+    /* UP: invlpg on the task tables. Syscall runs on the boot CR3. */
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cur));
+    if (cur != cr3) {
+        vmm_set_cr3(cr3);
+    }
+    __asm__ volatile ("invlpg (%0)" : : "r"(virt) : "memory");
+    if (cur != cr3) {
+        vmm_set_cr3(cur);
+    }
     return 0;
 }
 

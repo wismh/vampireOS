@@ -98,6 +98,8 @@ set(MMAPFILE_ASM "${CMAKE_SOURCE_DIR}/user/mmapfile.asm")
 set(MMAPFILE_BIN "${CMAKE_BINARY_DIR}/mmapfile.bin")
 set(MUNMAPTEST_ASM "${CMAKE_SOURCE_DIR}/user/munmaptest.asm")
 set(MUNMAPTEST_BIN "${CMAKE_BINARY_DIR}/munmaptest.bin")
+set(MPROTTEST_ASM "${CMAKE_SOURCE_DIR}/user/mprottest.asm")
+set(MPROTTEST_BIN "${CMAKE_BINARY_DIR}/mprottest.bin")
 set(FBINFO_ASM "${CMAKE_SOURCE_DIR}/user/fbinfo.asm")
 set(FBINFO_BIN "${CMAKE_BINARY_DIR}/fbinfo.bin")
 set(FBTEST_ASM "${CMAKE_SOURCE_DIR}/user/fbtest.asm")
@@ -342,6 +344,14 @@ add_custom_command(
     COMMAND "${NASM_EXECUTABLE}" -f bin -o "${MUNMAPTEST_BIN}" "${MUNMAPTEST_ASM}"
     DEPENDS "${MUNMAPTEST_ASM}"
     COMMENT "Assembling user ELF munmaptest"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${MPROTTEST_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${MPROTTEST_BIN}" "${MPROTTEST_ASM}"
+    DEPENDS "${MPROTTEST_ASM}"
+    COMMENT "Assembling user ELF mprottest"
     VERBATIM
 )
 
@@ -649,7 +659,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${CATCH_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${FBINFO_BIN}" "${FBTEST_BIN}" "${FBCLEAR_BIN}" "${FBHELLO_BIN}" "${UPTIME_BIN}" "${CRT_BIN}" "${HI_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${CATCH_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${MPROTTEST_BIN}" "${FBINFO_BIN}" "${FBTEST_BIN}" "${FBCLEAR_BIN}" "${FBHELLO_BIN}" "${UPTIME_BIN}" "${CRT_BIN}" "${HI_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )

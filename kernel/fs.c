@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-#define FS_MAX 40
+#define FS_MAX 48
 #define SEC 512u
 #define FILE_MAX 0x1000u
 #define CHAIN_MAX 8u
