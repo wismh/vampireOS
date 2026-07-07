@@ -56,7 +56,7 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0x0F, 0x03
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0x0F
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
 fat2:
@@ -85,7 +85,7 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0x0F, 0x03
     db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0x0F
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
 root:
@@ -466,6 +466,18 @@ root_extra2:
     times 14 db 0
     dw 50
     dd catch_len
+    ; VFAT LFN mprottest, 8.3 alias MPROTT~1
+    db 0x41
+    db "m", 0, "p", 0, "r", 0, "o", 0, "t", 0
+    db 0x0F, 0, 0x94
+    db "t", 0, "e", 0, "s", 0, "t", 0, 0, 0, 0xFF, 0xFF
+    dw 0
+    db 0xFF, 0xFF, 0xFF, 0xFF
+    db "MPROTT~1", "   "
+    db 0x20
+    times 14 db 0
+    dw 51
+    dd mprottest_len
     ; Cluster 0x0F00 is past the 1024-cluster volume (and past the 1307-sector
     ; image). `$ cat bad` must bread that LBA, fail, print `?`, and return `$`.
     db "BAD     ", "   "
@@ -510,4 +522,9 @@ catch_data:
 catch_len equ $ - catch_data
     times 512 - catch_len db 0
 
-    times (FAT_DATA_CLUSTERS - 49) * 512 db 0
+mprottest_data:
+    incbin "mprottest.bin"
+mprottest_len equ $ - mprottest_data
+    times 512 - mprottest_len db 0
+
+    times (FAT_DATA_CLUSTERS - 50) * 512 db 0

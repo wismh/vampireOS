@@ -50,6 +50,9 @@
 #define SYS_FBPIX 25ull
 #define SYS_FBPRESENT 26ull
 #define SYS_SIGACTION 27ull
+#define SYS_MPROTECT 28ull
+#define PROT_READ 1ull
+#define PROT_WRITE 2ull
 #define PIT_TICKS_PER_SEC 100u
 #define USER_HEAP_PAGES 16ull
 #define USER_MMAP_PAGES 16ull
@@ -1075,6 +1078,57 @@ static uint64_t user_munmap(uint64_t va, uint64_t len)
     return 0;
 }
 
+/* rdi=VA, rsi=length (round up to pages), rdx=PROT_READ or PROT_READ|WRITE.
+ * Updates user PTEs; shared RW pages stay COW-RO until a write. rax=0 or -1. */
+static uint64_t user_mprotect(uint64_t va, uint64_t len, uint64_t prot)
+{
+    uint64_t cr3;
+    uint64_t npages;
+    uint64_t i;
+    uint64_t page;
+    uint64_t existing;
+    uint64_t end;
+    int wr;
+
+    cr3 = sched_current_cr3();
+    if (cr3 == 0 || cr3 == vmm_boot_cr3()) {
+        return (uint64_t)-1;
+    }
+    if (va == 0 || (va & (PAGE_4K - 1ull)) != 0) {
+        return (uint64_t)-1;
+    }
+    if (len == 0 || len > USER_MMAP_PAGES * PAGE_4K) {
+        return (uint64_t)-1;
+    }
+    npages = page_up(len) / PAGE_4K;
+    if (npages == 0 || npages > USER_MMAP_PAGES) {
+        return (uint64_t)-1;
+    }
+    end = va + npages * PAGE_4K;
+    if (end < va) {
+        return (uint64_t)-1;
+    }
+    if (prot == PROT_READ) {
+        wr = 0;
+    } else if (prot == PROT_WRITE || prot == (PROT_READ | PROT_WRITE)) {
+        wr = 1;
+    } else {
+        return (uint64_t)-1;
+    }
+    for (i = 0; i < npages; i++) {
+        page = va + i * PAGE_4K;
+        if (vmm_translate_user(cr3, page, &existing) != 0) {
+            return (uint64_t)-1;
+        }
+    }
+    for (i = 0; i < npages; i++) {
+        if (vmm_protect_user(cr3, va + i * PAGE_4K, wr) != 0) {
+            return (uint64_t)-1;
+        }
+    }
+    return 0;
+}
+
 /* Share user frames read-only; a write fault copies privately. New kstack. */
 static uint64_t user_fork(struct interrupt_frame *frame)
 {
@@ -1624,6 +1678,12 @@ void user_on_syscall(struct interrupt_frame *frame)
     /* rdi=VA, rsi=length (round up to pages). Unmap a prior mmap. rax=0 or -1. */
     if (frame->rax == SYS_MUNMAP) {
         frame->rax = user_munmap(frame->rdi, frame->rsi);
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* rdi=VA, rsi=length, rdx=PROT_READ or PROT_READ|PROT_WRITE. rax=0 or -1. */
+    if (frame->rax == SYS_MPROTECT) {
+        frame->rax = user_mprotect(frame->rdi, frame->rsi, frame->rdx);
         vmm_set_cr3(sched_current_cr3());
         return;
     }
