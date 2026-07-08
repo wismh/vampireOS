@@ -120,6 +120,7 @@ set(HI_C "${CMAKE_SOURCE_DIR}/user/hi.c")
 set(SH_C "${CMAKE_SOURCE_DIR}/user/sh.c")
 set(INIT_C "${CMAKE_SOURCE_DIR}/user/init.c")
 set(STRING_C "${CMAKE_SOURCE_DIR}/user/string.c")
+set(PRINTF_C "${CMAKE_SOURCE_DIR}/user/printf.c")
 set(USER_LD "${CMAKE_SOURCE_DIR}/user/user.ld")
 set(CRT_OBJ "${CMAKE_BINARY_DIR}/crt.o")
 set(FD_OBJ "${CMAKE_BINARY_DIR}/fd.o")
@@ -130,6 +131,7 @@ set(HI_OBJ "${CMAKE_BINARY_DIR}/hi.o")
 set(SH_OBJ "${CMAKE_BINARY_DIR}/sh.o")
 set(INIT_OBJ "${CMAKE_BINARY_DIR}/init.o")
 set(STRING_OBJ "${CMAKE_BINARY_DIR}/string.o")
+set(PRINTF_OBJ "${CMAKE_BINARY_DIR}/printf.o")
 set(FBHELLO_OBJ "${CMAKE_BINARY_DIR}/fbhello.o")
 set(FONT_OBJ "${CMAKE_BINARY_DIR}/font.o")
 set(CRT_BIN "${CMAKE_BINARY_DIR}/crt.bin")
@@ -553,6 +555,28 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${PRINTF_OBJ}"
+    COMMAND "${CLANG_EXECUTABLE}"
+        --target=x86_64-unknown-none
+        -ffreestanding
+        -fno-stack-protector
+        -fno-pic
+        -fno-pie
+        -mno-red-zone
+        -mno-mmx
+        -mno-sse
+        -mno-sse2
+        -fno-asynchronous-unwind-tables
+        -fno-builtin
+        -c
+        -o "${PRINTF_OBJ}"
+        "${PRINTF_C}"
+    DEPENDS "${PRINTF_C}"
+    COMMENT "Compiling user/printf.c"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${HI_BIN}"
     COMMAND "${LLD_EXECUTABLE}"
         -m elf_x86_64
@@ -563,9 +587,9 @@ add_custom_command(
         -o "${HI_BIN}"
         "${CRT0_OBJ}"
         "${HI_OBJ}"
-        "${STRING_OBJ}"
+        "${PRINTF_OBJ}"
         "${CRT_OBJ}"
-    DEPENDS "${CRT0_OBJ}" "${HI_OBJ}" "${STRING_OBJ}" "${CRT_OBJ}" "${USER_LD}"
+    DEPENDS "${CRT0_OBJ}" "${HI_OBJ}" "${PRINTF_OBJ}" "${CRT_OBJ}" "${USER_LD}"
     COMMENT "Linking user ELF hi"
     VERBATIM
 )
