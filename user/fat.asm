@@ -58,6 +58,9 @@ fat1:
     db 0xFF, 0xFF, 0xFF
     db 0x33, 0xF0, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x8F, 0x03
+    db 0x39, 0xA0, 0x03
+    db 0x3B, 0xC0, 0x03
     db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
@@ -89,6 +92,9 @@ fat2:
     db 0xFF, 0xFF, 0xFF
     db 0x33, 0xF0, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x8F, 0x03
+    db 0x39, 0xA0, 0x03
+    db 0x3B, 0xC0, 0x03
     db 0xFF, 0x0F, 0x00
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
@@ -482,6 +488,18 @@ root_extra2:
     times 14 db 0
     dw 54
     dd mprottest_len
+    ; VFAT LFN malloctest, 8.3 alias MALLOC~1
+    db 0x41
+    db "m", 0, "a", 0, "l", 0, "l", 0, "o", 0
+    db 0x0F, 0, 0x61
+    db "c", 0, "t", 0, "e", 0, "s", 0, "t", 0, 0, 0
+    dw 0
+    db 0xFF, 0xFF, 0xFF, 0xFF
+    db "MALLOC~1", "   "
+    db 0x20
+    times 14 db 0
+    dw 55
+    dd malloctest_len
     ; Cluster 0x0F00 is past the 1024-cluster volume (and past the 1307-sector
     ; image). `$ cat bad` must bread that LBA, fail, print `?`, and return `$`.
     db "BAD     ", "   "
@@ -531,4 +549,9 @@ mprottest_data:
 mprottest_len equ $ - mprottest_data
     times 512 - mprottest_len db 0
 
-    times (FAT_DATA_CLUSTERS - 53) * 512 db 0
+malloctest_data:
+    incbin "malloctest.bin"
+malloctest_len equ $ - malloctest_data
+    times 3072 - malloctest_len db 0
+
+    times (FAT_DATA_CLUSTERS - 59) * 512 db 0
