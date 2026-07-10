@@ -9,6 +9,7 @@
 #include "kbd.h"
 #include "pmm.h"
 #include "sched.h"
+#include "serial.h"
 #include "user.h"
 #include "vga.h"
 #include "virtio.h"
@@ -86,6 +87,7 @@ void kmain(const struct e820_map *map)
     int row;
 
     vga_clear();
+    serial_init();
     vga_write_at(0, 0, "Vampire OS");
     vga_write_hex64_at(0, 12, (uint64_t)(uintptr_t)kmain);
     row = e820_print(map);

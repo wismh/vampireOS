@@ -761,6 +761,7 @@ add_custom_command(
 set(KERNEL_C_SOURCES
     "${KERNEL_DIR}/kmain.c"
     "${KERNEL_DIR}/vga.c"
+    "${KERNEL_DIR}/serial.c"
     "${KERNEL_DIR}/fb.c"
     "${KERNEL_DIR}/idt.c"
     "${KERNEL_DIR}/pic.c"
@@ -803,6 +804,7 @@ foreach(_src ${KERNEL_C_SOURCES})
         DEPENDS
             "${_src}"
             "${KERNEL_DIR}/vga.h"
+            "${KERNEL_DIR}/serial.h"
             "${KERNEL_DIR}/fb.h"
             "${KERNEL_DIR}/idt.h"
             "${KERNEL_DIR}/pic.h"
@@ -918,6 +920,7 @@ if(QEMU_EXECUTABLE)
             -drive "id=virtio-hd,file=${DISK_IMG},if=none,format=raw,cache=writethrough,file.locking=off"
             -device virtio-blk-pci,drive=virtio-hd
             -vga std
+            -serial stdio
             -m 128
             -no-reboot
             -no-shutdown

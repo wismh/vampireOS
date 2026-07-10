@@ -5,6 +5,7 @@
 #include "kbd.h"
 #include "pmm.h"
 #include "sched.h"
+#include "serial.h"
 #include "vga.h"
 #include "vmm.h"
 
@@ -1295,6 +1296,7 @@ void user_on_syscall(struct interrupt_frame *frame)
                 }
                 buf[want] = '\0';
                 vmm_set_cr3(vmm_boot_cr3());
+                serial_write(buf, want);
                 row = sched_row();
                 n = sched_note_write();
                 if (n <= 8u || (n & 31u) == 0) {
