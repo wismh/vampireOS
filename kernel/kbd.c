@@ -1073,6 +1073,23 @@ static void kbd_scancode(uint8_t sc)
     } else if (caps && c >= 'A' && c <= 'Z' && !shift) {
         c = (char)(c - 'A' + 'a');
     }
+    kbd_feed(c);
+}
+
+void kbd_set_irq_frame(struct interrupt_frame *frame)
+{
+    kbd_irq_frame = frame;
+}
+
+void kbd_feed(char c)
+{
+    if (c == 0) {
+        return;
+    }
+    if (c == 0x03) {
+        (void)sched_signal_fg(SIGINT, 0, kbd_irq_frame);
+        return;
+    }
 
     /* Foreground `read` on fd 0: type a line, then the kernel prompt resumes. */
     if (sched_kbd_waiting()) {

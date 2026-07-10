@@ -1,5 +1,6 @@
 #include "vga.h"
 #include "fb.h"
+#include "serial.h"
 #include "vmm.h"
 
 #define VGA_PHYS 0xB8000ull
@@ -73,6 +74,7 @@ void vga_putc(char c)
         vga_scroll();
     }
     fb_overlay_putc(c);
+    serial_putc(c);
 }
 
 void vga_write_at(int row, int col, const char *msg)

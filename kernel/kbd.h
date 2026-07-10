@@ -10,6 +10,9 @@ void kbd_stdin_prompt(void);
 /* Redraw `$` / `kbd>` plus the current line onto the shadow (present separately). */
 void kbd_overlay_refresh(void);
 void kbd_handle(struct interrupt_frame *frame);
+/* Inject a cooked character (COM1 RX or the PS/2 map) into the line buffer. */
+void kbd_feed(char c);
+void kbd_set_irq_frame(struct interrupt_frame *frame);
 /* 1 if a console stdin line is waiting for SYS_READ on fd 0. */
 int kbd_stdin_ready(void);
 /* Copy that line; >0 bytes, 0 empty, -2 none yet. */

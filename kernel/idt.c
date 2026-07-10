@@ -4,6 +4,7 @@
 #include "pic.h"
 #include "pit.h"
 #include "sched.h"
+#include "serial.h"
 #include "user.h"
 #include "vga.h"
 #include "vmm.h"
@@ -76,8 +77,11 @@ void irq_handler(struct interrupt_frame *frame)
         vga_write_at(1, 0, "ticks ");
         vga_write_dec_at(1, 6, ticks);
         sched_on_tick(frame);
+        serial_poll(frame);
     } else if (irq == 1 || irq == 12) {
         kbd_handle(frame);
+    } else if (irq == 4) {
+        serial_poll(frame);
     }
 
     pic_eoi(irq);
@@ -121,5 +125,7 @@ void idt_init(void)
     pic_unmask(0);
     pic_unmask(1);
     pic_unmask(2);
+    pic_unmask(4);
     pic_unmask(12);
+    serial_irq_on();
 }
