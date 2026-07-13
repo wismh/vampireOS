@@ -13,6 +13,8 @@ start:
 
     mov [boot_drive], dl
 
+    call serial_boot
+
     mov si, kernel_dap
     mov ah, 0x42
     mov dl, [boot_drive]
@@ -237,6 +239,67 @@ ml_off:
 ml_seg:
     dw 0
 
+; 16550 COM1 at 0x3F8, 115200 8N1. Print "boot" so a hang before VGA
+; still shows on QEMU -serial stdio / -serial file.
+serial_boot:
+    mov dx, 0x3F9
+    xor al, al
+    out dx, al
+    mov dx, 0x3FB
+    mov al, 0x80
+    out dx, al
+    mov dx, 0x3F8
+    mov al, 0x01
+    out dx, al
+    mov dx, 0x3F9
+    xor al, al
+    out dx, al
+    mov dx, 0x3FB
+    mov al, 0x03
+    out dx, al
+    mov dx, 0x3FA
+    mov al, 0x07
+    out dx, al
+    mov dx, 0x3FC
+    mov al, 0x0B
+    out dx, al
+    mov dx, 0x3FF
+    mov al, 0xAE
+    out dx, al
+    in al, dx
+    cmp al, 0xAE
+    jne .done
+    xor al, al
+    out dx, al
+    mov si, boot_msg
+.print:
+    lodsb
+    test al, al
+    jz .done
+    call serial_putc
+    jmp .print
+.done:
+    ret
+
+serial_putc:
+    push ax
+    push cx
+    push dx
+    mov cx, 0xFFFF
+    mov dx, 0x3FD
+.wait:
+    in al, dx
+    test al, 0x20
+    jnz .ready
+    loop .wait
+.ready:
+    pop dx
+    pop cx
+    pop ax
+    mov dx, 0x3F8
+    out dx, al
+    ret
+
 disk_error:
     mov si, err_msg
 .print:
@@ -315,6 +378,9 @@ lm64:
 
 err_msg:
     db "disk error", 0
+
+boot_msg:
+    db "boot", 13, 10, 0
 
 boot_drive:
     db 0
