@@ -3,6 +3,7 @@
 #include "fb.h"
 #include "io.h"
 #include "pmm.h"
+#include "serial.h"
 #include "vga.h"
 #include "vmm.h"
 
@@ -19,6 +20,8 @@
 #define PCI_VENDOR_VIRTIO 0x1AF4u
 #define PCI_DEV_BLK_LEGACY 0x1001u
 #define PCI_DEV_BLK_MODERN 0x1042u
+#define PCI_DEV_NET_LEGACY 0x1000u
+#define PCI_DEV_NET_MODERN 0x1041u
 
 #define VIRTIO_PCI_CAP_COMMON 1u
 #define VIRTIO_PCI_CAP_NOTIFY 2u
@@ -40,6 +43,7 @@
 #define VIRTIO_BLK_S_OK 0u
 #define VIRTIO_BLK_S_IOERR 1u
 #define VIRTIO_BLK_F_FLUSH 0u
+#define VIRTIO_NET_F_MAC 5u
 
 #define LEG_HOST_FEATURES 0u
 #define LEG_GUEST_FEATURES 4u
@@ -111,6 +115,9 @@ static int wr_said;
 static int flush_said;
 static int say_row;
 static int have_flush;
+static uint16_t net_io;
+static volatile uint8_t *net_common;
+static volatile uint8_t *net_devcfg;
 
 static uint32_t pci_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off)
 {
@@ -163,6 +170,41 @@ static int pci_find_blk(uint8_t *bus_out, uint8_t *dev_out, uint8_t *fn_out)
                 }
                 if (ven == PCI_VENDOR_VIRTIO
                     && (did == PCI_DEV_BLK_LEGACY || did == PCI_DEV_BLK_MODERN)) {
+                    *bus_out = (uint8_t)bus;
+                    *dev_out = (uint8_t)dev;
+                    *fn_out = (uint8_t)fn;
+                    return 0;
+                }
+            }
+        }
+    }
+    return -1;
+}
+
+static int pci_find_net(uint8_t *bus_out, uint8_t *dev_out, uint8_t *fn_out)
+{
+    unsigned bus;
+    unsigned dev;
+    unsigned fn;
+
+    for (bus = 0; bus < 8u; bus++) {
+        for (dev = 0; dev < 32u; dev++) {
+            for (fn = 0; fn < 8u; fn++) {
+                uint32_t id;
+                uint16_t ven;
+                uint16_t did;
+
+                id = pci_read32((uint8_t)bus, (uint8_t)dev, (uint8_t)fn, 0);
+                ven = (uint16_t)id;
+                did = (uint16_t)(id >> 16);
+                if (ven == 0xFFFFu) {
+                    if (fn == 0) {
+                        break;
+                    }
+                    continue;
+                }
+                if (ven == PCI_VENDOR_VIRTIO
+                    && (did == PCI_DEV_NET_LEGACY || did == PCI_DEV_NET_MODERN)) {
                     *bus_out = (uint8_t)bus;
                     *dev_out = (uint8_t)dev;
                     *fn_out = (uint8_t)fn;
@@ -910,4 +952,233 @@ int virtio_init(int row)
         bdev_set_sectors(blk_secs);
     }
     return virt_say(row, msg);
+}
+
+static int pci_net_caps(uint8_t bus, uint8_t dev, uint8_t fn)
+{
+    uint32_t st;
+    uint8_t cap;
+    uint8_t n;
+    uint32_t d0;
+    uint32_t d1;
+    uint32_t d2;
+    uint8_t type;
+    uint8_t bar;
+    uint32_t off;
+
+    net_common = 0;
+    net_devcfg = 0;
+    st = pci_read32(bus, dev, fn, 0x04);
+    if (((st >> 16) & PCI_STATUS_CAPS) == 0) {
+        return -1;
+    }
+    cap = (uint8_t)pci_read32(bus, dev, fn, 0x34);
+    n = 0;
+    while (cap >= 0x40u && n < 32u) {
+        d0 = pci_read32(bus, dev, fn, cap);
+        d1 = pci_read32(bus, dev, fn, (uint8_t)(cap + 4u));
+        d2 = pci_read32(bus, dev, fn, (uint8_t)(cap + 8u));
+        if ((d0 & 0xFFu) == PCI_CAP_VNDR) {
+            type = (uint8_t)(d0 >> 24);
+            bar = (uint8_t)d1;
+            off = d2;
+            if (type == VIRTIO_PCI_CAP_COMMON) {
+                net_common = map_bar(bus, dev, fn, bar, off);
+            } else if (type == VIRTIO_PCI_CAP_DEVICE) {
+                net_devcfg = map_bar(bus, dev, fn, bar, off);
+            } else if (type == VIRTIO_PCI_CAP_NOTIFY
+                       || type == VIRTIO_PCI_CAP_ISR) {
+                (void)map_bar(bus, dev, fn, bar, off);
+            }
+        }
+        cap = (uint8_t)(d0 >> 8);
+        n++;
+        if (cap == 0) {
+            break;
+        }
+    }
+    if (net_common == 0 || net_devcfg == 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static int net_modern_features(void)
+{
+    uint32_t hi;
+    uint32_t lo;
+    uint8_t st;
+
+    mmio_w8(net_common, CFG_STATUS, 0);
+    for (hi = 0; hi < 10000u; hi++) {
+        if (mmio_r8(net_common, CFG_STATUS) == 0) {
+            break;
+        }
+        __asm__ volatile ("pause");
+    }
+    mmio_w8(net_common, CFG_STATUS, VIRTIO_STATUS_ACK);
+    mmio_w8(net_common, CFG_STATUS,
+            (uint8_t)(VIRTIO_STATUS_ACK | VIRTIO_STATUS_DRIVER));
+    mmio_w32(net_common, CFG_DFSELECT, 1u);
+    hi = mmio_r32(net_common, CFG_DF);
+    if ((hi & (1u << (VIRTIO_F_VERSION_1 - 32u))) == 0) {
+        return -1;
+    }
+    mmio_w32(net_common, CFG_DFSELECT, 0);
+    lo = mmio_r32(net_common, CFG_DF);
+    if ((lo & (1u << VIRTIO_NET_F_MAC)) == 0) {
+        return -1;
+    }
+    mmio_w32(net_common, CFG_GFSELECT, 0);
+    mmio_w32(net_common, CFG_GF, 1u << VIRTIO_NET_F_MAC);
+    mmio_w32(net_common, CFG_GFSELECT, 1u);
+    mmio_w32(net_common, CFG_GF, 1u << (VIRTIO_F_VERSION_1 - 32u));
+    st = mmio_r8(net_common, CFG_STATUS);
+    mmio_w8(net_common, CFG_STATUS, (uint8_t)(st | VIRTIO_STATUS_FEATURES_OK));
+    st = mmio_r8(net_common, CFG_STATUS);
+    if ((st & VIRTIO_STATUS_FEATURES_OK) == 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static int net_modern_init(uint8_t bus, uint8_t dev, uint8_t fn)
+{
+    if (pci_net_caps(bus, dev, fn) != 0) {
+        return -1;
+    }
+    if (net_modern_features() != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static int net_legacy_init(uint8_t bus, uint8_t dev, uint8_t fn)
+{
+    uint32_t bar0;
+    uint32_t host;
+    unsigned i;
+
+    bar0 = pci_bar_raw(bus, dev, fn, 0);
+    if ((bar0 & 1u) == 0) {
+        return -1;
+    }
+    net_io = (uint16_t)(bar0 & ~3u);
+    if (net_io == 0) {
+        return -1;
+    }
+    outb((uint16_t)(net_io + LEG_STATUS), 0);
+    for (i = 0; i < 10000u; i++) {
+        if (inb((uint16_t)(net_io + LEG_STATUS)) == 0) {
+            break;
+        }
+        __asm__ volatile ("pause");
+    }
+    outb((uint16_t)(net_io + LEG_STATUS), VIRTIO_STATUS_ACK);
+    outb((uint16_t)(net_io + LEG_STATUS),
+         (uint8_t)(VIRTIO_STATUS_ACK | VIRTIO_STATUS_DRIVER));
+    host = inl((uint16_t)(net_io + LEG_HOST_FEATURES));
+    if ((host & (1u << VIRTIO_NET_F_MAC)) == 0) {
+        return -1;
+    }
+    outl((uint16_t)(net_io + LEG_GUEST_FEATURES), 1u << VIRTIO_NET_F_MAC);
+    return 0;
+}
+
+static int net_read_mac(uint8_t mac[6])
+{
+    unsigned i;
+    unsigned nz;
+
+    if (net_devcfg != 0) {
+        for (i = 0; i < 6u; i++) {
+            mac[i] = mmio_r8(net_devcfg, i);
+        }
+    } else if (net_io != 0) {
+        for (i = 0; i < 6u; i++) {
+            mac[i] = inb((uint16_t)(net_io + 20u + i));
+        }
+    } else {
+        return -1;
+    }
+    nz = 0;
+    for (i = 0; i < 6u; i++) {
+        if (mac[i] != 0) {
+            nz = 1;
+        }
+    }
+    if (nz == 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static void net_fmt_mac(char *msg, const uint8_t *mac)
+{
+    unsigned i;
+    unsigned p;
+
+    msg[0] = 'n';
+    msg[1] = 'e';
+    msg[2] = 't';
+    msg[3] = ' ';
+    p = 4;
+    for (i = 0; i < 6u; i++) {
+        if (i != 0) {
+            msg[p] = ':';
+            p++;
+        }
+        msg[p] = hex_digit((unsigned)mac[i] >> 4);
+        msg[p + 1] = hex_digit((unsigned)mac[i]);
+        p += 2;
+    }
+    msg[p] = '\0';
+}
+
+static int net_say(int row, const char *msg)
+{
+    unsigned n;
+
+    vga_write_at(row, 0, msg);
+    fb_draw_text(8, 72, msg);
+    if (msg != 0) {
+        for (n = 0; msg[n] != '\0'; n++) {
+        }
+        serial_write(msg, n);
+        serial_putc('\n');
+    }
+    return row + 1;
+}
+
+int virtio_net_init(int row)
+{
+    uint8_t bus;
+    uint8_t dev;
+    uint8_t fn;
+    uint8_t mac[6];
+    char msg[22];
+
+    net_io = 0;
+    net_common = 0;
+    net_devcfg = 0;
+
+    if (row >= VGA_HEIGHT - 1) {
+        return row;
+    }
+    if (pci_find_net(&bus, &dev, &fn) != 0) {
+        return net_say(row, "net none");
+    }
+    pci_enable(bus, dev, fn);
+    if (net_modern_init(bus, dev, fn) != 0) {
+        net_common = 0;
+        net_devcfg = 0;
+        if (net_legacy_init(bus, dev, fn) != 0) {
+            return net_say(row, "net fail");
+        }
+    }
+    if (net_read_mac(mac) != 0) {
+        return net_say(row, "net fail");
+    }
+    net_fmt_mac(msg, mac);
+    return net_say(row, msg);
 }

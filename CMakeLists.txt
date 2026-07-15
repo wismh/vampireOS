@@ -919,6 +919,8 @@ if(QEMU_EXECUTABLE)
             -device ide-hd,drive=ahci-hd,bus=ahci.0
             -drive "id=virtio-hd,file=${DISK_IMG},if=none,format=raw,cache=writethrough,file.locking=off"
             -device virtio-blk-pci,drive=virtio-hd
+            -netdev user,id=net0
+            -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56
             -vga std
             -serial stdio
             -m 128
