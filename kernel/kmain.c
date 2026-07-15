@@ -32,6 +32,7 @@ static void kmain_cont(void)
     kheap_init();
     row = kheap_print(row);
     row = virtio_init(row);
+    row = virtio_net_init(row);
     row = ahci_init(row);
     row = ata_init(row);
     if (bio_init() != 0) {
