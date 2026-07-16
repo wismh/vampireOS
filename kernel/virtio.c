@@ -44,6 +44,10 @@
 #define VIRTIO_BLK_S_IOERR 1u
 #define VIRTIO_BLK_F_FLUSH 0u
 #define VIRTIO_NET_F_MAC 5u
+#define VIRTIO_NET_TXQ 1u
+#define VIRTIO_NET_HDR 12u
+#define ETH_ZLEN 60u
+#define UDP_PORT 5555u
 
 #define LEG_HOST_FEATURES 0u
 #define LEG_GUEST_FEATURES 4u
@@ -117,7 +121,21 @@ static int say_row;
 static int have_flush;
 static uint16_t net_io;
 static volatile uint8_t *net_common;
+static volatile uint8_t *net_notify;
 static volatile uint8_t *net_devcfg;
+static uint32_t net_notify_mult;
+static uint16_t net_qsz;
+static uint16_t net_q_notify_off;
+static uint64_t net_dma_phys;
+static uint8_t *net_dma_virt;
+static uint32_t net_desc_off;
+static uint32_t net_avail_off;
+static uint32_t net_used_off;
+static uint32_t net_hdr_off;
+static uint16_t net_avail_idx;
+static uint16_t net_used_seen;
+static int net_modern;
+static uint8_t net_mac[6];
 
 static uint32_t pci_read32(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t off)
 {
@@ -967,7 +985,9 @@ static int pci_net_caps(uint8_t bus, uint8_t dev, uint8_t fn)
     uint32_t off;
 
     net_common = 0;
+    net_notify = 0;
     net_devcfg = 0;
+    net_notify_mult = 0;
     st = pci_read32(bus, dev, fn, 0x04);
     if (((st >> 16) & PCI_STATUS_CAPS) == 0) {
         return -1;
@@ -984,10 +1004,12 @@ static int pci_net_caps(uint8_t bus, uint8_t dev, uint8_t fn)
             off = d2;
             if (type == VIRTIO_PCI_CAP_COMMON) {
                 net_common = map_bar(bus, dev, fn, bar, off);
+            } else if (type == VIRTIO_PCI_CAP_NOTIFY) {
+                net_notify = map_bar(bus, dev, fn, bar, off);
+                net_notify_mult = pci_read32(bus, dev, fn, (uint8_t)(cap + 16u));
             } else if (type == VIRTIO_PCI_CAP_DEVICE) {
                 net_devcfg = map_bar(bus, dev, fn, bar, off);
-            } else if (type == VIRTIO_PCI_CAP_NOTIFY
-                       || type == VIRTIO_PCI_CAP_ISR) {
+            } else if (type == VIRTIO_PCI_CAP_ISR) {
                 (void)map_bar(bus, dev, fn, bar, off);
             }
         }
@@ -1135,12 +1157,12 @@ static void net_fmt_mac(char *msg, const uint8_t *mac)
     msg[p] = '\0';
 }
 
-static int net_say(int row, const char *msg)
+static int net_say_at(int row, int fb_y, const char *msg)
 {
     unsigned n;
 
     vga_write_at(row, 0, msg);
-    fb_draw_text(8, 72, msg);
+    fb_draw_text(8, fb_y, msg);
     if (msg != 0) {
         for (n = 0; msg[n] != '\0'; n++) {
         }
@@ -1148,6 +1170,267 @@ static int net_say(int row, const char *msg)
         serial_putc('\n');
     }
     return row + 1;
+}
+
+static int net_say(int row, const char *msg)
+{
+    return net_say_at(row, 72, msg);
+}
+
+static int net_vq_layout(uint16_t size)
+{
+    uint32_t desc_bytes;
+    uint32_t avail_bytes;
+    uint32_t used_bytes;
+    uint32_t total;
+    uint64_t pages;
+    uint64_t i;
+
+    if (size == 0 || size > QSZ_MAX) {
+        return -1;
+    }
+    net_qsz = size;
+    net_desc_off = 0;
+    desc_bytes = (uint32_t)size * 16u;
+    net_avail_off = desc_bytes;
+    avail_bytes = 6u + 2u * (uint32_t)size;
+    net_used_off = align_up32(net_avail_off + avail_bytes, (uint32_t)PAGE_SIZE);
+    used_bytes = 6u + 8u * (uint32_t)size;
+    net_hdr_off = align_up32(net_used_off + used_bytes, 16u);
+    total = net_hdr_off + VIRTIO_NET_HDR + ETH_ZLEN;
+    pages = ((uint64_t)total + PAGE_SIZE - 1ull) / PAGE_SIZE;
+    if (pages == 0) {
+        pages = 1;
+    }
+    net_dma_phys = pmm_alloc_span(pages);
+    if (net_dma_phys == 0) {
+        net_dma_phys = pmm_alloc_above(DMA_MIN);
+        if (net_dma_phys == 0 || pages > 1) {
+            return -1;
+        }
+    }
+    net_dma_virt = (uint8_t *)(uintptr_t)phys_to_virt(net_dma_phys);
+    for (i = 0; i < pages * PAGE_SIZE; i++) {
+        net_dma_virt[i] = 0;
+    }
+    net_avail_idx = 0;
+    net_used_seen = 0;
+    return 0;
+}
+
+static void net_avail_init(void)
+{
+    *(volatile uint16_t *)(net_dma_virt + net_avail_off) = VIRTQ_AVAIL_F_NO_INTERRUPT;
+    *(volatile uint16_t *)(net_dma_virt + net_avail_off + 2u) = 0;
+}
+
+static int net_modern_tx_queue(void)
+{
+    uint16_t size;
+    uint16_t nq;
+
+    if (net_common == 0 || net_notify == 0) {
+        return -1;
+    }
+    mmio_w16(net_common, CFG_MSIX, MSIX_NONE);
+    nq = mmio_r16(net_common, CFG_NUMQ);
+    if (nq < 2u) {
+        return -1;
+    }
+    mmio_w16(net_common, CFG_QSEL, VIRTIO_NET_TXQ);
+    mmio_w16(net_common, CFG_QMSIX, MSIX_NONE);
+    size = mmio_r16(net_common, CFG_QSIZE);
+    if (size > QSZ_MAX) {
+        size = QSZ_MAX;
+        mmio_w16(net_common, CFG_QSIZE, size);
+    }
+    if (net_vq_layout(size) != 0) {
+        return -1;
+    }
+    net_q_notify_off = mmio_r16(net_common, CFG_QNOTIFY);
+    mmio_w64(net_common, CFG_QDESC, net_dma_phys + net_desc_off);
+    mmio_w64(net_common, CFG_QDRIVER, net_dma_phys + net_avail_off);
+    mmio_w64(net_common, CFG_QDEVICE, net_dma_phys + net_used_off);
+    mmio_w16(net_common, CFG_QENA, 1);
+    net_avail_init();
+    mmio_w8(net_common, CFG_STATUS,
+            (uint8_t)(VIRTIO_STATUS_ACK | VIRTIO_STATUS_DRIVER
+                      | VIRTIO_STATUS_FEATURES_OK | VIRTIO_STATUS_DRIVER_OK));
+    net_modern = 1;
+    return 0;
+}
+
+static int net_legacy_tx_queue(void)
+{
+    uint16_t size;
+
+    if (net_io == 0) {
+        return -1;
+    }
+    outw((uint16_t)(net_io + LEG_QUEUE_SEL), VIRTIO_NET_TXQ);
+    size = inw((uint16_t)(net_io + LEG_QUEUE_NUM));
+    if (net_vq_layout(size) != 0) {
+        return -1;
+    }
+    if ((net_dma_phys & (PAGE_SIZE - 1ull)) != 0) {
+        return -1;
+    }
+    net_avail_init();
+    outl((uint16_t)(net_io + LEG_QUEUE_PFN), (uint32_t)(net_dma_phys / PAGE_SIZE));
+    (void)inb((uint16_t)(net_io + LEG_ISR));
+    outb((uint16_t)(net_io + LEG_STATUS),
+         (uint8_t)(VIRTIO_STATUS_ACK | VIRTIO_STATUS_DRIVER
+                   | VIRTIO_STATUS_DRIVER_OK));
+    net_modern = 0;
+    return 0;
+}
+
+static void net_notify_q(void)
+{
+    volatile uint16_t *n;
+    uint32_t off;
+
+    if (net_modern != 0) {
+        off = (uint32_t)net_q_notify_off * net_notify_mult;
+        n = (volatile uint16_t *)(net_notify + off);
+        *n = VIRTIO_NET_TXQ;
+        return;
+    }
+    outw((uint16_t)(net_io + LEG_QUEUE_NOTIFY), VIRTIO_NET_TXQ);
+}
+
+static int net_vq_kick(void)
+{
+    volatile uint16_t *ring;
+    volatile uint16_t *idx;
+    volatile uint16_t *used;
+    unsigned i;
+
+    ring = (volatile uint16_t *)(net_dma_virt + net_avail_off + 4u);
+    idx = (volatile uint16_t *)(net_dma_virt + net_avail_off + 2u);
+    used = (volatile uint16_t *)(net_dma_virt + net_used_off + 2u);
+    ring[net_avail_idx % net_qsz] = 0;
+    __asm__ volatile ("mfence" ::: "memory");
+    net_avail_idx++;
+    *idx = net_avail_idx;
+    __asm__ volatile ("mfence" ::: "memory");
+    net_notify_q();
+    for (i = 0; i < WAIT_MAX; i++) {
+        __asm__ volatile ("mfence" ::: "memory");
+        if (*used != net_used_seen) {
+            net_used_seen = *used;
+            return 0;
+        }
+        __asm__ volatile ("pause");
+    }
+    return -1;
+}
+
+static uint16_t ip_csum(const uint8_t *p, unsigned n)
+{
+    uint32_t s;
+    unsigned i;
+
+    s = 0;
+    for (i = 0; i + 1u < n; i += 2u) {
+        s += ((uint32_t)p[i] << 8) | p[i + 1u];
+    }
+    if (i < n) {
+        s += (uint32_t)p[i] << 8;
+    }
+    while ((s >> 16) != 0) {
+        s = (s & 0xFFFFu) + (s >> 16);
+    }
+    return (uint16_t)~s;
+}
+
+static unsigned net_build_frame(uint8_t *f, const uint8_t *src_mac)
+{
+    unsigned i;
+    uint8_t *ip;
+    uint8_t *udp;
+    uint16_t tot;
+    uint16_t csum;
+
+    /* QEMU user-net gateway 10.0.2.2, MAC 52:55:0a:00:02:02. */
+    f[0] = 0x52;
+    f[1] = 0x55;
+    f[2] = 0x0a;
+    f[3] = 0x00;
+    f[4] = 0x02;
+    f[5] = 0x02;
+    for (i = 0; i < 6u; i++) {
+        f[6 + i] = src_mac[i];
+    }
+    f[12] = 0x08;
+    f[13] = 0x00;
+    ip = f + 14;
+    tot = 20u + 8u + 2u;
+    ip[0] = 0x45;
+    ip[1] = 0x00;
+    ip[2] = (uint8_t)(tot >> 8);
+    ip[3] = (uint8_t)tot;
+    ip[4] = 0;
+    ip[5] = 0;
+    ip[6] = 0;
+    ip[7] = 0;
+    ip[8] = 64;
+    ip[9] = 17;
+    ip[10] = 0;
+    ip[11] = 0;
+    ip[12] = 10;
+    ip[13] = 0;
+    ip[14] = 2;
+    ip[15] = 15;
+    ip[16] = 10;
+    ip[17] = 0;
+    ip[18] = 2;
+    ip[19] = 2;
+    csum = ip_csum(ip, 20);
+    ip[10] = (uint8_t)(csum >> 8);
+    ip[11] = (uint8_t)csum;
+    udp = ip + 20;
+    udp[0] = (uint8_t)(UDP_PORT >> 8);
+    udp[1] = (uint8_t)UDP_PORT;
+    udp[2] = (uint8_t)(UDP_PORT >> 8);
+    udp[3] = (uint8_t)UDP_PORT;
+    udp[4] = 0;
+    udp[5] = 10;
+    udp[6] = 0;
+    udp[7] = 0;
+    udp[8] = 'h';
+    udp[9] = 'i';
+    for (i = 14u + tot; i < ETH_ZLEN; i++) {
+        f[i] = 0;
+    }
+    return ETH_ZLEN;
+}
+
+static int net_tx_udp(void)
+{
+    struct virtq_desc *d;
+    uint8_t *hdr;
+    unsigned n;
+    unsigned i;
+
+    if (net_dma_virt == 0 || net_qsz < 2u) {
+        return -1;
+    }
+    d = (struct virtq_desc *)(net_dma_virt + net_desc_off);
+    hdr = net_dma_virt + net_hdr_off;
+    for (i = 0; i < VIRTIO_NET_HDR; i++) {
+        hdr[i] = 0;
+    }
+    n = net_build_frame(hdr + VIRTIO_NET_HDR, net_mac);
+    d[0].addr = net_dma_phys + net_hdr_off;
+    d[0].len = VIRTIO_NET_HDR;
+    d[0].flags = VIRTQ_DESC_F_NEXT;
+    d[0].next = 1;
+    d[1].addr = net_dma_phys + net_hdr_off + VIRTIO_NET_HDR;
+    d[1].len = n;
+    d[1].flags = 0;
+    d[1].next = 0;
+    return net_vq_kick();
 }
 
 int virtio_net_init(int row)
