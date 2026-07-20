@@ -1440,12 +1440,25 @@ int virtio_net_init(int row)
     uint8_t fn;
     uint8_t mac[6];
     char msg[22];
+    unsigned i;
 
     net_io = 0;
     net_common = 0;
+    net_notify = 0;
     net_devcfg = 0;
+    net_notify_mult = 0;
+    net_qsz = 0;
+    net_q_notify_off = 0;
+    net_dma_phys = 0;
+    net_dma_virt = 0;
+    net_modern = 0;
+    net_avail_idx = 0;
+    net_used_seen = 0;
+    for (i = 0; i < 6u; i++) {
+        net_mac[i] = 0;
+    }
 
-    if (row >= VGA_HEIGHT - 1) {
+    if (row >= VGA_HEIGHT - 2) {
         return row;
     }
     if (pci_find_net(&bus, &dev, &fn) != 0) {
@@ -1454,6 +1467,7 @@ int virtio_net_init(int row)
     pci_enable(bus, dev, fn);
     if (net_modern_init(bus, dev, fn) != 0) {
         net_common = 0;
+        net_notify = 0;
         net_devcfg = 0;
         if (net_legacy_init(bus, dev, fn) != 0) {
             return net_say(row, "net fail");
@@ -1462,6 +1476,20 @@ int virtio_net_init(int row)
     if (net_read_mac(mac) != 0) {
         return net_say(row, "net fail");
     }
+    for (i = 0; i < 6u; i++) {
+        net_mac[i] = mac[i];
+    }
     net_fmt_mac(msg, mac);
-    return net_say(row, msg);
+    row = net_say(row, msg);
+    if (net_common != 0) {
+        if (net_modern_tx_queue() != 0) {
+            return net_say_at(row, 80, "udp fail");
+        }
+    } else if (net_legacy_tx_queue() != 0) {
+        return net_say_at(row, 80, "udp fail");
+    }
+    if (net_tx_udp() != 0) {
+        return net_say_at(row, 80, "udp fail");
+    }
+    return net_say_at(row, 80, "udp sent");
 }
