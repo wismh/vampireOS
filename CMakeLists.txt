@@ -920,6 +920,7 @@ if(QEMU_EXECUTABLE)
             -drive "id=virtio-hd,file=${DISK_IMG},if=none,format=raw,cache=writethrough,file.locking=off"
             -device virtio-blk-pci,drive=virtio-hd
             -netdev user,id=net0
+            -object "filter-dump,id=dump0,netdev=net0,file=${CMAKE_BINARY_DIR}/virtio-net.pcap"
             -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56
             -vga std
             -serial stdio
