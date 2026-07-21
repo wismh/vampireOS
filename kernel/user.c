@@ -4,6 +4,7 @@
 #include "fs.h"
 #include "kbd.h"
 #include "pmm.h"
+#include "rtc.h"
 #include "sched.h"
 #include "serial.h"
 #include "vga.h"
@@ -52,6 +53,7 @@
 #define SYS_FBPRESENT 26ull
 #define SYS_SIGACTION 27ull
 #define SYS_MPROTECT 28ull
+#define SYS_DATE 29ull
 #define PROT_READ 1ull
 #define PROT_WRITE 2ull
 #define PIT_TICKS_PER_SEC 100u
@@ -1742,6 +1744,24 @@ void user_on_syscall(struct interrupt_frame *frame)
     /* PIT seconds (ticks / 100 Hz). rax=seconds since boot. */
     if (frame->rax == SYS_UPTIME) {
         frame->rax = (uint64_t)(idt_ticks() / PIT_TICKS_PER_SEC);
+        vmm_set_cr3(sched_current_cr3());
+        return;
+    }
+    /* CMOS RTC as `YYYY-MM-DD HH:MM:SS`. rdi=buf, rsi=max; rax=19 or -1. */
+    if (frame->rax == SYS_DATE) {
+        char d[RTC_STR_LEN + 1];
+
+        want = (unsigned)frame->rsi;
+        if (frame->rdi == 0 || want < (unsigned)RTC_STR_LEN) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        rtc_format(d);
+        if (copy_to_user(frame->rdi, d, (uint64_t)RTC_STR_LEN) != 0) {
+            frame->rax = (uint64_t)-1;
+            return;
+        }
+        frame->rax = (uint64_t)RTC_STR_LEN;
         vmm_set_cr3(sched_current_cr3());
         return;
     }

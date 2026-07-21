@@ -61,7 +61,7 @@ fat1:
     db 0xFF, 0x8F, 0x03
     db 0x39, 0xA0, 0x03
     db 0x3B, 0xC0, 0x03
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
 fat2:
@@ -95,7 +95,7 @@ fat2:
     db 0xFF, 0x8F, 0x03
     db 0x39, 0xA0, 0x03
     db 0x3B, 0xC0, 0x03
-    db 0xFF, 0x0F, 0x00
+    db 0xFF, 0xFF, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
 root:
@@ -500,6 +500,11 @@ root_extra2:
     times 14 db 0
     dw 55
     dd malloctest_len
+    db "DATE    ", "   "
+    db 0x20
+    times 14 db 0
+    dw 61
+    dd date_len
     ; Cluster 0x0F00 is past the 1024-cluster volume (and past the 1307-sector
     ; image). `$ cat bad` must bread that LBA, fail, print `?`, and return `$`.
     db "BAD     ", "   "
@@ -554,4 +559,9 @@ malloctest_data:
 malloctest_len equ $ - malloctest_data
     times 3072 - malloctest_len db 0
 
-    times (FAT_DATA_CLUSTERS - 59) * 512 db 0
+date_data:
+    incbin "date.bin"
+date_len equ $ - date_data
+    times 512 - date_len db 0
+
+    times (FAT_DATA_CLUSTERS - 60) * 512 db 0

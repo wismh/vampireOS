@@ -112,6 +112,8 @@ set(FB_ASM "${CMAKE_SOURCE_DIR}/user/fb.asm")
 set(FBHELLO_BIN "${CMAKE_BINARY_DIR}/fbhello.bin")
 set(UPTIME_ASM "${CMAKE_SOURCE_DIR}/user/uptime.asm")
 set(UPTIME_BIN "${CMAKE_BINARY_DIR}/uptime.bin")
+set(DATE_ASM "${CMAKE_SOURCE_DIR}/user/date.asm")
+set(DATE_BIN "${CMAKE_BINARY_DIR}/date.bin")
 set(CRT_ASM "${CMAKE_SOURCE_DIR}/user/crt.asm")
 set(FD_ASM "${CMAKE_SOURCE_DIR}/user/fd.asm")
 set(CRTSTART_ASM "${CMAKE_SOURCE_DIR}/user/crtstart.asm")
@@ -468,6 +470,14 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${DATE_BIN}"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -o "${DATE_BIN}" "${DATE_ASM}"
+    DEPENDS "${DATE_ASM}"
+    COMMENT "Assembling user ELF date"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${CRT_OBJ}"
     COMMAND "${NASM_EXECUTABLE}" -f elf64 -o "${CRT_OBJ}" "${CRT_ASM}"
     DEPENDS "${CRT_ASM}"
@@ -753,7 +763,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${CATCH_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${MPROTTEST_BIN}" "${FBINFO_BIN}" "${FBTEST_BIN}" "${FBCLEAR_BIN}" "${FBHELLO_BIN}" "${UPTIME_BIN}" "${CRT_BIN}" "${HI_BIN}" "${MALLOCTEST_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${CATCH_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${MPROTTEST_BIN}" "${FBINFO_BIN}" "${FBTEST_BIN}" "${FBCLEAR_BIN}" "${FBHELLO_BIN}" "${UPTIME_BIN}" "${DATE_BIN}" "${CRT_BIN}" "${HI_BIN}" "${MALLOCTEST_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )
@@ -780,6 +790,7 @@ set(KERNEL_C_SOURCES
     "${KERNEL_DIR}/ata.c"
     "${KERNEL_DIR}/ahci.c"
     "${KERNEL_DIR}/virtio.c"
+    "${KERNEL_DIR}/rtc.c"
 )
 set(KERNEL_C_OBJECTS "")
 foreach(_src ${KERNEL_C_SOURCES})
@@ -823,6 +834,7 @@ foreach(_src ${KERNEL_C_SOURCES})
             "${KERNEL_DIR}/ata.h"
             "${KERNEL_DIR}/ahci.h"
             "${KERNEL_DIR}/virtio.h"
+            "${KERNEL_DIR}/rtc.h"
             "${KERNEL_DIR}/io.h"
         COMMENT "Compiling ${_name}.c"
         VERBATIM
@@ -922,6 +934,7 @@ if(QEMU_EXECUTABLE)
             -netdev user,id=net0
             -object "filter-dump,id=dump0,netdev=net0,file=${CMAKE_BINARY_DIR}/virtio-net.pcap"
             -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56
+            -rtc base=2026-07-21T20:25:00
             -vga std
             -serial stdio
             -m 128
