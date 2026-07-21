@@ -7,6 +7,7 @@
 #include "io.h"
 #include "mouse.h"
 #include "pmm.h"
+#include "rtc.h"
 #include "sched.h"
 #include "user.h"
 #include "vga.h"
@@ -83,6 +84,14 @@ static void puts_cur(const char *s)
         vga_putc(*s);
         s++;
     }
+}
+
+static void run_date(void)
+{
+    char d[RTC_STR_LEN + 1];
+
+    rtc_format(d);
+    puts_cur(d);
 }
 
 static void put_uint(unsigned value)
@@ -803,12 +812,15 @@ static void run_line(void)
         return;
     }
     if (streq(cmd, "help")) {
-        puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync devs mkdir rmdir cd pwd ps kill uptime | < > >>");
+        puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync devs mkdir rmdir cd pwd ps kill uptime date | < > >>");
     } else if (streq(cmd, "mem")) {
         put_uint((unsigned)pmm_free_count());
     } else if (streq(cmd, "uptime")) {
         /* PIT at 100 Hz; same seconds SYS_UPTIME returns. */
         put_uint(idt_ticks() / 100u);
+    } else if (streq(cmd, "date")) {
+        /* CMOS RTC wall clock; same string SYS_DATE copies. */
+        run_date();
     } else if (streq(cmd, "pwd")) {
         run_pwd();
     } else if (streq(cmd, "ps")) {
@@ -925,7 +937,7 @@ int kbd_stdin_take(void *dst, unsigned max)
     return (int)n;
 }
 
-/* `ps` / `help` / `run` / `kill` / `mkdir` / `mv` / `cp` / `ln` / `rm` / `fill` / `trunc` / `sync` / `devs` / plain `cat` / `ls` are kernel-only; run them at `$` without waking `sh`. */
+/* `ps` / `help` / `run` / `kill` / `mkdir` / `mv` / `cp` / `ln` / `rm` / `fill` / `trunc` / `sync` / `devs` / `date` / plain `cat` / `ls` are kernel-only; run them at `$` without waking `sh`. */
 static int line_has_meta(const char *s)
 {
     while (*s != '\0') {
@@ -969,6 +981,7 @@ static int kbd_dollar_builtin(void)
     if (streq(s, "ps") == 0 && streq(s, "help") == 0 && streq(s, "sync") == 0 &&
         streq(s, "devs") == 0 &&
         streq(s, "mem") == 0 &&
+        streq(s, "date") == 0 &&
         cmd_is(s, "mkdir") == 0 &&
         cmd_is(s, "mv") == 0 && cmd_is(s, "cp") == 0 && cmd_is(s, "ln") == 0 &&
         cmd_is(s, "rm") == 0 && cmd_is(s, "fill") == 0 &&
@@ -982,9 +995,11 @@ static int kbd_dollar_builtin(void)
     } else if (cmd_is(s, "kill") != 0) {
         run_kill(s + 4);
     } else if (streq(s, "help") != 0) {
-        puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync devs mkdir rmdir cd pwd ps kill uptime | < > >>");
+        puts_cur("help ls mem cat run put rm mv cp ln fill trunc sync devs mkdir rmdir cd pwd ps kill uptime date | < > >>");
     } else if (streq(s, "mem") != 0) {
         put_uint((unsigned)pmm_free_count());
+    } else if (streq(s, "date") != 0) {
+        run_date();
     } else if (streq(s, "sync") != 0) {
         run_sync();
     } else if (streq(s, "devs") != 0) {
