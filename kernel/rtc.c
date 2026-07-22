@@ -1,4 +1,5 @@
 #include "rtc.h"
+#include "idt.h"
 #include "io.h"
 
 #include <stdint.h>
@@ -19,6 +20,16 @@
 #define CMOS_BIN 0x04u
 #define CMOS_24H 0x02u
 #define CMOS_HOUR_PM 0x80u
+#define PIT_HZ 100u
+
+static unsigned snap_y;
+static unsigned snap_mon;
+static unsigned snap_day;
+static unsigned snap_h;
+static unsigned snap_min;
+static unsigned snap_sec;
+static unsigned snap_ticks;
+static int have_snap;
 
 static uint8_t cmos_read(uint8_t reg)
 {
@@ -37,7 +48,48 @@ static void put2(char *p, unsigned v)
     p[1] = (char)('0' + v % 10u);
 }
 
-void rtc_format(char *buf)
+static unsigned month_days(unsigned y, unsigned m)
+{
+    if (m == 2u) {
+        if ((y % 4u) == 0u && ((y % 100u) != 0u || (y % 400u) == 0u)) {
+            return 29u;
+        }
+        return 28u;
+    }
+    if (m == 4u || m == 6u || m == 9u || m == 11u) {
+        return 30u;
+    }
+    return 31u;
+}
+
+static void add_seconds(unsigned *y, unsigned *mon, unsigned *day,
+                        unsigned *h, unsigned *min, unsigned *sec, unsigned add)
+{
+    unsigned t;
+    unsigned dim;
+
+    t = *sec + add;
+    *sec = t % 60u;
+    t = *min + t / 60u;
+    *min = t % 60u;
+    t = *h + t / 60u;
+    *h = t % 24u;
+    *day += t / 24u;
+    for (;;) {
+        dim = month_days(*y, *mon);
+        if (*day <= dim) {
+            break;
+        }
+        *day -= dim;
+        (*mon)++;
+        if (*mon > 12u) {
+            *mon = 1u;
+            (*y)++;
+        }
+    }
+}
+
+static void latch_cmos(void)
 {
     uint8_t sec;
     uint8_t min;
@@ -98,6 +150,43 @@ void rtc_format(char *buf)
         c = 20u;
     }
     y += c * 100u;
+    snap_y = y;
+    snap_mon = mon;
+    snap_day = day;
+    snap_h = h;
+    snap_min = min;
+    snap_sec = sec;
+    snap_ticks = idt_ticks();
+    have_snap = 1;
+}
+
+void rtc_init(void)
+{
+    if (have_snap != 0) {
+        return;
+    }
+    latch_cmos();
+}
+
+void rtc_format(char *buf)
+{
+    unsigned y;
+    unsigned mon;
+    unsigned day;
+    unsigned h;
+    unsigned min;
+    unsigned sec;
+    unsigned add;
+
+    rtc_init();
+    y = snap_y;
+    mon = snap_mon;
+    day = snap_day;
+    h = snap_h;
+    min = snap_min;
+    sec = snap_sec;
+    add = (idt_ticks() - snap_ticks) / PIT_HZ;
+    add_seconds(&y, &mon, &day, &h, &min, &sec, add);
     buf[0] = (char)('0' + (y / 1000u) % 10u);
     buf[1] = (char)('0' + (y / 100u) % 10u);
     buf[2] = (char)('0' + (y / 10u) % 10u);

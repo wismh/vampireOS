@@ -934,7 +934,7 @@ if(QEMU_EXECUTABLE)
             -netdev user,id=net0
             -object "filter-dump,id=dump0,netdev=net0,file=${CMAKE_BINARY_DIR}/virtio-net.pcap"
             -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56
-            -rtc base=2026-07-21T20:25:00
+            -rtc base=2026-07-22T18:50:00
             -vga std
             -serial stdio
             -m 128

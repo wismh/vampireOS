@@ -1,4 +1,4 @@
-; BASE 0x400000; SYS_DATE (29) CMOS RTC into buf; write `YYYY-MM-DD HH:MM:SS`
+; BASE 0x400000; SYS_DATE (29) CMOS snapshot + PIT into buf; write `YYYY-MM-DD HH:MM:SS`
 bits 64
 org 0x400000
 

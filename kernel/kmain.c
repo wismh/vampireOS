@@ -8,6 +8,7 @@
 #include "idt.h"
 #include "kbd.h"
 #include "pmm.h"
+#include "rtc.h"
 #include "sched.h"
 #include "serial.h"
 #include "user.h"
@@ -27,6 +28,7 @@ static void kmain_cont(void)
     unsigned d;
 
     idt_init();
+    rtc_init();
     row = vmm_drop_identity(row);
     row = vmm_print(row);
     kheap_init();
