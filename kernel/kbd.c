@@ -819,7 +819,7 @@ static void run_line(void)
         /* PIT at 100 Hz; same seconds SYS_UPTIME returns. */
         put_uint(idt_ticks() / 100u);
     } else if (streq(cmd, "date")) {
-        /* CMOS RTC wall clock; same string SYS_DATE copies. */
+        /* CMOS snapshot plus PIT seconds; same string SYS_DATE copies. */
         run_date();
     } else if (streq(cmd, "pwd")) {
         run_pwd();

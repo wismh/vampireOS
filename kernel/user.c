@@ -1747,7 +1747,7 @@ void user_on_syscall(struct interrupt_frame *frame)
         vmm_set_cr3(sched_current_cr3());
         return;
     }
-    /* CMOS RTC as `YYYY-MM-DD HH:MM:SS`. rdi=buf, rsi=max; rax=19 or -1. */
+    /* Wall clock `YYYY-MM-DD HH:MM:SS` from CMOS snapshot + PIT. rdi=buf, rsi=max; rax=19 or -1. */
     if (frame->rax == SYS_DATE) {
         char d[RTC_STR_LEN + 1];
 
