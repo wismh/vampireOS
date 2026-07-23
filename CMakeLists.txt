@@ -114,6 +114,7 @@ set(UPTIME_ASM "${CMAKE_SOURCE_DIR}/user/uptime.asm")
 set(UPTIME_BIN "${CMAKE_BINARY_DIR}/uptime.bin")
 set(DATE_ASM "${CMAKE_SOURCE_DIR}/user/date.asm")
 set(DATE_BIN "${CMAKE_BINARY_DIR}/date.bin")
+set(BSS_C "${CMAKE_SOURCE_DIR}/user/bss.c")
 set(CRT_ASM "${CMAKE_SOURCE_DIR}/user/crt.asm")
 set(FD_ASM "${CMAKE_SOURCE_DIR}/user/fd.asm")
 set(CRTSTART_ASM "${CMAKE_SOURCE_DIR}/user/crtstart.asm")
@@ -138,11 +139,13 @@ set(STRING_OBJ "${CMAKE_BINARY_DIR}/string.o")
 set(PRINTF_OBJ "${CMAKE_BINARY_DIR}/printf.o")
 set(MALLOC_OBJ "${CMAKE_BINARY_DIR}/malloc.o")
 set(MALLOCTEST_OBJ "${CMAKE_BINARY_DIR}/malloctest.o")
+set(BSS_OBJ "${CMAKE_BINARY_DIR}/bss.o")
 set(FBHELLO_OBJ "${CMAKE_BINARY_DIR}/fbhello.o")
 set(FONT_OBJ "${CMAKE_BINARY_DIR}/font.o")
 set(CRT_BIN "${CMAKE_BINARY_DIR}/crt.bin")
 set(HI_BIN "${CMAKE_BINARY_DIR}/hi.bin")
 set(MALLOCTEST_BIN "${CMAKE_BINARY_DIR}/malloctest.bin")
+set(BSS_BIN "${CMAKE_BINARY_DIR}/bss.bin")
 set(SH_BIN "${CMAKE_BINARY_DIR}/sh.bin")
 set(INIT_BIN "${CMAKE_BINARY_DIR}/init.bin")
 set(FAT_ASM "${CMAKE_SOURCE_DIR}/user/fat.asm")
@@ -478,6 +481,45 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT "${BSS_OBJ}"
+    COMMAND "${CLANG_EXECUTABLE}"
+        --target=x86_64-unknown-none
+        -ffreestanding
+        -fno-stack-protector
+        -fno-pic
+        -fno-pie
+        -mno-red-zone
+        -mno-mmx
+        -mno-sse
+        -mno-sse2
+        -fno-asynchronous-unwind-tables
+        -fno-builtin
+        -c
+        -o "${BSS_OBJ}"
+        "${BSS_C}"
+    DEPENDS "${BSS_C}"
+    COMMENT "Compiling user/bss.c"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT "${BSS_BIN}"
+    COMMAND "${LLD_EXECUTABLE}"
+        -m elf_x86_64
+        -T "${USER_LD}"
+        -nostdlib
+        -n
+        --strip-all
+        -o "${BSS_BIN}"
+        "${CRT0_OBJ}"
+        "${BSS_OBJ}"
+        "${CRT_OBJ}"
+    DEPENDS "${CRT0_OBJ}" "${BSS_OBJ}" "${CRT_OBJ}" "${USER_LD}"
+    COMMENT "Linking user ELF bss"
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT "${CRT_OBJ}"
     COMMAND "${NASM_EXECUTABLE}" -f elf64 -o "${CRT_OBJ}" "${CRT_ASM}"
     DEPENDS "${CRT_ASM}"
@@ -763,7 +805,7 @@ add_custom_command(
         -I "${CMAKE_BINARY_DIR}/"
         -o "${FAT_BIN}"
         "${FAT_ASM}"
-    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${CATCH_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${MPROTTEST_BIN}" "${FBINFO_BIN}" "${FBTEST_BIN}" "${FBCLEAR_BIN}" "${FBHELLO_BIN}" "${UPTIME_BIN}" "${DATE_BIN}" "${CRT_BIN}" "${HI_BIN}" "${MALLOCTEST_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
+    DEPENDS "${FAT_ASM}" "${ECHO_BIN}" "${A_BIN}" "${B_BIN}" "${C_BIN}" "${OPENTEST_BIN}" "${READTEST_BIN}" "${CAT_BIN}" "${LS_BIN}" "${EXECTEST_BIN}" "${STATUS_BIN}" "${WAITER_BIN}" "${PIPETEST_BIN}" "${BRKTEST_BIN}" "${FORKTEST_BIN}" "${DUP2TEST_BIN}" "${WAITPID_BIN}" "${FDTEST_BIN}" "${PIPEFORK_BIN}" "${COWTEST_BIN}" "${STAT_BIN}" "${SLEEPER_BIN}" "${CATCH_BIN}" "${KILL_BIN}" "${MMAPTEST_BIN}" "${MMAPFILE_BIN}" "${MUNMAPTEST_BIN}" "${MPROTTEST_BIN}" "${FBINFO_BIN}" "${FBTEST_BIN}" "${FBCLEAR_BIN}" "${FBHELLO_BIN}" "${UPTIME_BIN}" "${DATE_BIN}" "${BSS_BIN}" "${CRT_BIN}" "${HI_BIN}" "${MALLOCTEST_BIN}" "${SH_BIN}" "${INIT_BIN}" "${BOOT_INC}"
     COMMENT "Packing FAT12 volume"
     VERBATIM
 )

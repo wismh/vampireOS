@@ -40,7 +40,7 @@ fat1:
     db 0xFF, 0xFF, 0x0F
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
-    db 0x2D, 0xF0, 0xFF
+    db 0x2E, 0xF0, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
@@ -52,16 +52,18 @@ fat1:
     db 0x25, 0x60, 0x02
     db 0x27, 0x80, 0x02
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0xCF, 0x02
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x4F, 0x03
+    db 0x35, 0xF0, 0xFF
     db 0xFF, 0xFF, 0xFF
-    db 0x33, 0xF0, 0xFF
-    db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x8F, 0x03
-    db 0x39, 0xA0, 0x03
+    db 0xFF, 0xAF, 0x03
     db 0x3B, 0xC0, 0x03
+    db 0x3D, 0xE0, 0x03
     db 0xFF, 0xFF, 0xFF
+    db 0x41, 0xF0, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat1) db 0
 
 fat2:
@@ -74,7 +76,7 @@ fat2:
     db 0xFF, 0xFF, 0x0F
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
-    db 0x2D, 0xF0, 0xFF
+    db 0x2E, 0xF0, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
@@ -86,16 +88,18 @@ fat2:
     db 0x25, 0x60, 0x02
     db 0x27, 0x80, 0x02
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0xCF, 0x02
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
     db 0xFF, 0xFF, 0xFF
+    db 0xFF, 0x4F, 0x03
+    db 0x35, 0xF0, 0xFF
     db 0xFF, 0xFF, 0xFF
-    db 0x33, 0xF0, 0xFF
-    db 0xFF, 0xFF, 0xFF
-    db 0xFF, 0x8F, 0x03
-    db 0x39, 0xA0, 0x03
+    db 0xFF, 0xAF, 0x03
     db 0x3B, 0xC0, 0x03
+    db 0x3D, 0xE0, 0x03
     db 0xFF, 0xFF, 0xFF
+    db 0x41, 0xF0, 0xFF
     times FAT_SEC_PER_FAT * 512 - ($ - fat2) db 0
 
 root:
@@ -109,7 +113,7 @@ root:
     db "LONGNA~1", "TXT"
     db 0x20
     times 14 db 0
-    dw 44
+    dw 45
     dd 4
 
     db "HELLO   ", "   "
@@ -427,7 +431,7 @@ uptime_len equ $ - uptime_data
 init_data:
     incbin "init.bin"
 init_len equ $ - init_data
-    times 512 - init_len db 0
+    times 1024 - init_len db 0
 
 longname_data:
     db "long"
@@ -437,7 +441,7 @@ root_extra2:
     db "MMAPFILE", "   "
     db 0x20
     times 14 db 0
-    dw 46
+    dw 47
     dd mmapfile_len
     ; VFAT LFN munmaptest, 8.3 alias MUNMAP~1
     db 0x41
@@ -449,32 +453,32 @@ root_extra2:
     db "MUNMAP~1", "   "
     db 0x20
     times 14 db 0
-    dw 47
+    dw 48
     dd munmaptest_len
     db "FBINFO  ", "   "
     db 0x20
     times 14 db 0
-    dw 48
+    dw 49
     dd fbinfo_len
     db "FBTEST  ", "   "
     db 0x20
     times 14 db 0
-    dw 49
+    dw 50
     dd fbtest_len
     db "FBHELLO ", "   "
     db 0x20
     times 14 db 0
-    dw 50
+    dw 51
     dd fbhello_len
     db "FBCLEAR ", "   "
     db 0x20
     times 14 db 0
-    dw 52
+    dw 54
     dd fbclear_len
     db "CATCH   ", "   "
     db 0x20
     times 14 db 0
-    dw 53
+    dw 55
     dd catch_len
     ; VFAT LFN mprottest, 8.3 alias MPROTT~1
     db 0x41
@@ -486,7 +490,7 @@ root_extra2:
     db "MPROTT~1", "   "
     db 0x20
     times 14 db 0
-    dw 54
+    dw 56
     dd mprottest_len
     ; VFAT LFN malloctest, 8.3 alias MALLOC~1
     db 0x41
@@ -498,13 +502,18 @@ root_extra2:
     db "MALLOC~1", "   "
     db 0x20
     times 14 db 0
-    dw 55
+    dw 57
     dd malloctest_len
     db "DATE    ", "   "
     db 0x20
     times 14 db 0
-    dw 61
+    dw 63
     dd date_len
+    db "BSS     ", "   "
+    db 0x20
+    times 14 db 0
+    dw 64
+    dd bss_len
     ; Cluster 0x0F00 is past the 1024-cluster volume (and past the 1307-sector
     ; image). `$ cat bad` must bread that LBA, fail, print `?`, and return `$`.
     db "BAD     ", "   "
@@ -537,7 +546,7 @@ fbtest_len equ $ - fbtest_data
 fbhello_data:
     incbin "fbhello.bin"
 fbhello_len equ $ - fbhello_data
-    times 1024 - fbhello_len db 0
+    times 1536 - fbhello_len db 0
 
 fbclear_data:
     incbin "fbclear.bin"
@@ -564,4 +573,9 @@ date_data:
 date_len equ $ - date_data
     times 512 - date_len db 0
 
-    times (FAT_DATA_CLUSTERS - 60) * 512 db 0
+bss_data:
+    incbin "bss.bin"
+bss_len equ $ - bss_data
+    times 1024 - bss_len db 0
+
+    times (FAT_DATA_CLUSTERS - 64) * 512 db 0
