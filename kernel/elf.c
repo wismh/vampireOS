@@ -9,6 +9,7 @@
 #define ELF_ET_EXEC 2
 #define ELF_EM_X86_64 62
 #define ELF_PT_LOAD 1
+#define ELF_LOAD_MAX 8
 
 struct elf64_ehdr {
     uint8_t ident[16];
@@ -42,15 +43,16 @@ _Static_assert(sizeof(struct elf64_ehdr) == 64, "ELF64 Ehdr is 64 bytes");
 _Static_assert(sizeof(struct elf64_phdr) == 56, "ELF64 Phdr is 56 bytes");
 
 static int elf_parse(const void *file, unsigned len, const struct elf64_ehdr **eh_out,
-                     const struct elf64_phdr **ph_out)
+                     const struct elf64_phdr **phs, unsigned *nph)
 {
     const uint8_t *raw = (const uint8_t *)file;
     const struct elf64_ehdr *eh;
-    const struct elf64_phdr *ph;
     unsigned i;
+    unsigned n;
+    unsigned hit;
     uint64_t off;
 
-    if (file == 0 || len < sizeof(*eh)) {
+    if (file == 0 || eh_out == 0 || phs == 0 || nph == 0 || len < sizeof(*eh)) {
         return -1;
     }
     eh = (const struct elf64_ehdr *)raw;
@@ -71,41 +73,75 @@ static int elf_parse(const void *file, unsigned len, const struct elf64_ehdr **e
         return -1;
     }
 
-    ph = 0;
+    n = 0;
     for (i = 0; i < eh->phnum; i++) {
         const struct elf64_phdr *p =
             (const struct elf64_phdr *)(raw + eh->phoff + (uint64_t)i * 56ull);
 
-        if (p->type != ELF_PT_LOAD) {
+        if (p->type != ELF_PT_LOAD || p->memsz == 0) {
             continue;
         }
-        if (ph != 0) {
+        if (n >= ELF_LOAD_MAX) {
             return -1;
         }
-        ph = p;
+        if (p->filesz > p->memsz || p->offset > (uint64_t)len) {
+            return -1;
+        }
+        if (p->filesz > (uint64_t)len - p->offset) {
+            return -1;
+        }
+        if (p->vaddr + p->memsz < p->vaddr) {
+            return -1;
+        }
+        phs[n] = p;
+        n++;
     }
-    if (ph == 0 || ph->memsz == 0 || ph->filesz > ph->memsz || ph->offset > len ||
-        ph->offset + ph->filesz > (uint64_t)len) {
+    if (n == 0) {
         return -1;
     }
-    if (eh->entry < ph->vaddr || eh->entry >= ph->vaddr + ph->memsz) {
+
+    for (i = 1; i < n; i++) {
+        const struct elf64_phdr *key = phs[i];
+        unsigned j = i;
+
+        while (j > 0 && phs[j - 1]->vaddr > key->vaddr) {
+            phs[j] = phs[j - 1];
+            j--;
+        }
+        phs[j] = key;
+    }
+    for (i = 1; i < n; i++) {
+        if (phs[i]->vaddr < phs[i - 1]->vaddr + phs[i - 1]->memsz) {
+            return -1;
+        }
+    }
+
+    hit = 0;
+    for (i = 0; i < n; i++) {
+        if (eh->entry >= phs[i]->vaddr && eh->entry < phs[i]->vaddr + phs[i]->memsz) {
+            hit = 1;
+        }
+    }
+    if (hit == 0) {
         return -1;
     }
+
     *eh_out = eh;
-    *ph_out = ph;
+    *nph = n;
     return 0;
 }
 
 int elf_image_base(const void *file, unsigned len, uint64_t *base)
 {
     const struct elf64_ehdr *eh;
-    const struct elf64_phdr *ph;
+    const struct elf64_phdr *phs[ELF_LOAD_MAX];
+    unsigned n;
 
-    if (base == 0 || elf_parse(file, len, &eh, &ph) != 0) {
+    if (base == 0 || elf_parse(file, len, &eh, phs, &n) != 0) {
         return -1;
     }
     (void)eh;
-    *base = ph->vaddr;
+    *base = phs[0]->vaddr;
     return 0;
 }
 
@@ -114,14 +150,17 @@ int elf_load(const void *file, unsigned len, void *dest, unsigned dest_size,
 {
     const uint8_t *raw = (const uint8_t *)file;
     const struct elf64_ehdr *eh;
-    const struct elf64_phdr *ph;
+    const struct elf64_phdr *phs[ELF_LOAD_MAX];
+    unsigned n;
+    unsigned s;
     unsigned i;
     uint8_t *out;
+    uint64_t rel;
 
-    if (dest == 0 || entry == 0 || elf_parse(file, len, &eh, &ph) != 0) {
+    if (dest == 0 || entry == 0 || elf_parse(file, len, &eh, phs, &n) != 0) {
         return -1;
     }
-    if (ph->vaddr != vaddr || ph->memsz > dest_size) {
+    if (phs[0]->vaddr != vaddr) {
         return -1;
     }
 
@@ -129,8 +168,20 @@ int elf_load(const void *file, unsigned len, void *dest, unsigned dest_size,
     for (i = 0; i < dest_size; i++) {
         out[i] = 0;
     }
-    for (i = 0; i < (unsigned)ph->filesz; i++) {
-        out[i] = raw[ph->offset + i];
+    for (s = 0; s < n; s++) {
+        const struct elf64_phdr *ph = phs[s];
+
+        rel = ph->vaddr - vaddr;
+        if (rel > (uint64_t)dest_size || ph->memsz > (uint64_t)dest_size - rel) {
+            return -1;
+        }
+        for (i = 0; i < (unsigned)ph->filesz; i++) {
+            out[rel + i] = raw[ph->offset + i];
+        }
+        /* p_filesz < p_memsz is BSS; dest was wiped, zero the tail anyway. */
+        for (i = (unsigned)ph->filesz; i < (unsigned)ph->memsz; i++) {
+            out[rel + i] = 0;
+        }
     }
     *entry = eh->entry;
     return 0;
