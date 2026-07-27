@@ -5,3 +5,5 @@ build/
 .cache/
 CMakeUserPresets.json
 .cursor/
+.claude/
+CLAUDE.md
