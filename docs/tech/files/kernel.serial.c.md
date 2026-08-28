@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/serial.c]
----
-
 # `kernel/serial.c`
 
-Module: [[modules/Console]]
+Source: [`kernel/serial.c`](../../../kernel/serial.c)
+
+Module: [Console](../modules/console.md)
 
 16550 COM1 0x3F8.
-
-Repo path: `kernel/serial.c`

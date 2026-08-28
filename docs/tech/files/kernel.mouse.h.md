@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/mouse.h]
----
-
 # `kernel/mouse.h`
 
-Module: [[modules/Console]]
+Source: [`kernel/mouse.h`](../../../kernel/mouse.h)
+
+Module: [Console](../modules/console.md)
 
 mouse_init.
-
-Repo path: `kernel/mouse.h`

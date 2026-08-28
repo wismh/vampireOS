@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/fb.h]
----
-
 # `kernel/fb.h`
 
-Module: [[modules/Console]]
+Source: [`kernel/fb.h`](../../../kernel/fb.h)
+
+Module: [Console](../modules/console.md)
 
 fb_query / fill / present / overlay.
-
-Repo path: `kernel/fb.h`

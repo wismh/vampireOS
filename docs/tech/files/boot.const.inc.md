@@ -1,12 +1,7 @@
----
-tags: [file, inc]
-aliases: [boot/const.inc]
----
-
 # `boot/const.inc`
 
-Module: [[modules/Boot]]
+Source: [`boot/const.inc`](../../../boot/const.inc)
+
+Module: [Boot](../modules/boot.md)
 
 KERNEL_SECTORS, PART_LBA, VMA, FAT BPB, FB_INFO.
-
-Repo path: `boot/const.inc`

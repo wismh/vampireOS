@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/idt.c]
----
-
 # `kernel/idt.c`
 
-Module: [[modules/Tasks]]
+Source: [`kernel/idt.c`](../../../kernel/idt.c)
+
+Module: [Tasks](../modules/tasks.md)
 
 64-bit IDT; tick counter.
-
-Repo path: `kernel/idt.c`

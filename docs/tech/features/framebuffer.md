@@ -1,7 +1,3 @@
----
-tags: [feature]
----
-
 # Framebuffer
 
 Stage 2 sets a VBE linear mode when the BIOS offers it and stores info at `0x4F00` (`FB_MAGIC` `0x31424656`).
@@ -19,4 +15,4 @@ Stage 2 sets a VBE linear mode when the BIOS offers it and stores info at `0x4F0
 - `run fbtest` / `run fbhello` / `run fbclear` via syscalls 24–26.
 - PS/2 left click: `x,y` once on VGA and LFB.
 
-See [[modules/Console]], [[kernel.fb.c]], [[boot.const.inc]].
+See [Console](../modules/console.md), [kernel/fb.c](../files/kernel.fb.c.md), [boot/const.inc](../files/boot.const.inc.md).

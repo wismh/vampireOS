@@ -1,10 +1,6 @@
----
-tags: [feature]
----
-
 # Syscalls
 
-Ring 3 enters the kernel with `int 0x30`. Number in `rax`. Args in `rdi` `rsi` `rdx` as each call documents. Implemented in [[kernel.user.c]].
+Ring 3 enters the kernel with `int 0x30`. Number in `rax`. Args in `rdi` `rsi` `rdx` as each call documents. Implemented in [kernel/user.c](../files/kernel.user.c.md).
 
 | # | Name | Notes |
 | --- | --- | --- |
@@ -40,4 +36,4 @@ Ring 3 enters the kernel with `int 0x30`. Number in `rax`. Args in `rdi` `rsi` `
 
 Unknown `rax` fails. Kernel pointers from ring 3 fail copies.
 
-See [[modules/Tasks]], [[kernel.user.h]].
+See [Tasks](../modules/tasks.md), [kernel/user.h](../files/kernel.user.h.md).

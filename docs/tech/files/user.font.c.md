@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [user/font.c]
----
-
 # `user/font.c`
 
-Module: [[modules/Userland]]
+Source: [`user/font.c`](../../../user/font.c)
+
+Module: [Userland](../modules/userland.md)
 
 8x8 userland font.
-
-Repo path: `user/font.c`

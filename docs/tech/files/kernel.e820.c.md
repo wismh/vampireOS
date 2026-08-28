@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/e820.c]
----
-
 # `kernel/e820.c`
 
-Module: [[modules/Memory]]
+Source: [`kernel/e820.c`](../../../kernel/e820.c)
+
+Module: [Memory](../modules/memory.md)
 
 Print E820 map from stage 2.
-
-Repo path: `kernel/e820.c`

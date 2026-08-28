@@ -1,12 +1,7 @@
----
-tags: [file, asm]
-aliases: [user/crt.asm]
----
-
 # `user/crt.asm`
 
-Module: [[modules/Userland]]
+Source: [`user/crt.asm`](../../../user/crt.asm)
+
+Module: [Userland](../modules/userland.md)
 
 write/exit syscall stubs.
-
-Repo path: `user/crt.asm`

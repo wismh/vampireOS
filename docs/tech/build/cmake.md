@@ -1,7 +1,3 @@
----
-tags: [build]
----
-
 # CMake
 
 Host tools, not a compiler ID for the kernel: `project(vampire-os LANGUAGES NONE)`.
@@ -26,6 +22,6 @@ flowchart LR
 - `cmake -B build && cmake --build build` → `build/vampire.img`.
 - `cmake --build build --target run` — QEMU `-vga std -serial stdio`, IDE + AHCI + virtio-blk + virtio-net, `-rtc base=2027-01-15T17:15:00`.
 
-User C programs: clang → ELF at `0x400000` with [[user.user.ld]]. NASM tests: `user/*.asm` packed the same way.
+User C programs: clang → ELF at `0x400000` with [user/user.ld](../files/user.user.ld.md). NASM tests: `user/*.asm` packed the same way.
 
-See [[build/Disk Image]], [[architecture/Boundaries]].
+See [Disk image](disk-image.md), [Boundaries](../architecture/boundaries.md).

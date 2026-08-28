@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/heap.h]
----
-
 # `kernel/heap.h`
 
-Module: [[modules/Memory]]
+Source: [`kernel/heap.h`](../../../kernel/heap.h)
+
+Module: [Memory](../modules/memory.md)
 
 kheap_init / print.
-
-Repo path: `kernel/heap.h`

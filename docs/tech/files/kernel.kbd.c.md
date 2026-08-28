@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/kbd.c]
----
-
 # `kernel/kbd.c`
 
-Module: [[modules/Console]]
+Source: [`kernel/kbd.c`](../../../kernel/kbd.c)
+
+Module: [Console](../modules/console.md)
 
 PS/2 line buffer, kernel commands, overlay.
-
-Repo path: `kernel/kbd.c`

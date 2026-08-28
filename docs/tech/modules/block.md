@@ -1,7 +1,3 @@
----
-tags: [module]
----
-
 # Block
 
 Device table under FAT. Active volume: VirtIO-blk → AHCI → ATA.
@@ -14,14 +10,14 @@ Device table under FAT. Active volume: VirtIO-blk → AHCI → ATA.
 
 ## How it is implemented
 
-- [[kernel.bio.c]] — table, partition, dispatch.
-- [[kernel.virtio.c]] — virtio-blk (`0x1AF4` / `0x1001` or `0x1042`); first write `virt wr`; also virtio-net (see [[modules/Net]]).
-- [[kernel.ahci.c]] — class `0x0106`; `ahci 55aa`; first write `ahci wr`.
-- [[kernel.ata.c]] — PIO fallback.
+- [kernel/bio.c](../files/kernel.bio.c.md) — table, partition, dispatch.
+- [kernel/virtio.c](../files/kernel.virtio.c.md) — virtio-blk (`0x1AF4` / `0x1001` or `0x1042`); first write `virt wr`; also virtio-net (see [Net](net.md)).
+- [kernel/ahci.c](../files/kernel.ahci.c.md) — class `0x0106`; `ahci 55aa`; first write `ahci wr`.
+- [kernel/ata.c](../files/kernel.ata.c.md) — PIO fallback.
 
 QEMU attaches the **same** `vampire.img` to IDE (BIOS boot), AHCI, and virtio-blk with `file.locking=off`, `cache=writethrough`, no `snapshot=on`.
 
 ## See also
 
-- [[features/Block backends]]
-- [[architecture/Boundaries]]
+- [Block backends](../features/block-backends.md)
+- [Boundaries](../architecture/boundaries.md)

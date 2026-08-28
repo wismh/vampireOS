@@ -1,14 +1,10 @@
----
-tags: [feature]
----
-
 # ELF and COW
 
-User programs are ELF64 linked at `0x400000` ([[user.user.ld]]). Stack page `0x401000`. Heap `brk` from `0x402000`.
+User programs are ELF64 linked at `0x400000` ([user/user.ld](../files/user.user.ld.md)). Stack page `0x401000`. Heap `brk` from `0x402000`.
 
 ## Load
 
-[[kernel.elf.c]] walks `PT_LOAD`:
+[kernel/elf.c](../files/kernel.elf.c.md) walks `PT_LOAD`:
 
 - File bytes (`p_filesz`) copied into newly mapped user pages.
 - BSS (`p_memsz > p_filesz`) zeroed.
@@ -22,4 +18,4 @@ User programs are ELF64 linked at `0x400000` ([[user.user.ld]]). Stack page `0x4
 
 Exit tears down user PTEs and table pages; kernel stack is freed when the DEAD slot is reused.
 
-See [[modules/Memory]], [[modules/Tasks]], [[modules/Userland]].
+See [Memory](../modules/memory.md), [Tasks](../modules/tasks.md), [Userland](../modules/userland.md).

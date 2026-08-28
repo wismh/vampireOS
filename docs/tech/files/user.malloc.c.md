@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [user/malloc.c]
----
-
 # `user/malloc.c`
 
-Module: [[modules/Userland]]
+Source: [`user/malloc.c`](../../../user/malloc.c)
+
+Module: [Userland](../modules/userland.md)
 
 malloc/free on brk.
-
-Repo path: `user/malloc.c`

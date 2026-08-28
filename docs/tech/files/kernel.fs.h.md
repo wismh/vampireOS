@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/fs.h]
----
-
 # `kernel/fs.h`
 
-Module: [[modules/FS]]
+Source: [`kernel/fs.h`](../../../kernel/fs.h)
+
+Module: [FS](../modules/fs.md)
 
 fs_* volume API.
-
-Repo path: `kernel/fs.h`

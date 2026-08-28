@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/serial.h]
----
-
 # `kernel/serial.h`
 
-Module: [[modules/Console]]
+Source: [`kernel/serial.h`](../../../kernel/serial.h)
+
+Module: [Console](../modules/console.md)
 
 serial_init / putc.
-
-Repo path: `kernel/serial.h`

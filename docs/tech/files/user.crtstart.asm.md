@@ -1,12 +1,7 @@
----
-tags: [file, asm]
-aliases: [user/crtstart.asm]
----
-
 # `user/crtstart.asm`
 
-Module: [[modules/Userland]]
+Source: [`user/crtstart.asm`](../../../user/crtstart.asm)
+
+Module: [Userland](../modules/userland.md)
 
 C _start → main.
-
-Repo path: `user/crtstart.asm`

@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/pmm.h]
----
-
 # `kernel/pmm.h`
 
-Module: [[modules/Memory]]
+Source: [`kernel/pmm.h`](../../../kernel/pmm.h)
+
+Module: [Memory](../modules/memory.md)
 
 pmm_alloc / free / span / print.
-
-Repo path: `kernel/pmm.h`

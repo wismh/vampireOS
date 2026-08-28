@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/fb.c]
----
-
 # `kernel/fb.c`
 
-Module: [[modules/Console]]
+Source: [`kernel/fb.c`](../../../kernel/fb.c)
+
+Module: [Console](../modules/console.md)
 
 LFB banner, shadow, present, overlay font.
-
-Repo path: `kernel/fb.c`

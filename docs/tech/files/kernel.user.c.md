@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/user.c]
----
-
 # `kernel/user.c`
 
-Module: [[modules/Tasks]]
+Source: [`kernel/user.c`](../../../kernel/user.c)
+
+Module: [Tasks](../modules/tasks.md)
 
 int 0x30 switch; user_run; GDT/TSS glue.
-
-Repo path: `kernel/user.c`

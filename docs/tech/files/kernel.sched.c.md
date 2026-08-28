@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/sched.c]
----
-
 # `kernel/sched.c`
 
-Module: [[modules/Tasks]]
+Source: [`kernel/sched.c`](../../../kernel/sched.c)
+
+Module: [Tasks](../modules/tasks.md)
 
 16 tasks, fds, pipes, signals, COW fork.
-
-Repo path: `kernel/sched.c`

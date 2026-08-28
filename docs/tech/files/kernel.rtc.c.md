@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/rtc.c]
----
-
 # `kernel/rtc.c`
 
-Module: [[modules/Tasks]]
+Source: [`kernel/rtc.c`](../../../kernel/rtc.c)
+
+Module: [Tasks](../modules/tasks.md)
 
 CMOS snapshot at boot.
-
-Repo path: `kernel/rtc.c`

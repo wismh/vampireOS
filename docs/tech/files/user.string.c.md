@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [user/string.c]
----
-
 # `user/string.c`
 
-Module: [[modules/Userland]]
+Source: [`user/string.c`](../../../user/string.c)
+
+Module: [Userland](../modules/userland.md)
 
 memcpy strlen strcmp.
-
-Repo path: `user/string.c`

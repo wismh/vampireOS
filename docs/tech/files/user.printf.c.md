@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [user/printf.c]
----
-
 # `user/printf.c`
 
-Module: [[modules/Userland]]
+Source: [`user/printf.c`](../../../user/printf.c)
+
+Module: [Userland](../modules/userland.md)
 
 Freestanding printf/snprintf %s %d %x.
-
-Repo path: `user/printf.c`

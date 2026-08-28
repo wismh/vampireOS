@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/elf.h]
----
-
 # `kernel/elf.h`
 
-Module: [[modules/Memory]]
+Source: [`kernel/elf.h`](../../../kernel/elf.h)
+
+Module: [Memory](../modules/memory.md)
 
 elf_load / elf_image_base.
-
-Repo path: `kernel/elf.h`

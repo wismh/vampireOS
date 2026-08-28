@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/ata.h]
----
-
 # `kernel/ata.h`
 
-Module: [[modules/Block]]
+Source: [`kernel/ata.h`](../../../kernel/ata.h)
+
+Module: [Block](../modules/block.md)
 
 ata_init / read / write.
-
-Repo path: `kernel/ata.h`

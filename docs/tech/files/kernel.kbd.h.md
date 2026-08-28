@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/kbd.h]
----
-
 # `kernel/kbd.h`
 
-Module: [[modules/Console]]
+Source: [`kernel/kbd.h`](../../../kernel/kbd.h)
+
+Module: [Console](../modules/console.md)
 
 kbd_console_init / prompt.
-
-Repo path: `kernel/kbd.h`

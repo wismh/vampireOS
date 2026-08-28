@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/e820.h]
----
-
 # `kernel/e820.h`
 
-Module: [[modules/Memory]]
+Source: [`kernel/e820.h`](../../../kernel/e820.h)
+
+Module: [Memory](../modules/memory.md)
 
 e820_map.
-
-Repo path: `kernel/e820.h`

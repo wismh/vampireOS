@@ -1,12 +1,7 @@
----
-tags: [file, asm]
-aliases: [boot/boot.asm]
----
-
 # `boot/boot.asm`
 
-Module: [[modules/Boot]]
+Source: [`boot/boot.asm`](../../../boot/boot.asm)
+
+Module: [Boot](../modules/boot.md)
 
 MBR; loads stage 2; type 0x01 partition at PART_LBA.
-
-Repo path: `boot/boot.asm`
