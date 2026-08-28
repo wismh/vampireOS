@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/io.h]
----
-
 # `kernel/io.h`
 
-Module: [[modules/Console]]
+Source: [`kernel/io.h`](../../../kernel/io.h)
+
+Module: [Console](../modules/console.md)
 
 inb/outb helpers.
-
-Repo path: `kernel/io.h`

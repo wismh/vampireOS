@@ -1,7 +1,3 @@
----
-tags: [architecture]
----
-
 # Boundaries
 
 Rules that keep slices small. Break one only with a `vos-N` that also updates this note.

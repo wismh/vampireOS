@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [user/fbhello.c]
----
-
 # `user/fbhello.c`
 
-Module: [[modules/Userland]]
+Source: [`user/fbhello.c`](../../../user/fbhello.c)
+
+Module: [Userland](../modules/userland.md)
 
 hello via SYS_FBPIX.
-
-Repo path: `user/fbhello.c`

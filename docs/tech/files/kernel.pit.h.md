@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/pit.h]
----
-
 # `kernel/pit.h`
 
-Module: [[modules/Tasks]]
+Source: [`kernel/pit.h`](../../../kernel/pit.h)
+
+Module: [Tasks](../modules/tasks.md)
 
 pit_init.
-
-Repo path: `kernel/pit.h`

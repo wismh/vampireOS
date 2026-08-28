@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [kernel/user.h]
----
-
 # `kernel/user.h`
 
-Module: [[modules/Tasks]]
+Source: [`kernel/user.h`](../../../kernel/user.h)
+
+Module: [Tasks](../modules/tasks.md)
 
 user_init / run / enter / syscall.
-
-Repo path: `kernel/user.h`

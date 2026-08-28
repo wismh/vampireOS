@@ -1,10 +1,6 @@
----
-tags: [feature]
----
-
 # Block backends
 
-FAT `bread`/`bwrite` go through [[kernel.bio.c]]. Probe order for the **active** volume: VirtIO-blk, else AHCI, else ATA PIO.
+FAT `bread`/`bwrite` go through [kernel/bio.c](../files/kernel.bio.c.md). Probe order for the **active** volume: VirtIO-blk, else AHCI, else ATA PIO.
 
 | Backend | Probe | Happy path print | Flush |
 | --- | --- | --- | --- |
@@ -14,4 +10,4 @@ FAT `bread`/`bwrite` go through [[kernel.bio.c]]. Probe order for the **active**
 
 BIOS still boots **IDE**. QEMU must attach the same file three ways (`file.locking=off`, `cache=writethrough`, no snapshot on AHCI/VirtIO). `$` `devs` lists `virt ahci ata`. After `$ hi > virt.txt` then `$ sync`, a cold restart still `cat`s `virt.txt`.
 
-See [[modules/Block]], [[build/CMake]] (run flags).
+See [Block](../modules/block.md), [CMake](../build/cmake.md) (run flags).

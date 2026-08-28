@@ -1,12 +1,7 @@
----
-tags: [file, ld]
-aliases: [kernel/linker.ld]
----
-
 # `kernel/linker.ld`
 
-Module: [[modules/Memory]]
+Source: [`kernel/linker.ld`](../../../kernel/linker.ld)
+
+Module: [Memory](../modules/memory.md)
 
 Kernel VMA 0xFFFFFFFF80000000+1MiB; .text.kmain first.
-
-Repo path: `kernel/linker.ld`

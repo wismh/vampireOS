@@ -1,12 +1,7 @@
----
-tags: [file, asm]
-aliases: [user/fd.asm]
----
-
 # `user/fd.asm`
 
-Module: [[modules/Userland]]
+Source: [`user/fd.asm`](../../../user/fd.asm)
+
+Module: [Userland](../modules/userland.md)
 
 More C-callable syscall stubs.
-
-Repo path: `user/fd.asm`

@@ -1,7 +1,3 @@
----
-tags: [architecture]
----
-
 # Boot path
 
 From reset to the first `$`.
@@ -32,4 +28,4 @@ sequenceDiagram
 
 Serial log on QEMU `-serial stdio`: `boot`, then `net 52:54:00:12:34:56`, then `udp sent`, then `$`.
 
-Image layout: [[build/Disk Image]]. Constants: `boot/const.inc`.
+Image layout: [Disk image](../build/disk-image.md). Constants: `boot/const.inc`.

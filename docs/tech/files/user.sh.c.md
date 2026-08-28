@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [user/sh.c]
----
-
 # `user/sh.c`
 
-Module: [[modules/Userland]]
+Source: [`user/sh.c`](../../../user/sh.c)
+
+Module: [Userland](../modules/userland.md)
 
 User shell: pipes, redirects, &.
-
-Repo path: `user/sh.c`

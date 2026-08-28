@@ -1,12 +1,7 @@
----
-tags: [file, h]
-aliases: [user/font.h]
----
-
 # `user/font.h`
 
-Module: [[modules/Userland]]
+Source: [`user/font.h`](../../../user/font.h)
+
+Module: [Userland](../modules/userland.md)
 
 Font glyphs for fbhello.
-
-Repo path: `user/font.h`

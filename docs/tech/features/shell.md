@@ -1,12 +1,8 @@
----
-tags: [feature]
----
-
 # Shell
 
 Two prompts: user `$` (`init` → `sh`) and kernel `kbd>` fallback.
 
-## User `sh` ([[user.sh.c]])
+## User `sh` ([user/sh.c](../files/user.sh.c.md))
 
 - Nested `|` via `pipe`/`fork`/`dup2`/`exec`.
 - One `<`, `>`, or `>>` (open flag 2 appends).
@@ -15,10 +11,10 @@ Two prompts: user `$` (`init` → `sh`) and kernel `kbd>` fallback.
 
 Proof: `cat hello | cat | cat` → `blood`; `hi > out` then `cat out` → `hi 42`; `sleeper &` returns `$` while `ps` lists the sleeper.
 
-## Kernel line ([[kernel.kbd.c]])
+## Kernel line ([kernel/kbd.c](../files/kernel.kbd.c.md))
 
 `help` `ls` `mem` `cat` `run` `put` `rm` `ps` `kill` `uptime` `date` `sync` `cd` `pwd` `mv` `trunc` `devs` and a two-command `|` plus one redirect. New tasks still get fds 0/1/2 on the console.
 
 Ctrl+C posts SIGINT on the last `run` ELF (`sched_signal_fg`). Boot `init` is not the fg target (`sched_clear_fg`).
 
-See [[features/Syscalls]], [[modules/Console]].
+See [Syscalls](syscalls.md), [Console](../modules/console.md).

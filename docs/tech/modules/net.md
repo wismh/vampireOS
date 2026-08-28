@@ -1,7 +1,3 @@
----
-tags: [module]
----
-
 # Net
 
 VirtIO network: probe MAC, send one UDP datagram, stop.
@@ -14,12 +10,12 @@ VirtIO network: probe MAC, send one UDP datagram, stop.
 
 ## How it is implemented
 
-- [[kernel.virtio.c]] — `virtio_net_init` beside virtio-blk.
+- [kernel/virtio.c](../files/kernel.virtio.c.md) — `virtio_net_init` beside virtio-blk.
 - QEMU: `-netdev user`, `-device virtio-net-pci`, `-object filter-dump` → `build/virtio-net.pcap`.
 
-No DHCP, TCP, ARP stack, RX queue, or sockets. Those are parked in [plan.md](../../plan.md).
+No DHCP, TCP, ARP stack, RX queue, or sockets. Those are not implemented.
 
 ## See also
 
-- [[architecture/Boundaries]]
-- [[architecture/Boot Path]]
+- [Boundaries](../architecture/boundaries.md)
+- [Boot path](../architecture/boot-path.md)

@@ -1,7 +1,3 @@
----
-tags: [feature]
----
-
 # FAT12
 
 Volume after the kernel pad. BPB numbers live in `boot/const.inc` and the image packer.
@@ -25,4 +21,4 @@ Volume after the kernel pad. BPB numbers live in `boot/const.inc` and the image 
 
 Proof: `$` `cat hello` prints `blood`. `$` `cat bad` (cluster `0x0F00` past the 1307-sector image) prints `?`.
 
-See [[modules/FS]], [[features/Block backends]].
+See [FS](../modules/fs.md), [Block backends](block-backends.md).

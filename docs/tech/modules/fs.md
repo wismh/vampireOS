@@ -1,7 +1,3 @@
----
-tags: [module]
----
-
 # FS
 
 FAT12 volume in the MBR partition. 8.3 + VFAT LFN, hard links, cwd.
@@ -16,14 +12,14 @@ FAT12 volume in the MBR partition. 8.3 + VFAT LFN, hard links, cwd.
 
 ## How it is implemented
 
-- [[kernel.fs.c]] — BPB, FAT walk, LFN read/create, dirents.
-- Partition start from [[kernel.bio.c]] (`bio_part_lba()`, printed `part 273`).
-- Packed `hello` / `motd` / `longname.txt` / `bad` come from the image packer ([[build/Disk Image]]).
+- [kernel/fs.c](../files/kernel.fs.c.md) — BPB, FAT walk, LFN read/create, dirents.
+- Partition start from [kernel/bio.c](../files/kernel.bio.c.md) (`bio_part_lba()`, printed `part 273`).
+- Packed `hello` / `motd` / `longname.txt` / `bad` come from the image packer ([Disk image](../build/disk-image.md)).
 
 Does not own PCI. Block errors: `bread` `-1` → `cat bad` prints `?`.
 
 ## See also
 
-- [[features/FAT12]]
-- [[modules/Block]]
-- [[kernel.fs.h]]
+- [FAT12](../features/fat12.md)
+- [Block](block.md)
+- [kernel/fs.h](../files/kernel.fs.h.md)

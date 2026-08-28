@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [user/init.c]
----
-
 # `user/init.c`
 
-Module: [[modules/Userland]]
+Source: [`user/init.c`](../../../user/init.c)
+
+Module: [Userland](../modules/userland.md)
 
 Reaper; fork/exec sh.
-
-Repo path: `user/init.c`

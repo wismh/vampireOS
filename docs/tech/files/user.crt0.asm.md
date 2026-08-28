@@ -1,12 +1,7 @@
----
-tags: [file, asm]
-aliases: [user/crt0.asm]
----
-
 # `user/crt0.asm`
 
-Module: [[modules/Userland]]
+Source: [`user/crt0.asm`](../../../user/crt0.asm)
+
+Module: [Userland](../modules/userland.md)
 
 NASM _start for packed tests.
-
-Repo path: `user/crt0.asm`

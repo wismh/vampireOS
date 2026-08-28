@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/ahci.c]
----
-
 # `kernel/ahci.c`
 
-Module: [[modules/Block]]
+Source: [`kernel/ahci.c`](../../../kernel/ahci.c)
+
+Module: [Block](../modules/block.md)
 
 AHCI DMA + flush.
-
-Repo path: `kernel/ahci.c`

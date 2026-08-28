@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [user/bss.c]
----
-
 # `user/bss.c`
 
-Module: [[modules/Userland]]
+Source: [`user/bss.c`](../../../user/bss.c)
+
+Module: [Userland](../modules/userland.md)
 
 BSS + extra PT_LOAD proof.
-
-Repo path: `user/bss.c`

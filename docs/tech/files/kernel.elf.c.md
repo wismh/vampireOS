@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/elf.c]
----
-
 # `kernel/elf.c`
 
-Module: [[modules/Memory]]
+Source: [`kernel/elf.c`](../../../kernel/elf.c)
+
+Module: [Memory](../modules/memory.md)
 
 PT_LOAD including BSS and extra segments.
-
-Repo path: `kernel/elf.c`

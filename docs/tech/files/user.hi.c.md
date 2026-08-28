@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [user/hi.c]
----
-
 # `user/hi.c`
 
-Module: [[modules/Userland]]
+Source: [`user/hi.c`](../../../user/hi.c)
+
+Module: [Userland](../modules/userland.md)
 
 printf hi 42.
-
-Repo path: `user/hi.c`

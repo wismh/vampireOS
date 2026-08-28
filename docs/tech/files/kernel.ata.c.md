@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/ata.c]
----
-
 # `kernel/ata.c`
 
-Module: [[modules/Block]]
+Source: [`kernel/ata.c`](../../../kernel/ata.c)
+
+Module: [Block](../modules/block.md)
 
 ATA PIO + E7h flush.
-
-Repo path: `kernel/ata.c`

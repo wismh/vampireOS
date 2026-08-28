@@ -1,12 +1,7 @@
----
-tags: [file, cmake]
-aliases: [cmake/embed_bin.cmake]
----
-
 # `cmake/embed_bin.cmake`
 
-Module: [[build/CMake]]
+Source: [`cmake/embed_bin.cmake`](../../../cmake/embed_bin.cmake)
+
+Module: [CMake](../build/cmake.md)
 
 Embed a binary as a CMake object.
-
-Repo path: `cmake/embed_bin.cmake`

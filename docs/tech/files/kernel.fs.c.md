@@ -1,12 +1,7 @@
----
-tags: [file, c]
-aliases: [kernel/fs.c]
----
-
 # `kernel/fs.c`
 
-Module: [[modules/FS]]
+Source: [`kernel/fs.c`](../../../kernel/fs.c)
+
+Module: [FS](../modules/fs.md)
 
 FAT12, LFN, dirents, sync.
-
-Repo path: `kernel/fs.c`

@@ -1,7 +1,3 @@
----
-tags: [build]
----
-
 # Disk image
 
 Concatenation, not a sparse filesystem image tool:
@@ -15,4 +11,4 @@ Total **1307** sectors. `PART_LBA` = `1 + 16 + 256` = **273**. PMM still reserve
 
 When `kernel.raw.bin` no longer fits 256 sectors, bump `KERNEL_SECTORS`, `PART_LBA`, the concat, and `KERNEL_SIZE` in one slice.
 
-See [[boot.const.inc]], [[modules/Boot]], [[modules/FS]].
+See [boot/const.inc](../files/boot.const.inc.md), [Boot](../modules/boot.md), [FS](../modules/fs.md).

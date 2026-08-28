@@ -1,12 +1,7 @@
----
-tags: [file, txt]
-aliases: [CMakeLists.txt]
----
-
 # `CMakeLists.txt`
 
-Module: [[build/CMake]]
+Source: [`CMakeLists.txt`](../../../CMakeLists.txt)
+
+Module: [CMake](../build/cmake.md)
 
 Host tool graph; image concat; QEMU run.
-
-Repo path: `CMakeLists.txt`
