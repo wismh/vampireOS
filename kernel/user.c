@@ -1177,6 +1177,7 @@ void user_on_syscall(struct interrupt_frame *frame)
 {
     char buf[USER_STR_MAX];
     char path[FD_PATH_MAX];
+    int row;
     int packed;
     unsigned n;
     unsigned want;
@@ -1318,15 +1319,17 @@ void user_on_syscall(struct interrupt_frame *frame)
             return;
         }
         vmm_set_cr3(vmm_boot_cr3());
-        (void)sched_note_write();
-        {
+        row = sched_row();
+        n = sched_note_write();
+        if (n <= 8u || (n & 31u) == 0) {
             unsigned slen;
 
             for (slen = 0; slen < USER_STR_MAX && buf[slen] != '\0'; slen++) {
-                vga_putc(buf[slen]);
             }
+            vga_write_at(row, 0, buf);
+            vga_write_at(row, (int)slen, "          ");
+            vga_write_dec_at(row, (int)slen + 1, n);
         }
-        kbd_console_sync();
         vmm_set_cr3(sched_current_cr3());
         return;
     }

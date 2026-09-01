@@ -850,6 +850,7 @@ foreach(_src ${KERNEL_C_SOURCES})
             -mno-sse
             -mno-sse2
             -mcmodel=kernel
+            -Os
             -I "${KERNEL_DIR}"
             -c
             -o "${_obj}"

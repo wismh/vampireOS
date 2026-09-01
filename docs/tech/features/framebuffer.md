@@ -7,7 +7,7 @@ Stage 2 sets a VBE linear mode when the BIOS offers it and stores info at `0x4F0
 - Map LFB in the HHDM; paint bitmap-font `Vampire OS`.
 - PMM shadow; `SYS_FBPIX` fills a rect; `SYS_FBPRESENT` copies to scanout.
 - Overlay row: `$` / `kbd>` plus the line buffer so typing is visible on the scanout.
-- Console sync: blit 80×25 VGA glyphs onto the shadow, then the overlay, then present. Graphics `SYS_FBPRESENT` does not blit VGA (it would wipe the fill).
+- Console sync: blit the kernel's 80×25 text cells onto the shadow (VBE mode does not keep 0xB8000 as glyphs), then the overlay, then present. Graphics `SYS_FBPRESENT` does not blit VGA (it would wipe the fill).
 - If mode set fails: 80×25 text VGA only.
 
 ## User
