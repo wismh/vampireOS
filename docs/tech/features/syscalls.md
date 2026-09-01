@@ -4,7 +4,7 @@ Ring 3 enters the kernel with `int 0x30`. Number in `rax`. Args in `rdi` `rsi` `
 
 | # | Name | Notes |
 | --- | --- | --- |
-| 1 | write | User string → VGA, or fd + buf + len for files/pipes/console |
+| 1 | write | fd + buf + len; console fd 1/2 → `vga_putc` + LFB sync |
 | 2 | exit | 8-bit code in `rdi` |
 | 3 | yield | |
 | 4 | sleep | PIT ticks |

@@ -9,6 +9,8 @@ void kbd_prompt(void);
 void kbd_stdin_prompt(void);
 /* Redraw `$` / `kbd>` plus the current line onto the shadow (present separately). */
 void kbd_overlay_refresh(void);
+/* Blit VGA text + the prompt overlay onto the LFB. */
+void kbd_console_sync(void);
 void kbd_handle(struct interrupt_frame *frame);
 /* Inject a cooked character (COM1 RX or the PS/2 map) into the line buffer. */
 void kbd_feed(char c);

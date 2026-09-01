@@ -6,7 +6,6 @@
 #include "pmm.h"
 #include "rtc.h"
 #include "sched.h"
-#include "serial.h"
 #include "vga.h"
 #include "vmm.h"
 
@@ -1178,7 +1177,6 @@ void user_on_syscall(struct interrupt_frame *frame)
 {
     char buf[USER_STR_MAX];
     char path[FD_PATH_MAX];
-    int row;
     int packed;
     unsigned n;
     unsigned want;
@@ -1298,15 +1296,15 @@ void user_on_syscall(struct interrupt_frame *frame)
                 }
                 buf[want] = '\0';
                 vmm_set_cr3(vmm_boot_cr3());
-                serial_write(buf, want);
-                row = sched_row();
-                n = sched_note_write();
-                if (n <= 8u || (n & 31u) == 0) {
-                    vga_write_at(row, 0, buf);
-                    vga_write_at(row, (int)want, "          ");
-                    vga_write_dec_at(row, (int)want + 1, n);
-                    fb_draw_text(8, 16 + row * 16, buf);
+                (void)sched_note_write();
+                {
+                    unsigned i;
+
+                    for (i = 0; i < want; i++) {
+                        vga_putc(buf[i]);
+                    }
                 }
+                kbd_console_sync();
                 frame->rax = (uint64_t)want;
                 vmm_set_cr3(sched_current_cr3());
                 return;
@@ -1320,18 +1318,15 @@ void user_on_syscall(struct interrupt_frame *frame)
             return;
         }
         vmm_set_cr3(vmm_boot_cr3());
-        row = sched_row();
-        n = sched_note_write();
-        if (n <= 8u || (n & 31u) == 0) {
+        (void)sched_note_write();
+        {
             unsigned slen;
 
             for (slen = 0; slen < USER_STR_MAX && buf[slen] != '\0'; slen++) {
+                vga_putc(buf[slen]);
             }
-            vga_write_at(row, 0, buf);
-            vga_write_at(row, (int)slen, "          ");
-            vga_write_dec_at(row, (int)slen + 1, n);
-            fb_draw_text(8, 16 + row * 16, buf);
         }
+        kbd_console_sync();
         vmm_set_cr3(sched_current_cr3());
         return;
     }

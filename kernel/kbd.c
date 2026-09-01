@@ -116,6 +116,7 @@ static void put_uint(unsigned value)
 
 static void fb_line(int dollar)
 {
+    fb_vga_blit();
     if (dollar != 0) {
         fb_prompt_line("$", stdin_buf, stdin_len);
     } else {
@@ -894,7 +895,7 @@ void kbd_prompt(void)
 
 void kbd_stdin_prompt(void)
 {
-    vga_putc('$');
+    /* User `sh` already wrote `$` via SYS_WRITE; only refresh the LFB. */
     fb_line(1);
 }
 
@@ -906,6 +907,13 @@ void kbd_overlay_refresh(void)
         return;
     }
     fb_prompt_line("kbd>", line != 0 ? line : "", line_len);
+}
+
+void kbd_console_sync(void)
+{
+    fb_vga_blit();
+    kbd_overlay_refresh();
+    (void)fb_present();
 }
 
 int kbd_stdin_ready(void)
@@ -1120,7 +1128,7 @@ void kbd_feed(char c)
             stdin_ready = 1;
             sched_wake_kbd();
             vga_putc('\n');
-            prompt();
+            fb_line(1);
             return;
         }
         if (c == '\b') {

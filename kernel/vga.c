@@ -1,5 +1,4 @@
 #include "vga.h"
-#include "fb.h"
 #include "serial.h"
 #include "vmm.h"
 
@@ -73,8 +72,15 @@ void vga_putc(char c)
     if (cursor_row >= VGA_HEIGHT) {
         vga_scroll();
     }
-    fb_overlay_putc(c);
     serial_putc(c);
+}
+
+char vga_char_at(int row, int col)
+{
+    if (row < 0 || row >= VGA_HEIGHT || col < 0 || col >= VGA_WIDTH) {
+        return ' ';
+    }
+    return (char)(uint8_t)vga_buf()[row * VGA_WIDTH + col];
 }
 
 void vga_write_at(int row, int col, const char *msg)
