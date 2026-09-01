@@ -4,7 +4,7 @@ Host tools, not a compiler ID for the kernel: `project(vampire-os LANGUAGES NONE
 
 ## Tools
 
-`nasm`, `clang`, `ld.lld`, `llvm-objcopy`, `qemu-system-x86_64`. Optional `.tools/` hints. Flags stay in `CMakeLists.txt` (freestanding, no hosted libc).
+`nasm`, `clang`, `ld.lld`, `llvm-objcopy`, `qemu-system-x86_64`. Optional `.tools/` hints. Flags stay in `CMakeLists.txt` (freestanding, no hosted libc). Kernel C is `-Os` so `kernel.raw.bin` still fits the 256-sector pad.
 
 ## Graph
 
