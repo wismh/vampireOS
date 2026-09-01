@@ -1,6 +1,7 @@
 #include "fb.h"
 #include "mouse.h"
 #include "pmm.h"
+#include "vga.h"
 #include "vmm.h"
 
 #include <stdint.h>
@@ -567,6 +568,64 @@ void fb_prompt_line(const char *prompt, const char *buf, unsigned len)
         col++;
     }
     overlay_col = col;
+}
+
+static void fb_glyph_1x(int x, int y, char c)
+{
+    const uint8_t *row;
+    int gy;
+    int gx;
+    unsigned idx;
+
+    if (c < 32 || c > 126) {
+        c = ' ';
+    }
+    idx = (unsigned)(c - 32);
+    row = font8x8[idx];
+    for (gy = 0; gy < 8; gy++) {
+        uint8_t bits = row[gy];
+
+        for (gx = 0; gx < 8; gx++) {
+            uint32_t color = FB_BG;
+
+            if ((bits & (uint8_t)(0x80u >> gx)) != 0) {
+                color = FB_FG;
+            }
+            fb_pixel(x + gx, y + gy, color);
+        }
+    }
+}
+
+void fb_vga_blit(void)
+{
+    int row;
+    int col;
+    int oy;
+    int ocell;
+
+    if (fb_mem == 0 || fb_w == 0 || fb_h == 0) {
+        return;
+    }
+    oy = fb_overlay_y();
+    ocell = fb_prompt_cell();
+    for (row = 0; row < VGA_HEIGHT; row++) {
+        int y = row * 8;
+
+        if ((uint32_t)y + 8u > fb_h) {
+            break;
+        }
+        if (oy >= 0 && y + 8 > oy && y < oy + ocell) {
+            break;
+        }
+        for (col = 0; col < VGA_WIDTH; col++) {
+            int x = col * 8;
+
+            if ((uint32_t)x + 8u > fb_w) {
+                break;
+            }
+            fb_glyph_1x(x, y, vga_char_at(row, col));
+        }
+    }
 }
 
 static uint32_t fb_front_get(int x, int y)

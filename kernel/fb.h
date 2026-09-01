@@ -15,6 +15,8 @@ int fb_hits_overlay(uint32_t y, uint32_t h);
 void fb_overlay_putc(char c);
 /* Redraw `$` / `kbd>` plus the current line buffer on that bottom row. */
 void fb_prompt_line(const char *prompt, const char *buf, unsigned len);
+/* Paint the 80×25 VGA text buffer onto the shadow (8×8, top-left). */
+void fb_vga_blit(void);
 /* XOR a small cross at (x, y) so the mouse pointer can move. */
 void fb_pointer(int x, int y);
 /* Opaque bitmap-font string on the LFB (click `x,y`, not the prompt row). */

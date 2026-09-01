@@ -15,7 +15,7 @@ What is on the image today (after `vos-151`):
 | Tasks | 16 slots, eight fds, pipes, `wait` / `kill` / `sigaction` (SIGINT / SIGTERM). ELFs at `0x400000`. |
 | Volume | FAT12 in an MBR partition at LBA **273** (VFAT LFN, hard links). Backends: VirtIO-blk → AHCI → ATA. |
 | Shell | `init` → `sh`: nested `\|`, one `<` `>` or `>>`, `&`, builtins `cd` / `pwd`. |
-| Console | VGA 80×25, LFB overlay of the prompt, COM1 mirror, PS/2 mouse click prints `x,y`. |
+| Console | VGA 80×25, LFB blit of that text plus the `$` / `kbd>` overlay, COM1 mirror, PS/2 mouse click prints `x,y`. |
 | Net | virtio-net: print MAC, send one UDP `hi` to `10.0.2.2:5555`, then stop. |
 | Time | `$ date` is CMOS at boot plus PIT seconds. `$ uptime` is PIT only. |
 
