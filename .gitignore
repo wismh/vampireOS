@@ -1,4 +1,4 @@
-build/
+/build/
 .tools/
 *.bin
 *.img
